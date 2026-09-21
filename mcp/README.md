@@ -8,7 +8,7 @@ Seren MCP is the agent-facing control plane for Seren. Once connected, an assist
 
 | Area | MCP capabilities |
 |------|------------------|
-| Seren Employees and managed agents | Deploy prompt-defined `seren-agent` services on Seren Cloud, inspect revisions, preview updates, roll back deployments, and configure tool presets, model policy, approval policy, eval gates, and remote A2A delegation |
+| Seren Employees and managed agents | Create and resume guided onboarding resources, review and apply their exact desired deployment, deploy prompt-defined `seren-agent` services on Seren Cloud, inspect revisions, preview updates, roll back deployments, and configure tool presets, model policy, approval policy, eval gates, and remote A2A delegation |
 | Seren Cloud operations | Get organization-wide cloud overview, list deployments, inspect runs and conversations, stream activity, approve or reject pending actions, manage schedules, and inspect artifacts/eval sets |
 | Seren Passwords | Let agents list vaults and retrieve approved secrets through encrypted vault access, hosted browser consent, scoped agent identities, read approvals, audit logs, and local unlock modes |
 | Skills, models, and services | Fetch publisher and Seren API skill docs so the assistant learns an integration before calling it, create and publish organization custom skills, apply private-model policy and model routing, and reach the notes, memory, and browser-automation services Desktop agents build on |
@@ -255,6 +255,17 @@ The MCP server also exposes first-class tools for managed `seren-agent` deployme
 See the [Seren Employee configuration guide](https://docs.serendb.com/guides/configure-a-managed-employee) for the full model and CLI equivalents.
 
 Managed-agent Seren Passwords setup remains human-authorized. Its setup, status, and apply tools require a signed-in OAuth user session; API keys and agent identities cannot approve or mint their own persistent credential binding.
+
+The onboarding tools operate the same server-owned resource as hosted Seren Employees. They do not implement a separate assistant workflow or accept credentials. An assistant can help assemble a typed draft and explain the preview, but it must preserve explicit entry-mode, model, account, approval, and apply decisions. Core remains authoritative for validation, optimistic revisions, idempotency, deployment fencing, operation receipts, and recovery.
+
+- `list_managed_agent_onboardings` and `get_managed_agent_onboarding` inspect durable state; use `get` to resume after interruption or an uncertain response
+- `create_managed_agent_onboarding` creates a typed draft with a stable idempotency key and does not deploy an employee
+- `update_managed_agent_onboarding` replaces editable draft fields at an exact expected revision
+- `preview_managed_agent_onboarding` returns the exact desired `AgentSpec`, model selection, effective policy, and source revision for review
+- `apply_managed_agent_onboarding` is marked destructive because it can create paid infrastructure; invoke it only after explicit user review and bind it to the preview source revision and a stable idempotency key
+- `cancel_managed_agent_onboarding` is marked destructive and cannot undo an already-confirmed deployment or other side effect
+
+Create and update are write tools but are not marked destructive because they only create or replace an unapplied draft. Apply requires managed-deployment create authority. Update and cancel require managed-deployment update authority. Agent credentials cannot perform these mutations. Read-only MCP mode blocks every onboarding mutation. Raw credentials never belong in an onboarding tool call; a user-managed model selection proceeds through the existing proposal-bound Seren Passwords tools after baseline deployment.
 
 - `deploy_seren_agent` deploys a managed prompt-based agent
 - `get_seren_agent_deployment` returns the resolved deployment detail

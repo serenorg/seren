@@ -8,7 +8,7 @@ The `seren` binary is the operational interface for SerenDB and the surrounding 
 
 | Area | CLI workflows |
 |------|---------------|
-| Seren Employees and managed agents | Deploy prompt-defined `seren-agent` services on Seren Cloud, manage revisions, start/stop deployments, configure tool and model policy, and roll back changes |
+| Seren Employees and managed agents | Create and resume guided onboarding resources, review their exact desired deployment, deploy prompt-defined `seren-agent` services on Seren Cloud, manage revisions, start/stop deployments, configure tool and model policy, and roll back changes |
 | Seren Cloud operations | Review cloud activity, approve or reject blocked runs, inspect artifacts/eval sets, manage schedules, and deploy agent bundles |
 | Seren Passwords | Create encrypted vaults, store logins/API keys/secure notes, upload encrypted attachments, grant scoped agent identities, require approvals, audit access, and rotate vault keys |
 | Skills and agent workspace support | Search/install skills, fetch generated skill docs, manage organization custom skills, configure private-model policy, and prepare workflows used by Seren Desktop employees and agents |
@@ -384,6 +384,36 @@ Managed prompt-based agents run through the first-class `seren-agent` publisher.
 See the [Seren Employee configuration guide](https://docs.serendb.com/guides/configure-a-managed-employee) for the full workflow.
 
 Managed-agent Seren Passwords setup requires browser-login OAuth authentication. API keys and agent identities cannot approve or mint their own persistent credential binding.
+
+The `seren agent onboarding` group operates the same durable Core resource as hosted Seren Employees. It is a guided path into the existing managed-agent compiler and deployment APIs, not a second deployment implementation. Draft files use the generated `ManagedAgentOnboardingDraft` JSON contract and cannot contain raw credentials or secrets. Create and apply require caller-provided idempotency UUIDs so an interrupted command can recover without duplicating a resource or deployment. Preview returns the exact source revision that apply must bind, and `resume` is a read-only authoritative state fetch that reports the safe next action.
+
+```bash
+# Create and inspect a durable onboarding draft
+seren agent onboarding create \
+  --entry-mode first-employee \
+  --draft ./onboarding-draft.json \
+  --idempotency-key <stable-create-uuid>
+seren agent onboarding list
+seren agent onboarding get <onboarding-id>
+
+# Replace the draft using optimistic concurrency, then advance it to review
+seren agent onboarding update <onboarding-id> \
+  --expected-revision <current-revision> \
+  --step review \
+  --draft ./onboarding-draft.json
+
+# Review the effective AgentSpec and apply that exact revision
+seren -o json agent onboarding preview <onboarding-id>
+seren agent onboarding apply <onboarding-id> \
+  --expected-revision <preview-source-revision> \
+  --idempotency-key <stable-apply-uuid>
+
+# Recover after interruption, or cancel before further operations are applied
+seren agent onboarding resume <onboarding-id>
+seren agent onboarding cancel <onboarding-id> --expected-revision <current-revision>
+```
+
+Applying can create paid infrastructure. Review the preview before applying. If apply returns an uncertain result, run `resume` before retrying. Once the response contains `application.source_revision`, every retry must use that frozen revision. User-managed model credentials continue through the proposal-bound Seren Passwords flow after the baseline deployment exists; the onboarding draft records only typed authorization intent.
 
 ```bash
 # Deploy a read-oriented managed agent

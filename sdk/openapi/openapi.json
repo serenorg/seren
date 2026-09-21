@@ -23425,6 +23425,17 @@
             ],
             "description": "Stable operation identifier used for scoped agent/publisher grants."
           },
+          "operation_kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EndpointOperationKind",
+                "description": "Whether this operation mutates upstream state. A declared value overrides\nthe method-based default. Without one, GET is a read and every other\nmethod is a mutation."
+              }
+            ]
+          },
           "path": {
             "type": "string",
             "description": "Path relative to api_url (e.g., \"/chat/completions\")"
@@ -23477,6 +23488,14 @@
             "description": "Response schema (JSON Schema or simplified description)"
           }
         }
+      },
+      "EndpointOperationKind": {
+        "type": "string",
+        "description": "Whether a publisher catalog operation changes upstream state.\n\nA declared value overrides the method-based default. Without a declaration,\nGET is a read and every other method is a mutation.",
+        "enum": [
+          "read",
+          "mutation"
+        ]
       },
       "EntryRequires": {
         "type": "object",
@@ -24515,6 +24534,17 @@
             ],
             "description": "Value pattern containing `...` with a non-empty prefix or suffix and a non-empty wildcard.\n`123456:ABC-...` instead matches the Telegram bot-token shape `^\\d+:[A-Za-z0-9_-]+$`.\nTreat unrecognized hints as advisory guidance during approval."
           },
+          "reference_hint": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentSecretReferenceHint",
+                "description": "Locates a locked item without replacing the fingerprint integrity check."
+              }
+            ]
+          },
           "selection_constraint": {
             "oneOf": [
               {
@@ -24527,6 +24557,24 @@
           },
           "source": {
             "$ref": "#/components/schemas/ManagedAgentSecretRequirementSource"
+          }
+        }
+      },
+      "ManagedAgentSecretReferenceHint": {
+        "type": "object",
+        "description": "Non-secret locators that let an approval client read a bound item directly.",
+        "required": [
+          "vault_id",
+          "item_id"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "vault_id": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },

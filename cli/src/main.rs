@@ -1441,6 +1441,11 @@ enum AgentAction {
         #[command(subcommand)]
         action: PrivateModelsAction,
     },
+    /// Create, review, apply, and resume managed agent onboardings
+    Onboarding {
+        #[command(subcommand)]
+        action: ManagedAgentOnboardingAction,
+    },
     /// Inspect seren-agent publisher capabilities
     ManagedCapabilities,
     /// List deployments through the seren-agent publisher
@@ -4779,6 +4784,121 @@ enum RbacAction {
     MyPermissions,
 }
 
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum ManagedAgentOnboardingEntryModeArg {
+    FirstEmployee,
+    AdditionalEmployee,
+}
+
+impl From<ManagedAgentOnboardingEntryModeArg> for seren::ManagedAgentOnboardingEntryMode {
+    fn from(value: ManagedAgentOnboardingEntryModeArg) -> Self {
+        match value {
+            ManagedAgentOnboardingEntryModeArg::FirstEmployee => Self::FirstEmployee,
+            ManagedAgentOnboardingEntryModeArg::AdditionalEmployee => Self::AdditionalEmployee,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum ManagedAgentOnboardingStepArg {
+    Identity,
+    Capabilities,
+    Connections,
+    Review,
+    Provisioning,
+    Readiness,
+    FirstTask,
+    Complete,
+}
+
+impl From<ManagedAgentOnboardingStepArg> for seren::ManagedAgentOnboardingStep {
+    fn from(value: ManagedAgentOnboardingStepArg) -> Self {
+        match value {
+            ManagedAgentOnboardingStepArg::Identity => Self::Identity,
+            ManagedAgentOnboardingStepArg::Capabilities => Self::Capabilities,
+            ManagedAgentOnboardingStepArg::Connections => Self::Connections,
+            ManagedAgentOnboardingStepArg::Review => Self::Review,
+            ManagedAgentOnboardingStepArg::Provisioning => Self::Provisioning,
+            ManagedAgentOnboardingStepArg::Readiness => Self::Readiness,
+            ManagedAgentOnboardingStepArg::FirstTask => Self::FirstTask,
+            ManagedAgentOnboardingStepArg::Complete => Self::Complete,
+        }
+    }
+}
+
+#[derive(Subcommand)]
+enum ManagedAgentOnboardingAction {
+    /// List durable onboardings for the current organization
+    List {
+        /// Maximum records to return
+        #[arg(long, default_value_t = 25, value_parser = clap::value_parser!(u64).range(1..=100))]
+        limit: u64,
+        /// Opaque cursor returned by a previous list response
+        #[arg(long)]
+        cursor: Option<String>,
+    },
+    /// Create an onboarding from a typed draft JSON file
+    Create {
+        /// Whether this is the organization's first employee or an additional employee
+        #[arg(long, value_enum)]
+        entry_mode: ManagedAgentOnboardingEntryModeArg,
+        /// Path to a ManagedAgentOnboardingDraft JSON document
+        #[arg(long)]
+        draft: std::path::PathBuf,
+        /// Stable UUID used to recover a lost create response
+        #[arg(long)]
+        idempotency_key: Uuid,
+    },
+    /// Get authoritative onboarding state
+    Get {
+        /// Onboarding UUID
+        onboarding_id: Uuid,
+    },
+    /// Resume by reading authoritative state and its safe next action
+    Resume {
+        /// Onboarding UUID
+        onboarding_id: Uuid,
+    },
+    /// Replace editable draft fields at an expected revision
+    Update {
+        /// Onboarding UUID
+        onboarding_id: Uuid,
+        /// Current authoritative revision
+        #[arg(long)]
+        expected_revision: i64,
+        /// Step represented by the replacement draft
+        #[arg(long, value_enum)]
+        step: ManagedAgentOnboardingStepArg,
+        /// Path to a ManagedAgentOnboardingDraft JSON document
+        #[arg(long)]
+        draft: std::path::PathBuf,
+    },
+    /// Preview the exact desired deployment and effective policy
+    Preview {
+        /// Onboarding UUID
+        onboarding_id: Uuid,
+    },
+    /// Apply an exact reviewed revision through Core's fenced operation
+    Apply {
+        /// Onboarding UUID
+        onboarding_id: Uuid,
+        /// Exact revision returned by preview
+        #[arg(long)]
+        expected_revision: i64,
+        /// Stable UUID for the apply attempt
+        #[arg(long)]
+        idempotency_key: Uuid,
+    },
+    /// Cancel an onboarding before it applies further operations
+    Cancel {
+        /// Onboarding UUID
+        onboarding_id: Uuid,
+        /// Current authoritative revision
+        #[arg(long)]
+        expected_revision: i64,
+    },
+}
+
 #[derive(Subcommand)]
 enum BranchProtectionAction {
     /// List all branch protection rules for a project
@@ -7977,6 +8097,71 @@ async fn main() -> anyhow::Result<()> {
                     .await?
                 }
             },
+            AgentAction::Onboarding { action } => match action {
+                ManagedAgentOnboardingAction::List { limit, cursor } => {
+                    commands::agent::managed_agent_onboarding_list(limit, cursor.as_deref(), &ctx)
+                        .await?
+                }
+                ManagedAgentOnboardingAction::Create {
+                    entry_mode,
+                    draft,
+                    idempotency_key,
+                } => {
+                    commands::agent::managed_agent_onboarding_create(
+                        entry_mode.into(),
+                        &draft,
+                        idempotency_key,
+                        &ctx,
+                    )
+                    .await?
+                }
+                ManagedAgentOnboardingAction::Get { onboarding_id }
+                | ManagedAgentOnboardingAction::Resume { onboarding_id } => {
+                    commands::agent::managed_agent_onboarding_get(onboarding_id, &ctx).await?
+                }
+                ManagedAgentOnboardingAction::Update {
+                    onboarding_id,
+                    expected_revision,
+                    step,
+                    draft,
+                } => {
+                    commands::agent::managed_agent_onboarding_update(
+                        onboarding_id,
+                        expected_revision,
+                        step.into(),
+                        &draft,
+                        &ctx,
+                    )
+                    .await?
+                }
+                ManagedAgentOnboardingAction::Preview { onboarding_id } => {
+                    commands::agent::managed_agent_onboarding_preview(onboarding_id, &ctx).await?
+                }
+                ManagedAgentOnboardingAction::Apply {
+                    onboarding_id,
+                    expected_revision,
+                    idempotency_key,
+                } => {
+                    commands::agent::managed_agent_onboarding_apply(
+                        onboarding_id,
+                        expected_revision,
+                        idempotency_key,
+                        &ctx,
+                    )
+                    .await?
+                }
+                ManagedAgentOnboardingAction::Cancel {
+                    onboarding_id,
+                    expected_revision,
+                } => {
+                    commands::agent::managed_agent_onboarding_cancel(
+                        onboarding_id,
+                        expected_revision,
+                        &ctx,
+                    )
+                    .await?
+                }
+            },
             AgentAction::ManagedCapabilities => {
                 commands::agent::managed_agent_capabilities(&ctx).await?
             }
@@ -8590,6 +8775,74 @@ mod tests {
             },
             _ => panic!("unexpected command parsed"),
         }
+    }
+
+    #[test]
+    fn managed_agent_onboarding_commands_bind_revisions_and_idempotency() {
+        let onboarding_id = "550e8400-e29b-41d4-a716-446655440000";
+        let idempotency_key = "c2f579ec-3e8a-4a52-a969-203d2a80c98d";
+
+        let create = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "onboarding",
+            "create",
+            "--entry-mode",
+            "first-employee",
+            "--draft",
+            "employee.json",
+            "--idempotency-key",
+            idempotency_key,
+        ]);
+        let Commands::Agent { action } = create.command else {
+            panic!("agent command");
+        };
+        let AgentAction::Onboarding {
+            action:
+                ManagedAgentOnboardingAction::Create {
+                    entry_mode,
+                    draft,
+                    idempotency_key: parsed_key,
+                },
+        } = *action
+        else {
+            panic!("onboarding create command");
+        };
+        assert!(matches!(
+            entry_mode,
+            ManagedAgentOnboardingEntryModeArg::FirstEmployee
+        ));
+        assert_eq!(draft, std::path::PathBuf::from("employee.json"));
+        assert_eq!(parsed_key.to_string(), idempotency_key);
+
+        let apply = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "onboarding",
+            "apply",
+            onboarding_id,
+            "--expected-revision",
+            "7",
+            "--idempotency-key",
+            idempotency_key,
+        ]);
+        let Commands::Agent { action } = apply.command else {
+            panic!("agent command");
+        };
+        let AgentAction::Onboarding {
+            action:
+                ManagedAgentOnboardingAction::Apply {
+                    onboarding_id: parsed_id,
+                    expected_revision,
+                    idempotency_key: parsed_key,
+                },
+        } = *action
+        else {
+            panic!("onboarding apply command");
+        };
+        assert_eq!(parsed_id.to_string(), onboarding_id);
+        assert_eq!(expected_revision, 7);
+        assert_eq!(parsed_key.to_string(), idempotency_key);
     }
 
     #[test]

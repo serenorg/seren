@@ -4342,6 +4342,296 @@ pub async fn managed_agent_capabilities(ctx: &CommandContext) -> Result<()> {
     Ok(())
 }
 
+fn read_managed_agent_onboarding_draft(path: &Path) -> Result<seren::ManagedAgentOnboardingDraft> {
+    let contents = fs::read_to_string(path).map_err(|error| {
+        anyhow::anyhow!(
+            "Failed to read onboarding draft '{}': {error}",
+            path.display()
+        )
+    })?;
+    serde_json::from_str(&contents).map_err(|error| {
+        anyhow::anyhow!(
+            "Invalid managed agent onboarding draft JSON in '{}': {error}",
+            path.display()
+        )
+    })
+}
+
+fn managed_agent_onboarding_next_action(
+    onboarding: &seren::ManagedAgentOnboarding,
+) -> &'static str {
+    use seren::{ManagedAgentOnboardingStatus as Status, ManagedAgentOnboardingStep as Step};
+
+    match (&onboarding.status, &onboarding.step) {
+        (Status::Cancelled, _) => "This onboarding is cancelled and cannot resume.",
+        (Status::Ready, Step::Complete) => {
+            "Open the deployment returned in operations.deployment_id."
+        }
+        (Status::Draft | Status::WaitingForUser, Step::Review) => {
+            "Preview the onboarding, then apply that exact revision after review."
+        }
+        (Status::Draft | Status::WaitingForUser, _) => {
+            "Update the draft and advance its step when the next section is complete."
+        }
+        (Status::Applying | Status::WaitingForProvider, _) => {
+            "Resume by reading this onboarding again. Retry apply only with application.source_revision."
+        }
+        (Status::Failed, _)
+            if onboarding
+                .actionable_error
+                .as_ref()
+                .is_some_and(|error| error.retryable) =>
+        {
+            "Resolve the actionable error, then retry apply with application.source_revision."
+        }
+        (Status::Failed, _) => "Review the actionable error; this failure is not marked retryable.",
+        _ => "Read the authoritative onboarding state before choosing the next operation.",
+    }
+}
+
+fn print_managed_agent_onboarding(
+    onboarding: &seren::ManagedAgentOnboarding,
+    format: OutputFormat,
+) -> Result<()> {
+    match format {
+        OutputFormat::Json => output::print_json(onboarding)?,
+        OutputFormat::Table => {
+            let deployment_id = onboarding
+                .operations
+                .deployment_id
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "-".to_string());
+            let application = onboarding
+                .application
+                .as_ref()
+                .map(|application| {
+                    format!(
+                        "{} / {} / attempt {} / source revision {}",
+                        application.stage,
+                        application.deployment_outcome,
+                        application.attempt,
+                        application.source_revision
+                    )
+                })
+                .unwrap_or_else(|| "-".to_string());
+            output::print_key_value_table(
+                Some("Managed Agent Onboarding"),
+                &[
+                    ("ID", onboarding.id.to_string()),
+                    ("Employee", onboarding.draft.employee.name.clone()),
+                    ("Entry Mode", onboarding.entry_mode.to_string()),
+                    ("Step", onboarding.step.to_string()),
+                    ("Status", onboarding.status.to_string()),
+                    ("Revision", onboarding.revision.to_string()),
+                    ("Deployment ID", deployment_id),
+                    ("Application", application),
+                    (
+                        "Next Action",
+                        managed_agent_onboarding_next_action(onboarding).to_string(),
+                    ),
+                ],
+            );
+        }
+    }
+    Ok(())
+}
+
+/// List durable managed agent onboardings for the current organization.
+pub async fn managed_agent_onboarding_list(
+    limit: u64,
+    cursor: Option<&str>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let limit = std::num::NonZeroU64::new(limit)
+        .ok_or_else(|| anyhow::anyhow!("Onboarding list limit must be greater than zero."))?;
+    let client = ctx.client().await?;
+    let response = match client
+        .seren_cloud_list_managed_agent_onboardings(cursor, Some(limit))
+        .await
+    {
+        Ok(response) => response.into_inner(),
+        Err(error) => {
+            return Err(
+                anyhow_from_seren_error("Failed to list managed agent onboardings", error).await,
+            );
+        }
+    };
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => {
+            let rows = response
+                .data
+                .onboardings
+                .iter()
+                .map(|onboarding| {
+                    format!(
+                        "{}  {}  {} / {}  revision {}",
+                        onboarding.id,
+                        onboarding.draft.employee.name,
+                        onboarding.status,
+                        onboarding.step,
+                        onboarding.revision
+                    )
+                })
+                .collect::<Vec<_>>();
+            output::print_list_table(Some("Managed Agent Onboardings"), "Onboarding", &rows);
+            if let Some(next_cursor) = response.data.next_cursor {
+                println!("Next cursor: {next_cursor}");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Create a durable managed agent onboarding from a typed draft file.
+pub async fn managed_agent_onboarding_create(
+    entry_mode: seren::ManagedAgentOnboardingEntryMode,
+    draft_path: &Path,
+    idempotency_key: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let request = seren::CreateManagedAgentOnboardingRequest {
+        draft: read_managed_agent_onboarding_draft(draft_path)?,
+        entry_mode,
+        idempotency_key,
+    };
+    let client = ctx.client().await?;
+    let response = match client
+        .seren_cloud_create_managed_agent_onboarding(&request)
+        .await
+    {
+        Ok(response) => response.into_inner(),
+        Err(error) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to create managed agent onboarding",
+                error,
+            )
+            .await);
+        }
+    };
+    print_managed_agent_onboarding(&response.data, ctx.format)
+}
+
+/// Get authoritative state for a managed agent onboarding.
+pub async fn managed_agent_onboarding_get(onboarding_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = match client
+        .seren_cloud_get_managed_agent_onboarding(&onboarding_id)
+        .await
+    {
+        Ok(response) => response.into_inner(),
+        Err(error) => {
+            return Err(
+                anyhow_from_seren_error("Failed to get managed agent onboarding", error).await,
+            );
+        }
+    };
+    print_managed_agent_onboarding(&response.data, ctx.format)
+}
+
+/// Replace the editable onboarding draft at an expected revision.
+pub async fn managed_agent_onboarding_update(
+    onboarding_id: Uuid,
+    expected_revision: i64,
+    step: seren::ManagedAgentOnboardingStep,
+    draft_path: &Path,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let request = seren::UpdateManagedAgentOnboardingRequest {
+        draft: read_managed_agent_onboarding_draft(draft_path)?,
+        expected_revision,
+        step,
+    };
+    let client = ctx.client().await?;
+    let response = match client
+        .seren_cloud_update_managed_agent_onboarding(&onboarding_id, &request)
+        .await
+    {
+        Ok(response) => response.into_inner(),
+        Err(error) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to update managed agent onboarding",
+                error,
+            )
+            .await);
+        }
+    };
+    print_managed_agent_onboarding(&response.data, ctx.format)
+}
+
+/// Preview the exact desired deployment and effective policy for review.
+pub async fn managed_agent_onboarding_preview(
+    onboarding_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = match client
+        .seren_cloud_preview_managed_agent_onboarding(&onboarding_id)
+        .await
+    {
+        Ok(response) => response.into_inner(),
+        Err(error) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to preview managed agent onboarding",
+                error,
+            )
+            .await);
+        }
+    };
+    output::print_json(&response)
+}
+
+/// Apply an exact reviewed onboarding revision through Core's fenced operation.
+pub async fn managed_agent_onboarding_apply(
+    onboarding_id: Uuid,
+    expected_revision: i64,
+    idempotency_key: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let request = seren::ApplyManagedAgentOnboardingRequest {
+        expected_revision,
+        idempotency_key,
+    };
+    let client = ctx.client().await?;
+    let response = match client
+        .seren_cloud_apply_managed_agent_onboarding(&onboarding_id, &request)
+        .await
+    {
+        Ok(response) => response.into_inner(),
+        Err(error) => {
+            return Err(
+                anyhow_from_seren_error("Failed to apply managed agent onboarding", error).await,
+            );
+        }
+    };
+    print_managed_agent_onboarding(&response.data, ctx.format)
+}
+
+/// Cancel an onboarding before it applies further operations.
+pub async fn managed_agent_onboarding_cancel(
+    onboarding_id: Uuid,
+    expected_revision: i64,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let request = seren::CancelManagedAgentOnboardingRequest { expected_revision };
+    let client = ctx.client().await?;
+    let response = match client
+        .seren_cloud_cancel_managed_agent_onboarding(&onboarding_id, &request)
+        .await
+    {
+        Ok(response) => response.into_inner(),
+        Err(error) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to cancel managed agent onboarding",
+                error,
+            )
+            .await);
+        }
+    };
+    print_managed_agent_onboarding(&response.data, ctx.format)
+}
+
 /// List deployments through the seren-agent publisher.
 pub async fn managed_agent_list(ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
@@ -10999,6 +11289,182 @@ mod tests {
                 "confirmation": "Runtime submission is pending recovery."
             }
         })
+    }
+
+    fn onboarding_draft_body() -> serde_json::Value {
+        serde_json::json!({
+            "employee": {
+                "name": "Research assistant",
+                "role": "Researcher",
+                "objective": "Summarize weekly changes."
+            },
+            "model_selection": { "source": "seren_models" },
+            "deployment": {
+                "name": "Research assistant",
+                "mode": "always_on",
+                "workload": {
+                    "execution": {
+                        "type": "llm",
+                        "bundle": {}
+                    }
+                }
+            },
+            "requested_capabilities": [],
+            "selected_toolkit_ids": [],
+            "selected_connection_ids": []
+        })
+    }
+
+    fn onboarding_response_body(
+        onboarding_id: Uuid,
+        revision: i64,
+        step: &str,
+        status: &str,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "data": {
+                "id": onboarding_id,
+                "organization_id": Uuid::from_u128(0x901),
+                "created_by_user_id": Uuid::from_u128(0x902),
+                "entry_mode": "first_employee",
+                "step": step,
+                "status": status,
+                "revision": revision,
+                "draft": onboarding_draft_body(),
+                "operations": {
+                    "connector_binding_proposal_ids": [],
+                    "connection_authorization_ids": []
+                },
+                "created_at": "2026-09-21T09:00:00Z",
+                "updated_at": "2026-09-21T09:00:00Z"
+            }
+        })
+    }
+
+    #[tokio::test]
+    async fn onboarding_create_sends_the_typed_draft_and_stable_idempotency_key() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let onboarding_id = Uuid::from_u128(0x903);
+        let idempotency_key = Uuid::from_u128(0x904);
+        Mock::given(method("POST"))
+            .and(path("/publishers/seren-cloud/onboardings"))
+            .respond_with(
+                ResponseTemplate::new(201).set_body_json(onboarding_response_body(
+                    onboarding_id,
+                    1,
+                    "identity",
+                    "draft",
+                )),
+            )
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let temp = tempfile::tempdir().expect("temporary onboarding fixture");
+        let draft_path = temp.path().join("employee.json");
+        fs::write(
+            &draft_path,
+            serde_json::to_vec(&onboarding_draft_body()).expect("serialize draft"),
+        )
+        .expect("write draft fixture");
+        let context = CommandContext::new(
+            Some(proxy.uri()),
+            Some("test-key".to_string()),
+            OutputFormat::Json,
+        );
+
+        managed_agent_onboarding_create(
+            seren::ManagedAgentOnboardingEntryMode::FirstEmployee,
+            &draft_path,
+            idempotency_key,
+            &context,
+        )
+        .await
+        .expect("create onboarding");
+
+        let requests = proxy
+            .received_requests()
+            .await
+            .expect("recorded onboarding request");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].body_json::<serde_json::Value>().unwrap(),
+            serde_json::json!({
+                "idempotency_key": idempotency_key,
+                "entry_mode": "first_employee",
+                "draft": {
+                    "employee": {
+                        "name": "Research assistant",
+                        "role": "Researcher",
+                        "objective": "Summarize weekly changes."
+                    },
+                    "model_selection": { "source": "seren_models" },
+                    "deployment": {
+                        "name": "Research assistant",
+                        "mode": "always_on",
+                        "workload": {
+                            "execution": {
+                                "type": "llm",
+                                "bundle": {}
+                            }
+                        }
+                    }
+                }
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn onboarding_apply_binds_the_reviewed_revision_and_idempotency_key() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let onboarding_id = Uuid::from_u128(0x905);
+        let idempotency_key = Uuid::from_u128(0x906);
+        let mut response =
+            onboarding_response_body(onboarding_id, 8, "readiness", "waiting_for_provider");
+        response["data"]["application"] = serde_json::json!({
+            "source_revision": 7,
+            "stage": "readiness",
+            "attempt": 1,
+            "deployment_outcome": "confirmed",
+            "deployment_confirmed_at": "2026-09-21T09:01:00Z"
+        });
+        response["data"]["operations"]["deployment_id"] = serde_json::json!(Uuid::from_u128(0x907));
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/publishers/seren-cloud/onboardings/{onboarding_id}/apply"
+            )))
+            .respond_with(ResponseTemplate::new(202).set_body_json(response))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let context = CommandContext::new(
+            Some(proxy.uri()),
+            Some("test-key".to_string()),
+            OutputFormat::Json,
+        );
+
+        managed_agent_onboarding_apply(onboarding_id, 7, idempotency_key, &context)
+            .await
+            .expect("apply onboarding");
+
+        let requests = proxy
+            .received_requests()
+            .await
+            .expect("recorded onboarding request");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].body_json::<serde_json::Value>().unwrap(),
+            serde_json::json!({
+                "expected_revision": 7,
+                "idempotency_key": idempotency_key
+            })
+        );
     }
 
     /// Mirrors the Seren Cloud deployment detail response, which reports the

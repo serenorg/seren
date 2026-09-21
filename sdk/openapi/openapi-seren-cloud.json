@@ -2047,6 +2047,112 @@
         ]
       }
     },
+    "/deployments/{id}/executions/{execution_id}/capture": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Renew the bounded capture-recovery authority for one managed execution.",
+        "operationId": "seren_cloud_get_memory_capture_authorization",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "execution_id",
+            "in": "path",
+            "description": "Runtime execution ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rotated signed recovery authorization restricted to Memory capture submission and status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedMemoryCaptureAuthorizationResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Persisted run authority was revoked or no longer validates"
+          },
+          "404": {
+            "description": "Deployment, execution, or capture authority not found"
+          },
+          "409": {
+            "description": "The bounded capture-recovery lifecycle expired"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Revoke capture-recovery authority after one managed execution reaches a durable disposition.",
+        "operationId": "seren_cloud_delete_memory_capture_authorization",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "execution_id",
+            "in": "path",
+            "description": "Runtime execution ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Capture-recovery authority revoked"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Deployment runtime identity does not match"
+          },
+          "404": {
+            "description": "Capture authority not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/model-credential/proposals": {
       "get": {
         "tags": [
@@ -4911,6 +5017,427 @@
         ]
       }
     },
+    "/onboardings": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "List durable managed agent onboardings for the authorized organization.",
+        "operationId": "seren_cloud_list_managed_agent_onboardings",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of onboardings to return, from 1 through 100. Defaults to 25.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque cursor from a previous response.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Managed agent onboardings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentOnboardingList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "Organization store unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Create a durable managed agent onboarding draft.",
+        "operationId": "seren_cloud_create_managed_agent_onboarding",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateManagedAgentOnboardingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Managed agent onboarding created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentOnboarding"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Idempotency conflict"
+          },
+          "503": {
+            "description": "Organization store unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/onboardings/{id}": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Get a durable managed agent onboarding draft.",
+        "operationId": "seren_cloud_get_managed_agent_onboarding",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Managed agent onboarding ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Managed agent onboarding",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentOnboarding"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Managed agent onboarding not found"
+          },
+          "503": {
+            "description": "Organization store unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Replace the editable fields of a managed agent onboarding draft.",
+        "operationId": "seren_cloud_update_managed_agent_onboarding",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Managed agent onboarding ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateManagedAgentOnboardingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Managed agent onboarding updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentOnboarding"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Managed agent onboarding not found"
+          },
+          "409": {
+            "description": "Revision or lifecycle conflict"
+          },
+          "503": {
+            "description": "Organization store unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/onboardings/{id}/apply": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Apply a reviewed onboarding through a fenced, resumable deployment stage.",
+        "operationId": "seren_cloud_apply_managed_agent_onboarding",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Managed agent onboarding ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyManagedAgentOnboardingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Previously applied onboarding reconciled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentOnboarding"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Onboarding application accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentOnboarding"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid application request or desired specification"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Managed agent onboarding not found"
+          },
+          "409": {
+            "description": "Revision, idempotency, lease, template, or lifecycle conflict"
+          },
+          "503": {
+            "description": "Organization store unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/onboardings/{id}/cancel": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Cancel a managed agent onboarding before it applies more operations.",
+        "operationId": "seren_cloud_cancel_managed_agent_onboarding",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Managed agent onboarding ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelManagedAgentOnboardingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Managed agent onboarding cancelled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentOnboarding"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Managed agent onboarding not found"
+          },
+          "409": {
+            "description": "Revision or lifecycle conflict"
+          },
+          "503": {
+            "description": "Organization store unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/onboardings/{id}/preview": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Preview the desired deployment and effective policy for a review draft.",
+        "operationId": "seren_cloud_preview_managed_agent_onboarding",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Managed agent onboarding ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Managed agent onboarding desired-spec preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentOnboardingDesiredSpecPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid desired specification"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Managed agent onboarding not found"
+          },
+          "409": {
+            "description": "Onboarding is not ready to preview"
+          },
+          "503": {
+            "description": "Organization store unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/pending_approvals": {
       "get": {
         "tags": [
@@ -5777,6 +6304,47 @@
   },
   "components": {
     "schemas": {
+      "ActionLease": {
+        "type": "object",
+        "description": "Lease for a single action on a tool. Borrows the OpenFang/IronClaw\npattern: permission is granted per-action, not per-process, with optional\nexpiry, use budget, and a parent lease ref for sub-agent inheritance.\n\n`capability` distinguishes blanket grants (all sub-actions of `action`)\nfrom a closed `Specific` set. Sub-agents that fork from a parent must\nhold leases whose capability is a subset of the parent's — runtime\nenforcement (when implemented) lives outside this DTO; here we validate\nshape only.",
+        "required": [
+          "action",
+          "capability"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "Action name being leased. Free-form per tool; e.g. `read`, `send`,\n`execute`, `delete`, `list`."
+          },
+          "capability": {
+            "$ref": "#/components/schemas/GrantedActions"
+          },
+          "expiry": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Lease expiry as RFC 3339; `None` means no time bound."
+          },
+          "parent_lease_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Identifier of the parent lease this one inherits from. Shape-only\nvalidation here checks that the value is non-empty when set; the\nreferenced lease is not looked up. Inheritance resolution (parent must\nhold a capability superset) happens at runtime."
+          },
+          "use_budget": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Maximum number of invocations before the lease must be re-issued.\n`None` means unlimited.",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
       "AgentAssetFile": {
         "type": "object",
         "description": "Non-prompt file that belongs to an agent bundle.",
@@ -5831,6 +6399,58 @@
           "eval"
         ]
       },
+      "AgentAudioCapabilityPolicy": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "speech_to_text": {
+            "type": "boolean"
+          },
+          "text_to_speech": {
+            "type": "boolean"
+          },
+          "tts_voice": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Voice used by the text-to-speech tool when `text_to_speech` is enabled.\nDefaults to the runtime provider's standard voice when omitted."
+          },
+          "voice_activity_detection": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentBrowserCapabilityPolicy": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/AgentBrowserProfile"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentBrowserProfile": {
+        "type": "string",
+        "enum": [
+          "minimal",
+          "form_filling",
+          "scraping",
+          "full"
+        ]
+      },
       "AgentBundle": {
         "type": "object",
         "description": "Authored agent bundle used by LLM workloads.",
@@ -5852,6 +6472,117 @@
         },
         "additionalProperties": false
       },
+      "AgentCapabilityPolicy": {
+        "type": "object",
+        "description": "Optional runtime capabilities declared by a managed agent.\n\nThis is distinct from `tool_refs`: capability policy controls bundled\nruntime behavior such as tool-call error recovery and optional tool\nfamilies that require runtime prerequisites.",
+        "properties": {
+          "audio": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentAudioCapabilityPolicy"
+              }
+            ]
+          },
+          "browser": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentBrowserCapabilityPolicy"
+              }
+            ]
+          },
+          "code_execution": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentCodeExecutionCapabilityPolicy"
+              }
+            ]
+          },
+          "eval_harness": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentSimpleCapabilityPolicy"
+              }
+            ]
+          },
+          "realtime_sessions": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentRealtimeSessionsCapabilityPolicy"
+              }
+            ]
+          },
+          "skills": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentSkillsCapabilityPolicy"
+              }
+            ]
+          },
+          "tool_error_recovery": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentToolErrorRecoveryPolicy"
+              }
+            ]
+          },
+          "workflows": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentSimpleCapabilityPolicy"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentCodeExecutionCapabilityPolicy": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "sandbox": {
+            "$ref": "#/components/schemas/AgentCodeExecutionSandbox",
+            "description": "Managed code execution requires a runtime image and host environment\nwith OS sandboxing support. Linux deployments use Bubblewrap and need\nunprivileged user namespaces enabled on the node."
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentCodeExecutionSandbox": {
+        "type": "string",
+        "enum": [
+          "disabled",
+          "managed",
+          "external"
+        ]
+      },
       "AgentCredentialBinding": {
         "type": "string",
         "enum": [
@@ -5872,6 +6603,77 @@
           "aws_sig_v4",
           "gcp_service_account"
         ]
+      },
+      "AgentCredentialRef": {
+        "type": "object",
+        "description": "Reference to a credential held by Seren's control plane or by the\norganization credential-secret API, injected at the declared binding point.",
+        "required": [
+          "name",
+          "ref_uri",
+          "kind",
+          "binding"
+        ],
+        "properties": {
+          "binding": {
+            "$ref": "#/components/schemas/AgentCredentialBinding",
+            "description": "How the credential is delivered. `proxy_inject` is declarative: the\ngateway resolves and injects the reference at egress rather than this\nprocess materializing plaintext."
+          },
+          "binding_target": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AgentCredentialKind"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name the workload uses to address the credential."
+          },
+          "publisher_slug": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Exact publisher receiving this credential on outbound requests. Header\nand body credentials may omit this only when the deployment declares a\nsingle publisher."
+          },
+          "ref_uri": {
+            "type": "string",
+            "description": "URI of the credential record. Supported schemes:\n`control-plane://providers/{id}`, `org-secret://{key}`,\n`user-secret://{key}`, `seren-secrets://{vault}/{item}/{field}`.\nCreate `org-secret` and `user-secret` records with\n`/organizations/{organization_id}/agent-credential-secrets`."
+          },
+          "rotation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentCredentialRotationPolicy"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentCredentialRotationPolicy": {
+        "type": "object",
+        "required": [
+          "allow_rotate"
+        ],
+        "properties": {
+          "allow_rotate": {
+            "type": "boolean"
+          },
+          "max_age_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
       },
       "AgentCredentialSecret": {
         "type": "object",
@@ -5951,6 +6753,212 @@
           "user"
         ]
       },
+      "AgentFilesystemEnforcement": {
+        "type": "string",
+        "enum": [
+          "best_effort",
+          "hard_requirement"
+        ]
+      },
+      "AgentFilesystemPolicy": {
+        "type": "object",
+        "properties": {
+          "enforcement": {
+            "$ref": "#/components/schemas/AgentFilesystemEnforcement",
+            "description": "How strictly the runtime should enforce these paths."
+          },
+          "read_only_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Absolute paths the workload may read but not write."
+          },
+          "read_write_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Absolute paths the workload may read and write."
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentGraphMemoryPolicy": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "read_policy": {
+            "$ref": "#/components/schemas/AgentGraphMemoryReadPolicy"
+          },
+          "store": {
+            "$ref": "#/components/schemas/AgentGraphMemoryStore"
+          },
+          "write_policy": {
+            "$ref": "#/components/schemas/AgentGraphMemoryWritePolicy"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentGraphMemoryReadPolicy": {
+        "type": "string",
+        "enum": [
+          "explicit_tool",
+          "always_on"
+        ]
+      },
+      "AgentGraphMemoryStore": {
+        "type": "string",
+        "enum": [
+          "seren_managed",
+          "external"
+        ]
+      },
+      "AgentGraphMemoryWritePolicy": {
+        "type": "string",
+        "enum": [
+          "explicit_tool",
+          "on_observation",
+          "none"
+        ]
+      },
+      "AgentGuardrailOnFail": {
+        "type": "string",
+        "enum": [
+          "retry",
+          "block",
+          "fix",
+          "human"
+        ]
+      },
+      "AgentGuardrailPolicy": {
+        "type": "object",
+        "description": "Typed guardrail policy attached to a managed agent.",
+        "required": [
+          "name",
+          "target",
+          "validator"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "human_inbox": {
+            "type": "boolean",
+            "description": "When true, fail events route into the unified approval inbox for human review."
+          },
+          "max_retries": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string",
+            "description": "Unique within the deployment; used in `guardrail_pass`/`guardrail_fail`\nevents."
+          },
+          "on_fail": {
+            "$ref": "#/components/schemas/AgentGuardrailOnFail"
+          },
+          "target": {
+            "$ref": "#/components/schemas/AgentGuardrailTarget"
+          },
+          "tool": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional tool name; when present, the guardrail only fires on that tool."
+          },
+          "validator": {
+            "$ref": "#/components/schemas/AgentGuardrailValidator"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentGuardrailTarget": {
+        "type": "string",
+        "enum": [
+          "input",
+          "output",
+          "tool_input",
+          "tool_output"
+        ]
+      },
+      "AgentGuardrailValidator": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "pattern",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "regex"
+                ]
+              },
+              "pattern": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "prompt",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "llm_judge"
+                ]
+              },
+              "model": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "prompt": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "function_ref",
+              "kind"
+            ],
+            "properties": {
+              "function_ref": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "custom_fn"
+                ]
+              }
+            }
+          }
+        ]
+      },
       "AgentInstructionFile": {
         "type": "object",
         "description": "One authored instruction file.\n\nSupports inline instruction bodies as well as packaged workload metadata.",
@@ -6015,6 +7023,1227 @@
           "eval"
         ]
       },
+      "AgentKnowledgeIndexPolicy": {
+        "type": "string",
+        "enum": [
+          "encrypted_scan",
+          "plaintext_embeddings"
+        ]
+      },
+      "AgentKnowledgePolicy": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "chunk_overlap": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "chunk_size": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "index_policy": {
+            "$ref": "#/components/schemas/AgentKnowledgeIndexPolicy"
+          },
+          "read_policy": {
+            "$ref": "#/components/schemas/AgentKnowledgeReadPolicy"
+          },
+          "source": {
+            "$ref": "#/components/schemas/AgentKnowledgeSource"
+          },
+          "store": {
+            "$ref": "#/components/schemas/AgentKnowledgeStore"
+          },
+          "top_k": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentKnowledgeReadPolicy": {
+        "type": "string",
+        "enum": [
+          "explicit_tool",
+          "none"
+        ]
+      },
+      "AgentKnowledgeSource": {
+        "type": "string",
+        "enum": [
+          "agent_instructions"
+        ]
+      },
+      "AgentKnowledgeStore": {
+        "type": "string",
+        "enum": [
+          "seren_managed",
+          "external"
+        ]
+      },
+      "AgentMemoryCompactionPolicy": {
+        "type": "object",
+        "required": [
+          "token_threshold",
+          "event_retention_count",
+          "overlap_tokens"
+        ],
+        "properties": {
+          "event_retention_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "overlap_tokens": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "summarizer_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "token_threshold": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentMemoryPolicy": {
+        "type": "object",
+        "description": "Typed memory policy declared by a managed agent.",
+        "properties": {
+          "compaction": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentMemoryCompactionPolicy",
+                "description": "Optional context-window compaction policy."
+              }
+            ]
+          },
+          "graph_memory": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentGraphMemoryPolicy",
+                "description": "Structured graph memory policy."
+              }
+            ]
+          },
+          "knowledge": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentKnowledgePolicy",
+                "description": "Encrypted knowledge retrieval policy for agent-authored instructions."
+              }
+            ]
+          },
+          "semantic_memory": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentSemanticMemoryPolicy",
+                "description": "Semantic / long-term memory policy."
+              }
+            ]
+          },
+          "transcript_retention_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Optional retention for raw run transcripts (days).",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentNetworkAccessPreset": {
+        "type": "string",
+        "enum": [
+          "read_only",
+          "read_write",
+          "full"
+        ]
+      },
+      "AgentNetworkDefault": {
+        "type": "string",
+        "enum": [
+          "deny",
+          "allow"
+        ]
+      },
+      "AgentNetworkEgressRule": {
+        "type": "object",
+        "required": [
+          "host",
+          "port",
+          "protocol"
+        ],
+        "properties": {
+          "access_preset": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentNetworkAccessPreset",
+                "description": "Optional convenience preset that expands to a method set when set."
+              }
+            ]
+          },
+          "binaries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional per-binary glob list restricting which processes may use the rule."
+          },
+          "enforcement": {
+            "$ref": "#/components/schemas/AgentNetworkEnforcement",
+            "description": "Whether matches enforce or just audit."
+          },
+          "host": {
+            "type": "string"
+          },
+          "methods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional HTTP methods this rule applies to (rest/sse protocols only)."
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional path globs this rule applies to (rest/sse protocols only)."
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "protocol": {
+            "$ref": "#/components/schemas/AgentNetworkProtocol"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentNetworkEnforcement": {
+        "type": "string",
+        "enum": [
+          "enforce",
+          "audit"
+        ]
+      },
+      "AgentNetworkPolicy": {
+        "type": "object",
+        "properties": {
+          "blocked_request_inbox": {
+            "type": "boolean",
+            "description": "When true, blocked egress requests are queued for operator approval\n(shares an inbox with tool approvals)."
+          },
+          "blocked_request_max_wait_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Wall-clock cap (in seconds) on how long the runtime will hold a\nsingle blocked-egress request waiting for an operator decision before\nsurfacing it as `Expired`. When `None`, the runtime applies its\nbuilt-in default (30 minutes).",
+            "minimum": 0
+          },
+          "default": {
+            "$ref": "#/components/schemas/AgentNetworkDefault",
+            "description": "Default disposition when no rule matches a request."
+          },
+          "egress_rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentNetworkEgressRule"
+            },
+            "description": "Ordered egress rules. The first matching rule decides the request."
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentNetworkProtocol": {
+        "type": "string",
+        "enum": [
+          "tcp",
+          "rest",
+          "sse",
+          "websocket"
+        ]
+      },
+      "AgentProcessPolicy": {
+        "type": "object",
+        "properties": {
+          "capability_drop": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Linux capabilities to drop. Defaults to `[\"ALL\"]` at the controller."
+          },
+          "no_new_privileges": {
+            "type": "boolean"
+          },
+          "run_as_user": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional uid:gid pair (e.g. `1000:1000`) the workload runs under."
+          },
+          "seccomp_profile": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Seccomp profile name; defaults to the runtime default."
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentPublisherToolSurface": {
+        "type": "string",
+        "description": "Surface authorized to execute a publisher operation.",
+        "enum": [
+          "prompt",
+          "script"
+        ]
+      },
+      "AgentRealtimeSessionsCapabilityPolicy": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "input_transcription": {
+            "type": "boolean"
+          },
+          "model_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "persist_transcripts": {
+            "type": "boolean"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/AgentRealtimeSessionsProvider"
+          },
+          "store_to_memory": {
+            "type": "boolean"
+          },
+          "voice": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "voice_activity_detection": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentRealtimeSessionsProvider": {
+        "type": "string",
+        "enum": [
+          "openai",
+          "seren"
+        ]
+      },
+      "AgentRemoteAgentAuth": {
+        "type": "string",
+        "enum": [
+          "none",
+          "bearer",
+          "mtls"
+        ]
+      },
+      "AgentRemoteAgentTransport": {
+        "type": "string",
+        "enum": [
+          "https",
+          "sse",
+          "websocket"
+        ]
+      },
+      "AgentRemoteHttpAuth": {
+        "type": "string",
+        "enum": [
+          "none",
+          "bearer",
+          "api_key",
+          "basic",
+          "mtls"
+        ]
+      },
+      "AgentRemoteHttpMethod": {
+        "type": "string",
+        "enum": [
+          "get",
+          "post",
+          "put",
+          "patch",
+          "delete"
+        ]
+      },
+      "AgentResourcePolicy": {
+        "type": "object",
+        "properties": {
+          "cpu_limit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cpu_request": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ephemeral_storage_limit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "max_artifact_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "max_output_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "max_runtime_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_tool_calls": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "memory_limit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "memory_request": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentRuntimeClass": {
+        "type": "string",
+        "enum": [
+          "default",
+          "gvisor",
+          "kata"
+        ]
+      },
+      "AgentRuntimePolicy": {
+        "type": "object",
+        "description": "Typed runtime policy that a managed agent declares as part of its `AgentSpec`.\n\nThe control plane validates this object on create/update; the runtime\ncontroller renders it into Kubernetes objects (security context, resource\nlimits, NetworkPolicy). Today the controller renders a subset; fields it\ndoes not yet honor remain part of the declared contract so revisions and\nrollbacks stay consistent.",
+        "properties": {
+          "filesystem": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentFilesystemPolicy"
+              }
+            ]
+          },
+          "network": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentNetworkPolicy"
+              }
+            ]
+          },
+          "process": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentProcessPolicy"
+              }
+            ]
+          },
+          "resources": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentResourcePolicy"
+              }
+            ]
+          },
+          "runtime_class": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentRuntimeClass",
+                "description": "Optional sandbox runtime class (for example `gvisor` or `kata`).\nWhen omitted, the platform default applies."
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentSemanticMemoryPolicy": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "embedding_model_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional embedding model reference."
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "read_policy": {
+            "$ref": "#/components/schemas/AgentSemanticMemoryReadPolicy"
+          },
+          "retention_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "store": {
+            "$ref": "#/components/schemas/AgentSemanticMemoryStore"
+          },
+          "write_policy": {
+            "$ref": "#/components/schemas/AgentSemanticMemoryWritePolicy"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentSemanticMemoryReadPolicy": {
+        "type": "string",
+        "enum": [
+          "explicit_tool",
+          "always_on"
+        ]
+      },
+      "AgentSemanticMemoryStore": {
+        "type": "string",
+        "enum": [
+          "seren_managed",
+          "external"
+        ]
+      },
+      "AgentSemanticMemoryWritePolicy": {
+        "type": "string",
+        "enum": [
+          "explicit_tool",
+          "on_observation",
+          "none"
+        ]
+      },
+      "AgentSimpleCapabilityPolicy": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentSkillSelectionMode": {
+        "type": "string",
+        "enum": [
+          "auto"
+        ]
+      },
+      "AgentSkillSelectionPolicy": {
+        "type": "object",
+        "properties": {
+          "exclude_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "include_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "max_selected": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "mode": {
+            "$ref": "#/components/schemas/AgentSkillSelectionMode"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentSkillsCapabilityPolicy": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "execute_scripts": {
+            "type": "boolean",
+            "description": "Allow the runtime to execute scripts attached to the agent bundle."
+          },
+          "max_injected_chars": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "selection": {
+            "$ref": "#/components/schemas/AgentSkillSelectionPolicy"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentSpec": {
+        "type": "object",
+        "description": "Managed deploy request for the `seren-agent` first-class publisher.",
+        "required": [
+          "mode",
+          "workload"
+        ],
+        "properties": {
+          "agent_identity_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Seren Secrets agent identity this managed agent acts as when\nresolving `seren-secrets://` references."
+          },
+          "agent_slug": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional stable slug for the agent. If omitted, derived from `name`."
+          },
+          "alert_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentAlertPolicy",
+                "description": "Optional alert webhook policy."
+              }
+            ]
+          },
+          "allowed_remote_agent_origins": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional allowlist for remote A2A delegation targets.\n\nEntries may be either hostnames (for example `agents.example.com`) or\nfull origins (for example `https://agents.example.com`)."
+          },
+          "approval_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentApprovalPolicy",
+                "description": "Safety policy for publisher operations. Defaults to `read_only`."
+              }
+            ]
+          },
+          "capability_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentCapabilityPolicy",
+                "description": "Optional runtime capability policy."
+              }
+            ]
+          },
+          "credentials": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AgentCredentialRef"
+            },
+            "description": "Optional credential references resolved by the control plane at runtime.\nAccepts `seren-secrets://{vault_id}/{item_id}/{field}` for vault-held\ncredentials, `control-plane://providers/{id-or-slug}` for control-plane\nprovider credentials, and `org-secret://{key}` / `user-secret://{key}`\nfor reusable credential-secret records managed through\n`/organizations/{organization_id}/agent-credential-secrets`.\n`seren-secrets://` references additionally require\nan approved multi-principal `secret_resolution_result_id` created in the\nEmployees UI."
+          },
+          "cron_schedule": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Cron schedule expression, required when `mode` is `cron`."
+          },
+          "cron_timezone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Timezone for cron schedules. Defaults to `UTC` when omitted."
+          },
+          "dashboard_config": {
+            "description": "Optional dashboard rendering config."
+          },
+          "eval_gate": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EvalGate",
+                "description": "Optional eval gate that must pass before runs proceed."
+              }
+            ]
+          },
+          "guardrails": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AgentGuardrailPolicy"
+            },
+            "description": "Optional guardrail policies applied at input/output/tool boundaries."
+          },
+          "memory_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentMemoryPolicy",
+                "description": "Optional memory policy (semantic memory, transcripts, compaction)."
+              }
+            ]
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CloudDeploymentMode",
+            "description": "Deployment mode."
+          },
+          "model_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentModelPolicy",
+                "description": "Runtime/model execution profile. Defaults to `balanced`."
+              }
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Human-readable agent name. Auto-generated when omitted."
+          },
+          "private_output_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentPrivateOutputPolicy",
+                "description": "Output persistence policy for model/tool traces."
+              }
+            ]
+          },
+          "runtime_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentRuntimePolicy",
+                "description": "Optional typed runtime policy (filesystem, network, process, resources).\nToday the controller renders the network section as a NetworkPolicy and\nthe resources section as Pod resources; other sections are reserved."
+              }
+            ]
+          },
+          "secret_resolution_result_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Passwords policy result used by the runtime to renew deployment-scoped\nsecret grants."
+          },
+          "session_database": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentSessionDatabase",
+                "description": "Optional external session database configuration for durable agent state."
+              }
+            ]
+          },
+          "template": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplate",
+                "description": "Opinionated managed template. Defaults to `research_monitor`."
+              }
+            ]
+          },
+          "tool_presets": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentToolPreset"
+            },
+            "description": "Managed tool preset configuration. Defaults to `live_data`. Presets are\ncompact config inputs, not resolved display groups."
+          },
+          "tool_refs": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AgentToolRef"
+            },
+            "description": "Optional typed tool references. Coexists with `tool_presets` so the\nruntime can resolve from typed refs and preset configuration together."
+          },
+          "visibility": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Visibility mode (`open` or `opaque`)."
+          },
+          "workload": {
+            "$ref": "#/components/schemas/WorkloadSpec",
+            "description": "Runtime workload specification (execution strategy, compute, limits, ...)."
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentToolErrorRecoveryBackoffKind": {
+        "type": "string",
+        "enum": [
+          "none",
+          "fixed",
+          "exponential"
+        ]
+      },
+      "AgentToolErrorRecoveryBackoffPolicy": {
+        "type": "object",
+        "properties": {
+          "base_delay_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AgentToolErrorRecoveryBackoffKind"
+          },
+          "max_delay_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentToolErrorRecoveryPolicy": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "allow_tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "backoff": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentToolErrorRecoveryBackoffPolicy"
+              }
+            ]
+          },
+          "deny_tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "global_limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_attempts": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentToolRef": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Reference to a first-class publisher operation.",
+            "required": [
+              "publisher_slug",
+              "operation_id",
+              "kind"
+            ],
+            "properties": {
+              "execution_surface": {
+                "$ref": "#/components/schemas/AgentPublisherToolSurface",
+                "description": "Authored execution surface. A managed script that declares the\npublisher connector may also use an approval-free prompt grant when\nthe request resolves to a GET. Every other operation needs a ref\nauthored for the surface that runs it."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "publisher"
+                ]
+              },
+              "oauth_connection_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "OAuth connection fixed to this publisher for the deployment."
+              },
+              "operation_id": {
+                "type": "string"
+              },
+              "permitted_actions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ActionLease"
+                }
+              },
+              "publisher_slug": {
+                "type": "string"
+              },
+              "require_approval": {
+                "type": "boolean"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Reference to a tool exposed by an MCP server registered with Seren.",
+            "required": [
+              "server_ref",
+              "tool_name",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "mcp"
+                ]
+              },
+              "permitted_actions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ActionLease"
+                }
+              },
+              "require_approval": {
+                "type": "boolean"
+              },
+              "server_ref": {
+                "type": "string"
+              },
+              "tool_name": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Reference to a capability on an organization connector (Gmail, Slack, ...).\n\n`capability == \"messaging\"` is the generic convention for connectors\nthat adapt user conversations through a channel such as Telegram, Slack,\nSMS, Discord, email, or a publisher-provided messaging surface. Seren\ndoes not route channel traffic from this field. The `connector_ref`\nidentifies the concrete integration, and `scopes` stays\nprovider-defined so connector manifests and publisher ecosystems can\nevolve without a Seren API enum update.",
+            "required": [
+              "connector_ref",
+              "capability",
+              "kind"
+            ],
+            "properties": {
+              "capability": {
+                "type": "string"
+              },
+              "connector_ref": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "connector"
+                ]
+              },
+              "permitted_actions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ActionLease"
+                }
+              },
+              "require_approval": {
+                "type": "boolean"
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Reference to a remote agent reachable via A2A.",
+            "required": [
+              "origin",
+              "transport",
+              "auth_mode",
+              "kind"
+            ],
+            "properties": {
+              "auth_mode": {
+                "$ref": "#/components/schemas/AgentRemoteAgentAuth"
+              },
+              "expected_card_digest": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "remote_agent"
+                ]
+              },
+              "origin": {
+                "type": "string"
+              },
+              "permitted_actions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ActionLease"
+                }
+              },
+              "require_approval": {
+                "type": "boolean"
+              },
+              "timeout_ms": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              },
+              "transport": {
+                "$ref": "#/components/schemas/AgentRemoteAgentTransport"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Reference to a remote HTTP endpoint exposed as a managed tool.",
+            "required": [
+              "name",
+              "endpoint",
+              "method",
+              "auth_mode",
+              "kind"
+            ],
+            "properties": {
+              "auth_mode": {
+                "$ref": "#/components/schemas/AgentRemoteHttpAuth"
+              },
+              "endpoint": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "remote_http"
+                ]
+              },
+              "method": {
+                "$ref": "#/components/schemas/AgentRemoteHttpMethod"
+              },
+              "name": {
+                "type": "string"
+              },
+              "permitted_actions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ActionLease"
+                }
+              },
+              "require_approval": {
+                "type": "boolean"
+              },
+              "timeout_ms": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Back-compat shim for the coarse `tool_presets` collections. Presets\nare bulk grants and intentionally do not carry action leases.",
+            "required": [
+              "preset",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "preset_group"
+                ]
+              },
+              "preset": {
+                "$ref": "#/components/schemas/ManagedAgentToolPreset"
+              }
+            }
+          }
+        ],
+        "description": "Typed tool reference attached to an agent. Lives alongside the coarser\n`tool_presets` field; future managed-agent flows resolve from typed refs and\npresets together. Each non-preset variant carries an optional\n`permitted_actions` collection of `ActionLease`s — the per-action gate\nborrowed from OpenFang/IronClaw that lets the spec say \"this Connector may\nperform `read` but not `send`\" without inventing a separate ACL surface."
+      },
       "ApplyConnectorBindingProposalRequest": {
         "type": "object",
         "required": [
@@ -6024,6 +8253,26 @@
           "secret_resolution_result_id": {
             "type": "string",
             "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApplyManagedAgentOnboardingRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "idempotency_key"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The reviewed revision to apply. After the reservation exists, send the\nrecorded application source revision on every retry."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Creates the reservation once. A later retry may send any non-nil key;\nthe reserved source revision and deployment identity are what replay."
           }
         },
         "additionalProperties": false
@@ -6597,6 +8846,19 @@
             "description": "Complete opaque reference set covered by the next managed-agent Secrets policy."
           }
         }
+      },
+      "CancelManagedAgentOnboardingRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
       },
       "ChannelBindingRef": {
         "type": "object",
@@ -10807,6 +13069,27 @@
           }
         }
       },
+      "CreateManagedAgentOnboardingRequest": {
+        "type": "object",
+        "required": [
+          "idempotency_key",
+          "entry_mode",
+          "draft"
+        ],
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/ManagedAgentOnboardingDraft"
+          },
+          "entry_mode": {
+            "$ref": "#/components/schemas/ManagedAgentOnboardingEntryMode"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
       "DataResponse_AgentCredentialSecret": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -13469,6 +15752,192 @@
           }
         }
       },
+      "DataResponse_ManagedAgentOnboarding": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "organization_id",
+              "created_by_user_id",
+              "entry_mode",
+              "step",
+              "status",
+              "revision",
+              "draft",
+              "operations",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "actionable_error": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentOnboardingError"
+                  }
+                ]
+              },
+              "application": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentOnboardingApplication"
+                  }
+                ]
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "created_by_user_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "draft": {
+                "$ref": "#/components/schemas/ManagedAgentOnboardingDraft"
+              },
+              "entry_mode": {
+                "$ref": "#/components/schemas/ManagedAgentOnboardingEntryMode"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "operations": {
+                "$ref": "#/components/schemas/ManagedAgentOnboardingOperationIds"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "status": {
+                "$ref": "#/components/schemas/ManagedAgentOnboardingStatus"
+              },
+              "step": {
+                "$ref": "#/components/schemas/ManagedAgentOnboardingStep"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentOnboardingDesiredSpecPreview": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "onboarding_id",
+              "source_revision",
+              "desired_spec",
+              "model_selection",
+              "effective_policy"
+            ],
+            "properties": {
+              "desired_spec": {
+                "$ref": "#/components/schemas/AgentSpec"
+              },
+              "effective_policy": {
+                "$ref": "#/components/schemas/ManagedAgentSummary"
+              },
+              "model_selection": {
+                "$ref": "#/components/schemas/ManagedAgentOnboardingModelSelection"
+              },
+              "onboarding_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "source_revision": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentOnboardingList": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "onboardings"
+            ],
+            "properties": {
+              "next_cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "onboardings": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentOnboarding"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedConnectorBindingMigrationStatus": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -13615,6 +16084,41 @@
               },
               "state": {
                 "$ref": "#/components/schemas/ManagedConnectorBindingProposalState"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedMemoryCaptureAuthorizationResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "work_context_token",
+              "capture_policy"
+            ],
+            "properties": {
+              "capture_policy": {
+                "$ref": "#/components/schemas/OrganizationMemoryCapturePolicy"
+              },
+              "work_context_token": {
+                "type": "string"
               }
             }
           },
@@ -16253,6 +18757,46 @@
           "cancelled"
         ]
       },
+      "GrantedActions": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "all"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "actions",
+              "kind"
+            ],
+            "properties": {
+              "actions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "specific"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Capability granted by an `ActionLease`. `All` grants every sub-action of\nthe named action; `Specific` enumerates a closed set."
+      },
       "InvocationOrigin": {
         "oneOf": [
           {
@@ -16451,10 +18995,531 @@
           "deep"
         ]
       },
+      "ManagedAgentOnboarding": {
+        "type": "object",
+        "required": [
+          "id",
+          "organization_id",
+          "created_by_user_id",
+          "entry_mode",
+          "step",
+          "status",
+          "revision",
+          "draft",
+          "operations",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "actionable_error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentOnboardingError"
+              }
+            ]
+          },
+          "application": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentOnboardingApplication"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by_user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "draft": {
+            "$ref": "#/components/schemas/ManagedAgentOnboardingDraft"
+          },
+          "entry_mode": {
+            "$ref": "#/components/schemas/ManagedAgentOnboardingEntryMode"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "operations": {
+            "$ref": "#/components/schemas/ManagedAgentOnboardingOperationIds"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ManagedAgentOnboardingStatus"
+          },
+          "step": {
+            "$ref": "#/components/schemas/ManagedAgentOnboardingStep"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ManagedAgentOnboardingApplication": {
+        "type": "object",
+        "required": [
+          "source_revision",
+          "stage",
+          "attempt",
+          "deployment_outcome"
+        ],
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "deployment_confirmed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "deployment_outcome": {
+            "$ref": "#/components/schemas/ManagedAgentOnboardingOperationOutcome"
+          },
+          "source_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/ManagedAgentOnboardingApplicationStage"
+          }
+        }
+      },
+      "ManagedAgentOnboardingApplicationStage": {
+        "type": "string",
+        "enum": [
+          "deployment",
+          "readiness",
+          "first_task",
+          "complete"
+        ]
+      },
+      "ManagedAgentOnboardingCapabilityKind": {
+        "type": "string",
+        "enum": [
+          "browser_automation",
+          "browser_observation",
+          "browser_interactive_control",
+          "local_harness",
+          "local_device_action",
+          "connector",
+          "storage",
+          "schedule",
+          "webhook_ingress"
+        ]
+      },
+      "ManagedAgentOnboardingDesiredSpecPreview": {
+        "type": "object",
+        "required": [
+          "onboarding_id",
+          "source_revision",
+          "desired_spec",
+          "model_selection",
+          "effective_policy"
+        ],
+        "properties": {
+          "desired_spec": {
+            "$ref": "#/components/schemas/AgentSpec"
+          },
+          "effective_policy": {
+            "$ref": "#/components/schemas/ManagedAgentSummary"
+          },
+          "model_selection": {
+            "$ref": "#/components/schemas/ManagedAgentOnboardingModelSelection"
+          },
+          "onboarding_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source_revision": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ManagedAgentOnboardingDraft": {
+        "type": "object",
+        "required": [
+          "employee",
+          "model_selection",
+          "deployment"
+        ],
+        "properties": {
+          "deployment": {
+            "$ref": "#/components/schemas/AgentSpec",
+            "description": "The authored deployment contract compiled through the same resolver as\ndirect managed-agent creation. Raw workload secrets are forbidden; use\ntyped credential and connection references instead."
+          },
+          "employee": {
+            "$ref": "#/components/schemas/ManagedAgentOnboardingEmployeeDraft"
+          },
+          "first_task": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model_selection": {
+            "$ref": "#/components/schemas/ManagedAgentOnboardingModelSelection",
+            "description": "User-selected model destination. Core compiles this into the initial\ndeployment when no reviewed credential is required. A user-managed\nselection remains durable intent while the initial deployment uses the\nSeren Models baseline required for a revision-bound credential proposal."
+          },
+          "requested_capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentOnboardingCapabilityKind"
+            }
+          },
+          "selected_connection_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "selected_toolkit_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentOnboardingEmployeeDraft": {
+        "type": "object",
+        "required": [
+          "name",
+          "role",
+          "objective"
+        ],
+        "properties": {
+          "instructions": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "objective": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "template": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentOnboardingTemplateSelection"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentOnboardingEntryMode": {
+        "type": "string",
+        "enum": [
+          "first_employee",
+          "additional_employee"
+        ]
+      },
+      "ManagedAgentOnboardingError": {
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "retryable"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentOnboardingList": {
+        "type": "object",
+        "required": [
+          "onboardings"
+        ],
+        "properties": {
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "onboardings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentOnboarding"
+            }
+          }
+        }
+      },
+      "ManagedAgentOnboardingModelSelection": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Use Seren Models routing. An omitted model ID lets Core select the\neffective model from the requested model policy.",
+            "required": [
+              "source"
+            ],
+            "properties": {
+              "model_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "seren_models"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Use the organization's Seren Private Models connection.",
+            "required": [
+              "model_id",
+              "source"
+            ],
+            "properties": {
+              "model_id": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "seren_private_models"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Use a user-managed account through its typed runtime and credential\nadapter. Each supported connection defines its own reviewed auth contract.",
+            "required": [
+              "connection",
+              "source"
+            ],
+            "properties": {
+              "connection": {
+                "$ref": "#/components/schemas/ManagedAgentOnboardingUserModelConnection"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "user_managed"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ManagedAgentOnboardingOperationIds": {
+        "type": "object",
+        "required": [
+          "connector_binding_proposal_ids",
+          "connection_authorization_ids"
+        ],
+        "properties": {
+          "connection_authorization_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "connector_binding_proposal_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "deployment_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "first_run_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "ManagedAgentOnboardingOperationOutcome": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "confirmed",
+          "failed",
+          "uncertain"
+        ]
+      },
+      "ManagedAgentOnboardingStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "waiting_for_user",
+          "waiting_for_provider",
+          "applying",
+          "ready",
+          "failed",
+          "cancelled"
+        ]
+      },
+      "ManagedAgentOnboardingStep": {
+        "type": "string",
+        "enum": [
+          "identity",
+          "capabilities",
+          "connections",
+          "review",
+          "provisioning",
+          "readiness",
+          "first_task",
+          "complete"
+        ]
+      },
+      "ManagedAgentOnboardingTemplateSelection": {
+        "type": "object",
+        "required": [
+          "id",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentOnboardingUserModelConnection": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Run through the OpenAI Codex adapter with a reviewed Seren Passwords\ncredential proposal bound to the created deployment.",
+            "required": [
+              "model_id",
+              "auth_method",
+              "provider"
+            ],
+            "properties": {
+              "auth_method": {
+                "$ref": "#/components/schemas/ManagedModelCredentialAuthMethod"
+              },
+              "model_id": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "codex"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ManagedAgentPrivateOutputPolicy": {
+        "type": "string",
+        "enum": [
+          "control_plane",
+          "private_session_database"
+        ]
+      },
       "ManagedAgentRuntimeAdapter": {
         "type": "string",
         "enum": [
           "seren_agent"
+        ]
+      },
+      "ManagedAgentSessionDatabase": {
+        "type": "object",
+        "required": [
+          "engine"
+        ],
+        "properties": {
+          "database_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional Seren organization database name when `provider` is `seren_organization_database`."
+          },
+          "engine": {
+            "$ref": "#/components/schemas/ManagedAgentSessionDatabaseEngine",
+            "description": "Session database engine family. The runtime still consumes a standard connection URL."
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ManagedAgentSessionDatabaseProvider",
+            "description": "Session database provider. Defaults to `direct_url`."
+          },
+          "url_secret_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Secret key whose value is the connection URL for the session database."
+          }
+        }
+      },
+      "ManagedAgentSessionDatabaseEngine": {
+        "type": "string",
+        "enum": [
+          "postgres",
+          "aurora_postgres"
+        ]
+      },
+      "ManagedAgentSessionDatabaseProvider": {
+        "type": "string",
+        "enum": [
+          "direct_url",
+          "seren_organization_database"
         ]
       },
       "ManagedAgentSummary": {
@@ -16884,6 +19949,21 @@
           "discord",
           "slack"
         ]
+      },
+      "ManagedMemoryCaptureAuthorizationResponse": {
+        "type": "object",
+        "required": [
+          "work_context_token",
+          "capture_policy"
+        ],
+        "properties": {
+          "capture_policy": {
+            "$ref": "#/components/schemas/OrganizationMemoryCapturePolicy"
+          },
+          "work_context_token": {
+            "type": "string"
+          }
+        }
       },
       "ManagedModelCredentialAuthMethod": {
         "type": "string",
@@ -17738,6 +20818,70 @@
           "llm"
         ]
       },
+      "OrganizationMemoryCapturePolicy": {
+        "type": "object",
+        "required": [
+          "organization_id",
+          "policy_version",
+          "capture_enabled",
+          "retain_source_allowed",
+          "capture_user_prompts",
+          "capture_assistant_responses",
+          "max_transcript_bytes",
+          "cache_ttl_seconds",
+          "offline_grace_seconds",
+          "allowed_agent_platforms",
+          "updated_at"
+        ],
+        "properties": {
+          "allowed_agent_platforms": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Empty permits every supported platform; otherwise names are lowercase."
+          },
+          "cache_ttl_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "capture_assistant_responses": {
+            "type": "boolean"
+          },
+          "capture_enabled": {
+            "type": "boolean"
+          },
+          "capture_user_prompts": {
+            "type": "boolean"
+          },
+          "max_transcript_bytes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "offline_grace_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "policy_version": {
+            "type": "string",
+            "description": "Opaque revision that automatic capture submissions must present. It\nchanges only when the effective policy changes."
+          },
+          "retain_source_allowed": {
+            "type": "boolean"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "OutputAudience": {
         "oneOf": [
           {
@@ -18400,6 +21544,13 @@
             ],
             "description": "Handle that resolves the failure to its originating tool call in the run\naudit; never a secret or raw message."
           },
+          "diagnostic": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Bounded, redacted context for diagnosing the failure. It carries no\nclassification meaning; the reason code and class remain authoritative."
+          },
           "error_class": {
             "$ref": "#/components/schemas/ToolRecoveryErrorClass"
           },
@@ -18568,6 +21719,27 @@
             ]
           }
         }
+      },
+      "UpdateManagedAgentOnboardingRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "step",
+          "draft"
+        ],
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/ManagedAgentOnboardingDraft"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "step": {
+            "$ref": "#/components/schemas/ManagedAgentOnboardingStep"
+          }
+        },
+        "additionalProperties": false
       },
       "UpsertAgentCredentialSecretRequest": {
         "type": "object",
