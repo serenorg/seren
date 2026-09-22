@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 #
 # Seren MCP Server - Production Dockerfile
 #
@@ -6,12 +7,12 @@
 #
 
 # ---------- Builder ----------
-FROM rust:latest AS builder
+FROM rust:1.98.1-trixie AS builder
 
 WORKDIR /app
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -23,7 +24,12 @@ COPY cli ./cli
 COPY mcp ./mcp
 
 # Build the unified CLI binary with hosted telemetry support
-RUN cargo build --release --locked --package seren-cli --features telemetry
+ARG TARGETARCH
+RUN --mount=type=cache,id=seren-mcp-cargo-registry-${TARGETARCH},target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=seren-mcp-cargo-git-${TARGETARCH},target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,id=seren-mcp-target-${TARGETARCH},target=/app/target,sharing=locked \
+    cargo build --release --locked --package seren-cli --features telemetry \
+    && cp /app/target/release/seren /usr/local/bin/seren
 
 # ---------- Runtime ----------
 FROM debian:trixie-slim
@@ -43,7 +49,7 @@ RUN useradd -m -u 1000 seren && \
     chown -R seren:seren /app
 
 # Copy binary from builder
-COPY --from=builder /app/target/release/seren /usr/local/bin/seren
+COPY --from=builder /usr/local/bin/seren /usr/local/bin/seren
 
 USER seren
 
