@@ -949,6 +949,54 @@
         ]
       }
     },
+    "/billing/payment-methods/setup": {
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Start hosted card setup and return to an allowed website when it finishes.",
+        "operationId": "setup_payment_method",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PaymentMethodSetupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Hosted card setup URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_PaymentMethodSetupResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or return URL"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Organization not found"
+          },
+          "502": {
+            "description": "Payment service unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/billing/payment-methods/{id}": {
       "delete": {
         "tags": [
@@ -1276,6 +1324,9 @@
           },
           "404": {
             "description": "Publisher not found"
+          },
+          "409": {
+            "description": "Seren-operated publishers cannot pay out"
           }
         },
         "security": [
@@ -2192,6 +2243,7 @@
           "OAuth"
         ],
         "summary": "Initiate OAuth authorization flow by provider ID (supports org-scoped providers)",
+        "description": "Redirects to the provider's consent screen, or returns the consent URL as JSON when the\nrequest accepts `application/json`.",
         "operationId": "initiate_oauth_by_id",
         "parameters": [
           {
@@ -2212,9 +2264,39 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "Accept",
+            "in": "header",
+            "description": "Include `application/json` to receive the consent URL as JSON instead of a redirect",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
+          "200": {
+            "description": "Consent URL and consent attempt state",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_AuthorizeResponse"
+                }
+              }
+            }
+          },
           "302": {
             "description": "Redirect to OAuth provider"
           },
@@ -2285,13 +2367,69 @@
         }
       }
     },
+    "/oauth/results/{state}": {
+      "get": {
+        "tags": [
+          "OAuth"
+        ],
+        "summary": "Read the connection a consent attempt produced",
+        "description": "Returns the provider and connection that the caller's own consent attempt produced. A\nresult can be read once, only by the user who started the attempt, within 10 minutes of\nthe provider callback.",
+        "operationId": "get_connection_result",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "path",
+            "description": "The `state` returned by the JSON authorize response",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Connection produced by the consent attempt",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OAuthConnectionResultResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No unread result for this state belongs to the caller",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/oauth/{provider}/authorize": {
       "get": {
         "tags": [
           "OAuth"
         ],
         "summary": "Initiate OAuth authorization flow",
-        "description": "Redirects the user to the OAuth provider's consent screen.\nAfter authorization, the provider will redirect back to the callback URL.",
+        "description": "Redirects the user to the OAuth provider's consent screen, or returns the consent URL as\nJSON when the request accepts `application/json`.\nAfter authorization, the provider will redirect back to the callback URL.",
         "operationId": "initiate_oauth",
         "parameters": [
           {
@@ -2311,9 +2449,39 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "Accept",
+            "in": "header",
+            "description": "Include `application/json` to receive the consent URL as JSON instead of a redirect",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
+          "200": {
+            "description": "Consent URL and consent attempt state",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_AuthorizeResponse"
+                }
+              }
+            }
+          },
           "302": {
             "description": "Redirect to OAuth provider"
           },
@@ -9938,7 +10106,7 @@
             "description": "Unauthorized"
           },
           "409": {
-            "description": "Bonus already claimed"
+            "description": "Bonus already claimed or payment_method_not_saved; retry after saving a card"
           }
         },
         "security": [
@@ -10070,7 +10238,7 @@
             }
           },
           "400": {
-            "description": "Invalid request"
+            "description": "Invalid amount, or a return URL outside the allowed websites"
           },
           "401": {
             "description": "Unauthorized"
@@ -10322,6 +10490,78 @@
           },
           "409": {
             "description": "Already has a referrer"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/wallet/reload": {
+      "get": {
+        "tags": [
+          "agent-wallet"
+        ],
+        "summary": "Read automatic reload preferences. Automatic reload is disabled until enabled explicitly.",
+        "operationId": "get_reload_settings",
+        "responses": {
+          "200": {
+            "description": "Automatic reload preferences",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_WalletAutoReloadSettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "agent-wallet"
+        ],
+        "summary": "Enable or disable automatic reload. Enabling requires a default payment method, a monthly cap at least equal to the reload amount, and no unresolved reload awaiting reconciliation. The balance threshold is fixed at $5. Disabling accepts no amount or cap and preserves the prior amount, cap, and last error.",
+        "operationId": "update_reload_settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWalletAutoReloadSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Automatic reload preferences updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_WalletAutoReloadSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid body, invalid_reload_settings, invalid_reload_amount, or invalid_monthly_cap"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "409": {
+            "description": "payment_method_required or reconciliation_required"
           }
         },
         "security": [
@@ -11515,6 +11755,7 @@
           "fiat_purchase",
           "signup_bonus",
           "payment_method_bonus",
+          "managed_agent_hire_bonus",
           "daily_claim",
           "referral_reward",
           "admin_grant",
@@ -12232,6 +12473,23 @@
           "apple"
         ]
       },
+      "AuthorizeResponse": {
+        "type": "object",
+        "required": [
+          "authorization_url",
+          "state"
+        ],
+        "properties": {
+          "authorization_url": {
+            "type": "string",
+            "description": "Provider consent page to open in the browser."
+          },
+          "state": {
+            "type": "string",
+            "description": "Identifies this consent attempt; read its connection with `GET /oauth/results/{state}`."
+          }
+        }
+      },
       "AvatarImage": {
         "type": "string",
         "format": "binary"
@@ -12327,6 +12585,28 @@
           },
           "success": {
             "type": "boolean"
+          }
+        }
+      },
+      "BonusGrantView": {
+        "type": "object",
+        "required": [
+          "source",
+          "remaining_usd"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "remaining_usd": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/AgentCreditSource"
           }
         }
       },
@@ -14580,6 +14860,43 @@
           }
         }
       },
+      "DataResponse_AuthorizeResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "authorization_url",
+              "state"
+            ],
+            "properties": {
+              "authorization_url": {
+                "type": "string",
+                "description": "Provider consent page to open in the browser."
+              },
+              "state": {
+                "type": "string",
+                "description": "Identifies this consent attempt; read its connection with `GET /oauth/results/{state}`."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_AvatarUploaded": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -15875,6 +16192,44 @@
               "read_at": {
                 "type": "string",
                 "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_OAuthConnectionResultResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "provider",
+              "connection_id"
+            ],
+            "properties": {
+              "connection_id": {
+                "type": "string",
+                "format": "uuid",
+                "description": "The connection the consent attempt created or refreshed."
+              },
+              "provider": {
+                "type": "string",
+                "description": "Slug of the provider the consent attempt connected."
               }
             }
           },
@@ -17310,6 +17665,37 @@
                 "type": "string"
               },
               "message": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_PaymentMethodSetupResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "url"
+            ],
+            "properties": {
+              "url": {
                 "type": "string"
               }
             }
@@ -22370,6 +22756,64 @@
           }
         }
       },
+      "DataResponse_WalletAutoReloadSettings": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "enabled",
+              "amount_cents",
+              "threshold_atomic"
+            ],
+            "properties": {
+              "amount_cents": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "last_error": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/WalletAutoReloadError"
+                  }
+                ]
+              },
+              "monthly_cap_cents": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32"
+              },
+              "threshold_atomic": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_WalletBalanceResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -22389,6 +22833,7 @@
               "promotional_balance_atomic",
               "promotional_balance_usd",
               "by_source",
+              "bonus_grants",
               "total_purchases_cents",
               "total_purchases_usd",
               "has_recovery"
@@ -22402,6 +22847,13 @@
               "balance_usd": {
                 "type": "string"
               },
+              "bonus_grants": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BonusGrantView"
+                },
+                "description": "Remaining active signup and hire bonuses, with their expiration dates."
+              },
               "by_source": {
                 "type": "array",
                 "items": {
@@ -22412,7 +22864,7 @@
               "funded_balance_atomic": {
                 "type": "integer",
                 "format": "int64",
-                "description": "Total funded balance (fiat purchases + tier bonuses)"
+                "description": "Total funded balance (purchases, referral rewards, refunds, payouts and transfers)"
               },
               "funded_balance_usd": {
                 "type": "string"
@@ -22424,7 +22876,7 @@
               "promotional_balance_atomic": {
                 "type": "integer",
                 "format": "int64",
-                "description": "Total promotional balance (bonuses, daily claims, referrals, admin grants)"
+                "description": "Total promotional balance (bonuses, daily claims, promo codes and admin grants)"
               },
               "promotional_balance_usd": {
                 "type": "string"
@@ -23174,12 +23626,26 @@
             "maximum": 30000,
             "minimum": 500
           },
+          "cancel_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where the browser returns if checkout is cancelled. Must be an allowed website; defaults to the console."
+          },
           "referral_code": {
             "type": [
               "string",
               "null"
             ],
             "description": "Optional affiliate referral code for tracking"
+          },
+          "success_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where the browser returns after payment. Must be an allowed website; defaults to the console."
           }
         }
       },
@@ -25174,6 +25640,24 @@
           "read_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "OAuthConnectionResultResponse": {
+        "type": "object",
+        "required": [
+          "provider",
+          "connection_id"
+        ],
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The connection the consent attempt created or refreshed."
+          },
+          "provider": {
+            "type": "string",
+            "description": "Slug of the provider the consent attempt connected."
           }
         }
       },
@@ -27300,6 +27784,33 @@
             "type": "string"
           },
           "message": {
+            "type": "string"
+          }
+        }
+      },
+      "PaymentMethodSetupRequest": {
+        "type": "object",
+        "required": [
+          "success_url",
+          "cancel_url"
+        ],
+        "properties": {
+          "cancel_url": {
+            "type": "string"
+          },
+          "success_url": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PaymentMethodSetupResponse": {
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
             "type": "string"
           }
         }
@@ -31597,6 +32108,32 @@
           }
         }
       },
+      "UpdateWalletAutoReloadSettings": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "amount_cents": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "monthly_cap_cents": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
       "UpdateWebhookRequest": {
         "type": "object",
         "description": "Request to update a webhook",
@@ -32095,6 +32632,54 @@
         "description": "A validated wallet address (EVM or Solana).\n\nThis type ensures wallet addresses are validated at construction time.\nStored as TEXT in the database via SQLx's transparent encoding.\n\n# Examples\n\n```\nuse seren_core::models::WalletAddress;\n\n// EVM address\nlet evm = WalletAddress::new(\"0x1234567890123456789012345678901234567890\").unwrap();\n\n// Solana address\nlet sol = WalletAddress::new(\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\").unwrap();\n\n// Convert to alloy Address for EVM operations\nif let Some(addr) = evm.as_evm() {\n    // Use with alloy...\n}\n```",
         "example": "0x1234567890123456789012345678901234567890"
       },
+      "WalletAutoReloadError": {
+        "type": "string",
+        "enum": [
+          "card_declined",
+          "authentication_required",
+          "payment_method_unusable",
+          "no_payment_method",
+          "reconciliation_required"
+        ]
+      },
+      "WalletAutoReloadSettings": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "amount_cents",
+          "threshold_atomic"
+        ],
+        "properties": {
+          "amount_cents": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "last_error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WalletAutoReloadError"
+              }
+            ]
+          },
+          "monthly_cap_cents": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "threshold_atomic": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "WalletBalanceKind": {
         "type": "string",
         "enum": [
@@ -32114,6 +32699,7 @@
           "promotional_balance_atomic",
           "promotional_balance_usd",
           "by_source",
+          "bonus_grants",
           "total_purchases_cents",
           "total_purchases_usd",
           "has_recovery"
@@ -32127,6 +32713,13 @@
           "balance_usd": {
             "type": "string"
           },
+          "bonus_grants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BonusGrantView"
+            },
+            "description": "Remaining active signup and hire bonuses, with their expiration dates."
+          },
           "by_source": {
             "type": "array",
             "items": {
@@ -32137,7 +32730,7 @@
           "funded_balance_atomic": {
             "type": "integer",
             "format": "int64",
-            "description": "Total funded balance (fiat purchases + tier bonuses)"
+            "description": "Total funded balance (purchases, referral rewards, refunds, payouts and transfers)"
           },
           "funded_balance_usd": {
             "type": "string"
@@ -32149,7 +32742,7 @@
           "promotional_balance_atomic": {
             "type": "integer",
             "format": "int64",
-            "description": "Total promotional balance (bonuses, daily claims, referrals, admin grants)"
+            "description": "Total promotional balance (bonuses, daily claims, promo codes and admin grants)"
           },
           "promotional_balance_usd": {
             "type": "string"

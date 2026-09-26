@@ -3118,6 +3118,7 @@ fn build_update_seren_agent_deployment_request(
         clear_runtime_policy: None,
         clear_secret_resolution_result_id: params.clear_secret_resolution_result_id.then_some(true),
         clear_session_database: None,
+        clear_tool_approvals: None,
         clear_tool_refs: params.clear_tool_refs.then_some(true),
         credentials: params.credentials.clone(),
         cron_schedule: params.cron_schedule.clone(),
@@ -3137,6 +3138,7 @@ fn build_update_seren_agent_deployment_request(
         secret_resolution_result_id: params.secret_resolution_result_id,
         session_database: None,
         template,
+        tool_approvals: None,
         tool_presets,
         tool_refs: params.tool_refs.clone(),
         visibility: params.visibility.clone(),
@@ -3572,6 +3574,7 @@ fn build_deploy_seren_agent_request(
         secret_resolution_result_id: None,
         session_database: None,
         template,
+        tool_approvals: None,
         tool_presets,
         tool_refs: params.tool_refs,
         visibility: params.visibility,
@@ -4228,6 +4231,19 @@ fn parse_optional_timestamp(
         .map(jiff::Timestamp::from_str)
         .transpose()
         .map_err(|e| McpError::invalid_params(format!("Invalid {field_name}: {e}"), None))
+}
+
+/// Hired Employees appear only as owner views, which carry `platform_managed`
+/// instead of `managed_agent`.
+fn is_managed_agent_deployment(deployment: &serde_json::Value) -> bool {
+    !deployment
+        .get("managed_agent")
+        .unwrap_or(&serde_json::Value::Null)
+        .is_null()
+        || deployment
+            .get("platform_managed")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
 }
 
 fn build_deployment_name_map(deployments: &[serde_json::Value]) -> HashMap<String, String> {
@@ -11749,6 +11765,8 @@ impl SerenMcpServer {
         let request = seren::DepositRequest {
             amount_cents,
             referral_code: None,
+            success_url: None,
+            cancel_url: None,
         };
 
         let deposit = api_client
@@ -15120,9 +15138,17 @@ API endpoint: {endpoint}",
             .data;
         let deployment = deployments
             .iter()
-            .find(|deployment| deployment.id == params.deployment_id)
+            .find(|deployment| {
+                seren::cloud_deployment_view_identity(deployment).id == params.deployment_id
+            })
             .ok_or_else(|| McpError::invalid_params("Managed agent deployment not found", None))?;
-        if deployment.managed_agent.is_none() {
+        let seren::CloudDeploymentView::CloudDeploymentSummary(summary) = deployment else {
+            return Err(McpError::invalid_request(
+                "This Employee uses a platform-managed template and cannot use this setup tool.",
+                None,
+            ));
+        };
+        if summary.managed_agent.is_none() {
             return Err(McpError::invalid_params(
                 "Seren Passwords setup is only available for managed agent deployments",
                 None,
@@ -15130,7 +15156,7 @@ API endpoint: {endpoint}",
         }
         let initiate_result = api_client
             .managed_agent_secrets_setup_initiate(
-                &deployment.organization_id,
+                &summary.organization_id,
                 &seren::InitiateManagedAgentSecretsSetupRequest {
                     connector_binding_proposal_id: params.connector_binding_proposal_id,
                     model_credential_proposal_id: params.model_credential_proposal_id,
@@ -15302,8 +15328,9 @@ API endpoint: {endpoint}",
             .data;
         let organization_id = deployments
             .iter()
-            .find(|deployment| deployment.id == deployment_id)
-            .map(|deployment| deployment.organization_id)
+            .map(seren::cloud_deployment_view_identity)
+            .find(|identity| identity.id == deployment_id)
+            .map(|identity| identity.organization_id)
             .ok_or_else(|| McpError::invalid_params("Managed agent deployment not found", None))?;
         let target =
             match seren::managed_secrets_apply_target(&api_client, params.setup_id, &request).await
@@ -15323,6 +15350,8 @@ API endpoint: {endpoint}",
             .await?
             .into_inner()
             .data;
+        let detail = seren::managed_agent_deployment_detail(detail)
+            .map_err(|error| McpError::invalid_request(error.to_string(), None))?;
         match seren::managed_agent_secrets_application(&target, organization_id, &detail, &request)
             .map_err(|error| McpError::invalid_request(error.to_string(), None))?
         {
@@ -15364,6 +15393,8 @@ API endpoint: {endpoint}",
             .await?
             .into_inner()
             .data;
+        let after = seren::managed_agent_deployment_detail(after)
+            .map_err(|error| McpError::invalid_request(error.to_string(), None))?;
         if !matches!(
             seren::managed_agent_secrets_application(&target, organization_id, &after, &request),
             Ok(seren::ManagedAgentSecretsApplication::AlreadyApplied)
@@ -15399,6 +15430,8 @@ API endpoint: {endpoint}",
             .await?
             .into_inner()
             .data;
+        let detail = seren::managed_agent_deployment_detail(detail)
+            .map_err(|error| McpError::invalid_request(error.to_string(), None))?;
         let expected_active_revision_id = detail.active_revision_id.ok_or_else(|| {
             McpError::invalid_params(
                 "The managed agent deployment has no active revision to base a proposal on",
@@ -15557,8 +15590,9 @@ API endpoint: {endpoint}",
             .data;
         let organization_id = deployments
             .iter()
-            .find(|deployment| deployment.id == params.deployment_id)
-            .map(|deployment| deployment.organization_id)
+            .map(seren::cloud_deployment_view_identity)
+            .find(|identity| identity.id == params.deployment_id)
+            .map(|identity| identity.organization_id)
             .ok_or_else(|| McpError::invalid_params("Managed agent deployment not found", None))?;
         let detail = api_client
             .seren_agent_get_managed_deployment(&params.deployment_id)
@@ -15566,6 +15600,8 @@ API endpoint: {endpoint}",
             .await?
             .into_inner()
             .data;
+        let detail = seren::managed_agent_deployment_detail(detail)
+            .map_err(|error| McpError::invalid_request(error.to_string(), None))?;
         let proposal = api_client
             .seren_cloud_get_publisher_credential_proposal(&params.deployment_id)
             .into_mcp_result()
@@ -15668,6 +15704,8 @@ API endpoint: {endpoint}",
             .await?
             .into_inner()
             .data;
+        let detail = seren::managed_agent_deployment_detail(detail)
+            .map_err(|error| McpError::invalid_request(error.to_string(), None))?;
         let expected_active_revision_id = detail.active_revision_id.ok_or_else(|| {
             McpError::invalid_params(
                 "The managed agent deployment has no active revision to base a proposal on",
@@ -15826,8 +15864,9 @@ API endpoint: {endpoint}",
             .data;
         let organization_id = deployments
             .iter()
-            .find(|deployment| deployment.id == params.deployment_id)
-            .map(|deployment| deployment.organization_id)
+            .map(seren::cloud_deployment_view_identity)
+            .find(|identity| identity.id == params.deployment_id)
+            .map(|identity| identity.organization_id)
             .ok_or_else(|| McpError::invalid_params("Managed agent deployment not found", None))?;
         let detail = api_client
             .seren_agent_get_managed_deployment(&params.deployment_id)
@@ -15835,6 +15874,8 @@ API endpoint: {endpoint}",
             .await?
             .into_inner()
             .data;
+        let detail = seren::managed_agent_deployment_detail(detail)
+            .map_err(|error| McpError::invalid_request(error.to_string(), None))?;
         let proposal = api_client
             .seren_cloud_get_reference_env_credential_proposal(&params.deployment_id)
             .into_mcp_result()
@@ -15997,8 +16038,9 @@ API endpoint: {endpoint}",
             .data;
         let organization_id = deployments
             .iter()
-            .find(|deployment| deployment.id == params.deployment_id)
-            .map(|deployment| deployment.organization_id)
+            .map(seren::cloud_deployment_view_identity)
+            .find(|identity| identity.id == params.deployment_id)
+            .map(|identity| identity.organization_id)
             .ok_or_else(|| McpError::invalid_params("Managed agent deployment not found", None))?;
         let detail = api_client
             .seren_agent_get_managed_deployment(&params.deployment_id)
@@ -16006,6 +16048,8 @@ API endpoint: {endpoint}",
             .await?
             .into_inner()
             .data;
+        let detail = seren::managed_agent_deployment_detail(detail)
+            .map_err(|error| McpError::invalid_request(error.to_string(), None))?;
         let proposal = api_client
             .seren_cloud_get_connector_binding_proposal(
                 &params.deployment_id,
@@ -16174,8 +16218,9 @@ API endpoint: {endpoint}",
             .data;
         let organization_id = deployments
             .iter()
-            .find(|deployment| deployment.id == params.deployment_id)
-            .map(|deployment| deployment.organization_id)
+            .map(seren::cloud_deployment_view_identity)
+            .find(|identity| identity.id == params.deployment_id)
+            .map(|identity| identity.organization_id)
             .ok_or_else(|| McpError::invalid_params("Managed agent deployment not found", None))?;
         let detail = api_client
             .seren_agent_get_managed_deployment(&params.deployment_id)
@@ -16183,6 +16228,8 @@ API endpoint: {endpoint}",
             .await?
             .into_inner()
             .data;
+        let detail = seren::managed_agent_deployment_detail(detail)
+            .map_err(|error| McpError::invalid_request(error.to_string(), None))?;
         let proposal = api_client
             .seren_cloud_get_model_credential_proposal(&params.deployment_id)
             .into_mcp_result()
@@ -16978,7 +17025,7 @@ API endpoint: {endpoint}",
                     .count(),
                 "managed_count": deployments_data
                     .iter()
-                    .filter(|deployment| !deployment.get("managed_agent").unwrap_or(&serde_json::Value::Null).is_null())
+                    .filter(|deployment| is_managed_agent_deployment(deployment))
                     .count(),
                 "cron_count": deployments_data
                     .iter()
@@ -20995,6 +21042,20 @@ mod tests {
     }
 
     #[test]
+    fn hired_employee_owner_views_count_as_managed_deployments() {
+        assert!(is_managed_agent_deployment(&serde_json::json!({
+            "managed_agent": { "publisher": "seren-agent" }
+        })));
+        assert!(is_managed_agent_deployment(&serde_json::json!({
+            "platform_managed": true
+        })));
+        assert!(!is_managed_agent_deployment(&serde_json::json!({
+            "platform_managed": false
+        })));
+        assert!(!is_managed_agent_deployment(&serde_json::json!({})));
+    }
+
+    #[test]
     fn cloud_agents_summary_lists_deployment_metadata() {
         let response = serde_json::json!({
             "data": [
@@ -24348,8 +24409,12 @@ mod tests {
 
         let deployment_id = Uuid::from_u128(10);
         let fixture = managed_agent_detail_fixture(deployment_id);
-        let decoded: seren::DataResponseManagedAgentDeploymentDetail =
+        let decoded: seren::DataResponseManagedDeploymentReadResponse =
             serde_json::from_value(fixture.clone()).expect("versionless managed detail");
+        assert!(matches!(
+            decoded.data,
+            seren::DataResponseManagedDeploymentReadResponseData::DeploymentDetail(_)
+        ));
         let decoded_json = serde_json::to_value(decoded).expect("managed detail re-encodes");
         assert!(
             decoded_json
@@ -24613,6 +24678,44 @@ mod tests {
             payload.pointer("/browser/enabled"),
             Some(&serde_json::json!(true))
         );
+    }
+
+    #[test]
+    fn update_agent_forwards_headed_browser_settings() {
+        let mut params = base_update_agent_params();
+        params.capability_policy = Some(serde_json::json!({
+            "browser": {
+                "enabled": true,
+                "profile": "full",
+                "display": "headed",
+                "timezone": "America/Chicago",
+                "max_session_seconds": 1800
+            }
+        }));
+
+        let request = build_update_seren_agent_deployment_request(&params)
+            .expect("headed browser settings should build an update");
+        let payload = serde_json::to_value(
+            request
+                .capability_policy
+                .expect("the update should carry a capability policy"),
+        )
+        .expect("capability policy should serialize");
+
+        assert_eq!(
+            payload.pointer("/browser/display"),
+            Some(&serde_json::json!("headed"))
+        );
+        assert_eq!(
+            payload.pointer("/browser/timezone"),
+            Some(&serde_json::json!("America/Chicago"))
+        );
+        assert_eq!(
+            payload.pointer("/browser/max_session_seconds"),
+            Some(&serde_json::json!(1800))
+        );
+        assert!(request.tool_approvals.is_none());
+        assert!(request.clear_tool_approvals.is_none());
     }
 
     #[test]
@@ -25823,6 +25926,68 @@ mod tests {
         proxy.verify().await;
         client.cancel().await.unwrap();
         server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn publisher_credential_proposal_rejects_platform_managed_deployments() {
+        use wiremock::matchers::{method, path, path_regex};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let deployment_id = Uuid::from_u128(0x9003);
+
+        let owner_view = serde_json::json!({
+            "data": {
+                "id": deployment_id,
+                "organization_id": Uuid::from_u128(1),
+                "name": "Hired Employee",
+                "skill_slug": "managed-hire-00000000000000000000000000009003",
+                "mode": "cron",
+                "platform_managed": true,
+                "status": "running",
+                "desired_lifecycle_state": "running",
+                "template": {
+                    "slug": "platform-template",
+                    "display_name": "Platform Template",
+                    "revision": 1
+                },
+                "created_at": "2026-09-01T00:00:00Z",
+                "updated_at": "2026-09-01T00:00:00Z"
+            }
+        });
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/managed"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(owner_view))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        Mock::given(method("POST"))
+            .and(path_regex("/credentials/proposals"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let error = server
+            .preview_seren_agent_publisher_credential_proposal(
+                Parameters(PublisherCredentialProposalParams {
+                    deployment_id,
+                    changes: vec![publisher_change_fixture()],
+                    replace_proposal_id: None,
+                    idempotency_key: Uuid::from_u128(0x3334),
+                }),
+                Extensions::default(),
+            )
+            .await
+            .expect_err("a platform-managed owner view is not editable managed detail");
+        assert!(
+            error.message.contains("platform-managed"),
+            "unexpected error message: {}",
+            error.message
+        );
     }
 
     #[tokio::test]

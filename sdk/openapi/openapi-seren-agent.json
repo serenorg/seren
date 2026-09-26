@@ -103,6 +103,7 @@
           "seren-agent"
         ],
         "summary": "List orchestrated deployments and their runtime metadata.",
+        "description": "Lists deployments visible to the caller. A hired Employee is listed as its owner view.",
         "operationId": "seren_agent_list_deployments",
         "responses": {
           "200": {
@@ -110,7 +111,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DataResponse_Vec_CloudDeploymentSummary"
+                  "$ref": "#/components/schemas/DataResponse_Vec_CloudDeploymentView"
                 }
               }
             }
@@ -241,6 +242,152 @@
         ]
       }
     },
+    "/deployments/{id}/connection": {
+      "put": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Replace the mail and files connection of a hired Employee.",
+        "description": "Binds another of the owner's connections for the same provider. An Employee paused because its connection was disconnected resumes once the new connection is bound. Binding the current connection changes nothing.",
+        "operationId": "seren_agent_rebind_managed_agent_connection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RebindManagedAgentConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The Employee with its bound connection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentOwnerView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the owner's session or user API key may rebind",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Deployment or connected account not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The connection must be reconnected (`reconnect_required`) or the Employee changed during the rebind",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/context": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Owner and mail binding of a platform-managed deployment, for that\ndeployment's runtime key only.",
+        "operationId": "seren_agent_get_managed_agent_context",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owner email and mail binding. The response must not be cached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentRuntimeContext"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is not this deployment's runtime key"
+          },
+          "404": {
+            "description": "Deployment not found"
+          },
+          "409": {
+            "description": "The owner email is unverified, or the mail binding is missing or ambiguous"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/health": {
       "get": {
         "tags": [
@@ -298,7 +445,7 @@
           "seren-agent"
         ],
         "summary": "Get the resolved managed spec for a seren-agent deployment.",
-        "description": "Returns the resolved managed-agent configuration for a seren-agent deployment. Use seren-cloud deployment APIs for raw runtime operations.",
+        "description": "Returns the deployment details visible to the caller. A hired Employee is returned as its owner view.",
         "operationId": "seren_agent_get_managed_deployment",
         "parameters": [
           {
@@ -318,7 +465,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DataResponse_ManagedAgentDeploymentDetail"
+                  "$ref": "#/components/schemas/DataResponse_ManagedDeploymentReadResponse"
                 }
               }
             }
@@ -1375,6 +1522,167 @@
         ]
       }
     },
+    "/templates/{template_slug}/deployments": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Hire an Employee from an available template.",
+        "operationId": "seren_agent_create_managed_agent_template_deployment",
+        "parameters": [
+          {
+            "name": "template_slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateManagedAgentTemplateDeploymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Existing Employee returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentHireResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Employee hired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentHireResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Template or connected account not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Hire in progress or account reconnection required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many hire requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/templates/{template_slug}/stats": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Get aggregate work hours and skill count for an available template.",
+        "operationId": "seren_agent_get_managed_agent_template_stats",
+        "parameters": [
+          {
+            "name": "template_slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Template statistics retrieved",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "public, max-age=3600"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateStats"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Template not found"
+          }
+        },
+        "security": []
+      }
+    },
     "/test-run": {
       "post": {
         "tags": [
@@ -1559,11 +1867,39 @@
           "enabled"
         ],
         "properties": {
+          "display": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BrowserDisplay",
+                "description": "Chromium display mode for the full-profile browser supervisor."
+              }
+            ]
+          },
           "enabled": {
             "type": "boolean"
           },
+          "max_session_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Ceiling for one browser session lease, in seconds.",
+            "maximum": 3600,
+            "minimum": 60
+          },
           "profile": {
             "$ref": "#/components/schemas/AgentBrowserProfile"
+          },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "IANA time zone name exposed to the browser, such as `America/Chicago`."
           }
         },
         "additionalProperties": false
@@ -3077,6 +3413,16 @@
               }
             ]
           },
+          "tool_approvals": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentToolApproval"
+            },
+            "description": "Optional per-tool overrides of a built-in side-effecting tool's blocking\nbehavior. Side-effecting built-in tools audit by default (every call\nrecorded, none paused); list a tool as `required` to restore a blocking\noperator prompt for that tool only."
+          },
           "tool_presets": {
             "type": [
               "array",
@@ -3212,6 +3558,10 @@
           "clear_session_database": {
             "type": "boolean",
             "description": "Clear any existing external session database configuration."
+          },
+          "clear_tool_approvals": {
+            "type": "boolean",
+            "description": "Clear any existing per-tool blocking-approval overrides, returning every\nside-effecting built-in tool to the audited-by-default behavior."
           },
           "clear_tool_refs": {
             "type": "boolean",
@@ -3353,6 +3703,16 @@
                 "description": "Updated managed template."
               }
             ]
+          },
+          "tool_approvals": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentToolApproval"
+            },
+            "description": "Updated per-tool blocking-approval overrides. Replaces the entire\nprevious list when present."
           },
           "tool_presets": {
             "type": [
@@ -3531,7 +3891,8 @@
                 "type": "string"
               },
               "require_approval": {
-                "type": "boolean"
+                "type": "boolean",
+                "description": "On the prompt surface, the model runs the operation only after an\napproval. On the script surface, each request waits for the owner\nto approve its exact payload; only a mutating operation may\nrequire it there."
               }
             }
           },
@@ -3724,6 +4085,14 @@
           }
         ],
         "description": "Typed tool reference attached to an agent. Lives alongside the coarser\n`tool_presets` field; future managed-agent flows resolve from typed refs and\npresets together. Each non-preset variant carries an optional\n`permitted_actions` collection of `ActionLease`s — the per-action gate\nborrowed from OpenFang/IronClaw that lets the spec say \"this Connector may\nperform `read` but not `send`\" without inventing a separate ACL surface."
+      },
+      "BrowserDisplay": {
+        "type": "string",
+        "description": "Display mode for the managed Chromium browser.",
+        "enum": [
+          "headless",
+          "headed"
+        ]
       },
       "CloudDeploymentActionStatusResponse": {
         "type": "object",
@@ -4098,6 +4467,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "platform_managed": {
+            "type": "boolean",
+            "description": "Whether the deployment uses platform-owned template material."
+          },
           "publisher_only": {
             "type": "boolean"
           },
@@ -4124,6 +4497,38 @@
             "description": "Visibility mode: \"open\" (default) or \"opaque\" (redacts selected details from non-owners)."
           }
         }
+      },
+      "CloudDeploymentView": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ManagedAgentOwnerView"
+          },
+          {
+            "$ref": "#/components/schemas/CloudDeploymentSummary"
+          }
+        ],
+        "description": "A deployment as the caller sees it. A hired Employee appears only as its\nowner view."
+      },
+      "CreateManagedAgentTemplateDeploymentRequest": {
+        "type": "object",
+        "required": [
+          "provider",
+          "oauth_connection_id",
+          "timezone"
+        ],
+        "properties": {
+          "oauth_connection_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ManagedAgentHireProvider"
+          },
+          "timezone": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "DataResponse_AgentCapabilitiesResponse": {
         "type": "object",
@@ -4433,6 +4838,10 @@
                 "type": "string",
                 "format": "uuid"
               },
+              "platform_managed": {
+                "type": "boolean",
+                "description": "Whether the deployment uses platform-owned template material."
+              },
               "publisher_only": {
                 "type": "boolean"
               },
@@ -4514,394 +4923,6 @@
               },
               "summary": {
                 "$ref": "#/components/schemas/ManagedAgentActivitySummary"
-              }
-            }
-          },
-          "pagination": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/PaginationMeta",
-                "description": "Optional pagination metadata"
-              }
-            ]
-          }
-        }
-      },
-      "DataResponse_ManagedAgentDeploymentDetail": {
-        "type": "object",
-        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
-        "required": [
-          "data"
-        ],
-        "properties": {
-          "data": {
-            "type": "object",
-            "required": [
-              "deployment_id",
-              "name",
-              "agent_slug",
-              "mode",
-              "compute_backend",
-              "runtime_kind",
-              "status",
-              "bundle",
-              "model_id",
-              "model_config",
-              "template",
-              "tool_presets",
-              "allowed_publisher_operations",
-              "resolved_tools",
-              "approval_policy",
-              "model_policy",
-              "runtime_adapter",
-              "private_output_policy",
-              "secret_keys",
-              "requirements",
-              "visibility",
-              "routing_reason"
-            ],
-            "properties": {
-              "active_revision_id": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "format": "uuid",
-                "description": "Current managed-agent revision for this deployment."
-              },
-              "agent_identity_id": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "format": "uuid",
-                "description": "Seren Secrets agent identity this managed agent acts as when\nresolving `seren-secrets://` references."
-              },
-              "agent_slug": {
-                "type": "string"
-              },
-              "alert_policy": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/CloudDeploymentAlertPolicy"
-                  }
-                ]
-              },
-              "allowed_publisher_operations": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "allowed_remote_agent_origins": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "approval_policy": {
-                "$ref": "#/components/schemas/ManagedAgentApprovalPolicy"
-              },
-              "bundle": {
-                "$ref": "#/components/schemas/AgentBundle"
-              },
-              "capability_policy": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/AgentCapabilityPolicy",
-                    "description": "Optional runtime capability policy."
-                  }
-                ]
-              },
-              "compute_backend": {
-                "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
-              },
-              "conditions": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/ManagedDeploymentCondition"
-                },
-                "description": "Structured status conditions for the managed deployment. Today this is\nsynthesized from the flat lifecycle `status` and the last persisted\n`error_message`; future work will let the runtime controller report\nconditions directly."
-              },
-              "config": {},
-              "connector_webhooks": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/ManagedAgentConnectorWebhookRoute"
-                },
-                "description": "Public provider webhook routes for connector-backed messaging channels."
-              },
-              "context_budget_tokens": {
-                "type": [
-                  "integer",
-                  "null"
-                ],
-                "format": "int32",
-                "minimum": 0
-              },
-              "credentials": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/AgentCredentialRef"
-                },
-                "description": "Credential references attached to this deployment, when any. Reusable\n`org-secret://` and `user-secret://` records are managed through the\norganization credential-secret API."
-              },
-              "cron_schedule": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "cron_timezone": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "dashboard_config": {},
-              "deployment_id": {
-                "type": "string",
-                "format": "uuid"
-              },
-              "effective_model_candidates": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "description": "Effective model candidate order the runtime attempts, in fallback order,\nafter resolving and de-duplicating the authored primary and fallback\nmodels. Read-only. May be shorter than the authored primary plus\n`fallback_models` when authored entries resolve to the same model;\ncompare the two to see the effective fallback policy."
-              },
-              "eval_gate": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/EvalGate",
-                    "description": "Eval gate that must pass with a fresh verdict before runs proceed.\n`set_id` and `max_age_seconds` always travel together; either both are\nset or the gate is absent."
-                  }
-                ]
-              },
-              "external_databases": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/ManagedExternalDatabaseAttachment"
-                }
-              },
-              "fallback_models": {
-                "type": [
-                  "array",
-                  "null"
-                ],
-                "items": {
-                  "type": "string"
-                }
-              },
-              "guardrails": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/AgentGuardrailPolicy"
-                },
-                "description": "Guardrails attached to this deployment, when any."
-              },
-              "llm_connection": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/ManagedAgentLlmConnection"
-                  }
-                ]
-              },
-              "managed_agent_secret_requirements": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/ManagedAgentSecretRequirements"
-                  }
-                ]
-              },
-              "max_iterations": {
-                "type": [
-                  "integer",
-                  "null"
-                ],
-                "format": "int32",
-                "minimum": 0
-              },
-              "max_timeout_seconds": {
-                "type": [
-                  "integer",
-                  "null"
-                ],
-                "format": "int32",
-                "minimum": 0
-              },
-              "max_tool_calls_per_run": {
-                "type": [
-                  "integer",
-                  "null"
-                ],
-                "format": "int32",
-                "minimum": 0
-              },
-              "max_tool_output_chars": {
-                "type": [
-                  "integer",
-                  "null"
-                ],
-                "format": "int32",
-                "minimum": 0
-              },
-              "memory_policy": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/AgentMemoryPolicy",
-                    "description": "Memory policy declared by the deployment, when set."
-                  }
-                ]
-              },
-              "mode": {
-                "$ref": "#/components/schemas/CloudDeploymentMode"
-              },
-              "model_config": {},
-              "model_id": {
-                "type": "string"
-              },
-              "model_policy": {
-                "$ref": "#/components/schemas/ManagedAgentModelPolicy"
-              },
-              "name": {
-                "type": "string"
-              },
-              "network_policy": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/CloudDeploymentNetworkPolicy"
-                  }
-                ]
-              },
-              "private_output_policy": {
-                "$ref": "#/components/schemas/ManagedAgentPrivateOutputPolicy"
-              },
-              "requirements": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/RequirementSpec"
-                }
-              },
-              "requirements_txt": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "resolved_tools": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "routing_reason": {
-                "type": "string"
-              },
-              "runtime_adapter": {
-                "$ref": "#/components/schemas/ManagedAgentRuntimeAdapter"
-              },
-              "runtime_kind": {
-                "$ref": "#/components/schemas/CloudDeploymentRuntimeKind"
-              },
-              "runtime_policy": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/AgentRuntimePolicy",
-                    "description": "Typed runtime policy (filesystem/network/process/resources), when set."
-                  }
-                ]
-              },
-              "secret_keys": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "secret_resolution_result_id": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "format": "uuid",
-                "description": "Delegation result the active binding was applied from. Clients use\nthis to tell an applied binding apart from an approved delegation\nthat has not been applied yet."
-              },
-              "session_database": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/ManagedAgentSessionDatabase"
-                  }
-                ]
-              },
-              "side_effect_policy": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/SideEffectPolicy"
-                  }
-                ]
-              },
-              "status": {
-                "$ref": "#/components/schemas/CloudDeploymentStatus"
-              },
-              "template": {
-                "$ref": "#/components/schemas/ManagedAgentTemplate"
-              },
-              "tool_definitions": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/ToolDefinition"
-                },
-                "description": "Resolved orchestration tool definitions derived from tool presets and\ntyped tool references. This deployment detail field is read-only."
-              },
-              "tool_presets": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/ManagedAgentToolPreset"
-                },
-                "description": "Preset configuration enabled on the deployment. Presets are compact\nconfig inputs; use the tool-groups endpoint for the resolved display\nmodel with labels, descriptions, and tool membership."
-              },
-              "tool_refs": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/AgentToolRef"
-                },
-                "description": "Typed tool refs declared on the deployment, when any."
-              },
-              "visibility": {
-                "type": "string"
               }
             }
           },
@@ -5267,6 +5288,207 @@
           }
         }
       },
+      "DataResponse_ManagedAgentHireResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "deployment_id",
+              "hire_id",
+              "created",
+              "bonus"
+            ],
+            "properties": {
+              "bonus": {
+                "$ref": "#/components/schemas/ManagedAgentHireBonusResponse"
+              },
+              "created": {
+                "type": "boolean"
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "hire_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentOwnerView": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "A hired Employee as its organization sees it; only the owner sees its connection.",
+            "required": [
+              "id",
+              "organization_id",
+              "name",
+              "skill_slug",
+              "mode",
+              "platform_managed",
+              "status",
+              "desired_lifecycle_state",
+              "template",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "connection": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentOwnerConnection",
+                    "description": "The mail and files connection the deployment uses. Only its owner sees it."
+                  }
+                ]
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "cron_schedule": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cron_timezone": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "desired_lifecycle_state": {
+                "$ref": "#/components/schemas/DesiredLifecycleState"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "mode": {
+                "$ref": "#/components/schemas/CloudDeploymentMode"
+              },
+              "name": {
+                "type": "string"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "paused": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentPauseReason",
+                    "description": "Why Seren paused the deployment, when it did."
+                  }
+                ]
+              },
+              "platform_managed": {
+                "type": "boolean",
+                "description": "Always true; distinguishes this view from an ordinary deployment summary."
+              },
+              "skill_slug": {
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/components/schemas/CloudDeploymentStatus"
+              },
+              "template": {
+                "$ref": "#/components/schemas/ManagedAgentOwnerTemplate"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentRuntimeContext": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Owner and mail binding of a platform-managed deployment.",
+            "required": [
+              "owner_email",
+              "mail_provider",
+              "oauth_connection_id"
+            ],
+            "properties": {
+              "mail_provider": {
+                "$ref": "#/components/schemas/ManagedAgentMailProvider",
+                "description": "Mail provider bound to the deployment."
+              },
+              "oauth_connection_id": {
+                "type": "string",
+                "format": "uuid",
+                "description": "OAuth connection the deployment's mail and file requests use."
+              },
+              "owner_email": {
+                "type": "string",
+                "description": "Verified email address of the deployment owner."
+              }
+            },
+            "additionalProperties": false
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedAgentRuntimePolicyReconciliationPreview": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -5386,6 +5608,49 @@
                     "$ref": "#/components/schemas/ManagedRuntimeReconciliationSummary"
                   }
                 ]
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentTemplateStats": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "hours_of_work",
+              "skills_count",
+              "updated_at"
+            ],
+            "properties": {
+              "hours_of_work": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "skills_count": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Time these statistics were computed."
               }
             }
           },
@@ -5590,6 +5855,36 @@
           }
         }
       },
+      "DataResponse_ManagedDeploymentReadResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ManagedAgentDeploymentDetail"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentOwnerView"
+              }
+            ]
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_PrivateModelCatalogResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -5721,7 +6016,7 @@
           }
         }
       },
-      "DataResponse_Vec_CloudDeploymentSummary": {
+      "DataResponse_Vec_CloudDeploymentView": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
         "required": [
@@ -5731,202 +6026,15 @@
           "data": {
             "type": "array",
             "items": {
-              "type": "object",
-              "description": "Summary view for listing deployments (excludes large fields like code_bundle).",
-              "required": [
-                "id",
-                "organization_id",
-                "user_id",
-                "name",
-                "skill_slug",
-                "compute_backend",
-                "runtime_kind",
-                "mode",
-                "status",
-                "desired_lifecycle_state",
-                "desired_egress_state",
-                "control_generation",
-                "code_bundle_hash",
-                "orchestration_mode",
-                "requirements",
-                "visibility",
-                "created_at",
-                "updated_at"
-              ],
-              "properties": {
-                "active_revision_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "format": "uuid",
-                  "description": "Current managed-agent revision, when this is a managed seren-agent deployment."
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ManagedAgentOwnerView"
                 },
-                "alert_policy": {
-                  "oneOf": [
-                    {
-                      "type": "null"
-                    },
-                    {
-                      "$ref": "#/components/schemas/CloudDeploymentAlertPolicy"
-                    }
-                  ]
-                },
-                "code_bundle_hash": {
-                  "type": "string"
-                },
-                "compute_backend": {
-                  "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
-                },
-                "control_generation": {
-                  "type": "integer",
-                  "format": "int64",
-                  "description": "Monotonic operator-control epoch enforced at admission and egress."
-                },
-                "created_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "cron_schedule": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "cron_timezone": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "dashboard_config": {},
-                "deployment_bundle_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "format": "uuid"
-                },
-                "desired_egress_state": {
-                  "$ref": "#/components/schemas/DesiredEgressState",
-                  "description": "Operator-desired external publication fence."
-                },
-                "desired_lifecycle_state": {
-                  "$ref": "#/components/schemas/DesiredLifecycleState",
-                  "description": "Operator-desired lifecycle. Independent of observed compute status."
-                },
-                "endpoint_url": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "environment_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "format": "uuid"
-                },
-                "error_message": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "eval_gate_max_age_seconds": {
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
-                  "format": "int32"
-                },
-                "eval_gate_set_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "format": "uuid"
-                },
-                "eval_gate_status": {
-                  "oneOf": [
-                    {
-                      "type": "null"
-                    },
-                    {
-                      "$ref": "#/components/schemas/CloudDeploymentEvalGateStatus"
-                    }
-                  ]
-                },
-                "id": {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                "managed_agent": {
-                  "oneOf": [
-                    {
-                      "type": "null"
-                    },
-                    {
-                      "$ref": "#/components/schemas/ManagedAgentSummary"
-                    }
-                  ]
-                },
-                "mode": {
-                  "$ref": "#/components/schemas/CloudDeploymentMode"
-                },
-                "model_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "name": {
-                  "type": "string"
-                },
-                "network_policy": {
-                  "oneOf": [
-                    {
-                      "type": "null"
-                    },
-                    {
-                      "$ref": "#/components/schemas/CloudDeploymentNetworkPolicy"
-                    }
-                  ]
-                },
-                "orchestration_mode": {
-                  "$ref": "#/components/schemas/OrchestrationMode"
-                },
-                "organization_id": {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                "publisher_only": {
-                  "type": "boolean"
-                },
-                "requirements": {},
-                "runtime_kind": {
-                  "$ref": "#/components/schemas/CloudDeploymentRuntimeKind"
-                },
-                "skill_slug": {
-                  "type": "string"
-                },
-                "status": {
-                  "$ref": "#/components/schemas/CloudDeploymentStatus"
-                },
-                "updated_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "user_id": {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                "visibility": {
-                  "type": "string",
-                  "description": "Visibility mode: \"open\" (default) or \"opaque\" (redacts selected details from non-owners)."
+                {
+                  "$ref": "#/components/schemas/CloudDeploymentSummary"
                 }
-              }
+              ],
+              "description": "A deployment as the caller sees it. A hired Employee appears only as its\nowner view."
             }
           },
           "pagination": {
@@ -6482,6 +6590,14 @@
           "allow_mutations"
         ]
       },
+      "ManagedAgentApprovalTool": {
+        "type": "string",
+        "description": "Built-in side-effecting tool whose blocking behavior a deployment can configure.",
+        "enum": [
+          "seren_publisher_action",
+          "seren_mcp_call_tool"
+        ]
+      },
       "ManagedAgentCapabilityResources": {
         "type": "object",
         "required": [
@@ -6524,6 +6640,15 @@
             "type": "boolean"
           }
         }
+      },
+      "ManagedAgentConnectionState": {
+        "type": "string",
+        "description": "Whether a user's connection can serve a provider's mail and files tools.",
+        "enum": [
+          "connected",
+          "reconnect_required",
+          "disconnected"
+        ]
       },
       "ManagedAgentConnectorResource": {
         "type": "object",
@@ -7771,6 +7896,71 @@
           }
         }
       },
+      "ManagedAgentHireBonusOutcome": {
+        "type": "string",
+        "description": "Bonus eligibility is independent of whether the hire succeeded.",
+        "enum": [
+          "granted",
+          "previously_claimed",
+          "ineligible"
+        ]
+      },
+      "ManagedAgentHireBonusResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "amount_usd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ManagedAgentHireBonusOutcome"
+          }
+        }
+      },
+      "ManagedAgentHireProvider": {
+        "type": "string",
+        "enum": [
+          "google",
+          "microsoft"
+        ]
+      },
+      "ManagedAgentHireResponse": {
+        "type": "object",
+        "required": [
+          "deployment_id",
+          "hire_id",
+          "created",
+          "bonus"
+        ],
+        "properties": {
+          "bonus": {
+            "$ref": "#/components/schemas/ManagedAgentHireBonusResponse"
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "hire_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "ManagedAgentLlmConnection": {
         "oneOf": [
           {
@@ -7811,6 +8001,14 @@
             ],
             "description": "Run the Employee on the deployment owner's own OpenAI Codex access."
           }
+        ]
+      },
+      "ManagedAgentMailProvider": {
+        "type": "string",
+        "description": "Mail provider a platform-managed deployment is bound to.",
+        "enum": [
+          "gmail",
+          "microsoft_outlook"
         ]
       },
       "ManagedAgentMemoryResources": {
@@ -7854,6 +8052,144 @@
           "fast",
           "balanced",
           "deep"
+        ]
+      },
+      "ManagedAgentOwnerConnection": {
+        "type": "object",
+        "required": [
+          "provider",
+          "oauth_connection_id",
+          "state"
+        ],
+        "properties": {
+          "oauth_connection_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ManagedAgentHireProvider"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ManagedAgentConnectionState"
+          }
+        }
+      },
+      "ManagedAgentOwnerTemplate": {
+        "type": "object",
+        "required": [
+          "slug",
+          "display_name",
+          "revision"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Template revision currently applied to the deployment."
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentOwnerView": {
+        "type": "object",
+        "description": "A hired Employee as its organization sees it; only the owner sees its connection.",
+        "required": [
+          "id",
+          "organization_id",
+          "name",
+          "skill_slug",
+          "mode",
+          "platform_managed",
+          "status",
+          "desired_lifecycle_state",
+          "template",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "connection": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentOwnerConnection",
+                "description": "The mail and files connection the deployment uses. Only its owner sees it."
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "cron_schedule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cron_timezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "desired_lifecycle_state": {
+            "$ref": "#/components/schemas/DesiredLifecycleState"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CloudDeploymentMode"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "paused": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentPauseReason",
+                "description": "Why Seren paused the deployment, when it did."
+              }
+            ]
+          },
+          "platform_managed": {
+            "type": "boolean",
+            "description": "Always true; distinguishes this view from an ordinary deployment summary."
+          },
+          "skill_slug": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CloudDeploymentStatus"
+          },
+          "template": {
+            "$ref": "#/components/schemas/ManagedAgentOwnerTemplate"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ManagedAgentPauseReason": {
+        "type": "string",
+        "enum": [
+          "mail_connection_revoked"
         ]
       },
       "ManagedAgentPrivateOutputPolicy": {
@@ -7914,7 +8250,9 @@
         "enum": [
           "create",
           "update",
-          "rollback"
+          "rollback",
+          "template_rollout",
+          "template_rollback"
         ]
       },
       "ManagedAgentRunActivity": {
@@ -8018,6 +8356,31 @@
         "enum": [
           "seren_agent"
         ]
+      },
+      "ManagedAgentRuntimeContext": {
+        "type": "object",
+        "description": "Owner and mail binding of a platform-managed deployment.",
+        "required": [
+          "owner_email",
+          "mail_provider",
+          "oauth_connection_id"
+        ],
+        "properties": {
+          "mail_provider": {
+            "$ref": "#/components/schemas/ManagedAgentMailProvider",
+            "description": "Mail provider bound to the deployment."
+          },
+          "oauth_connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "OAuth connection the deployment's mail and file requests use."
+          },
+          "owner_email": {
+            "type": "string",
+            "description": "Verified email address of the deployment owner."
+          }
+        },
+        "additionalProperties": false
       },
       "ManagedAgentRuntimePolicyReconciliationPreview": {
         "type": "object",
@@ -8821,6 +9184,54 @@
           "workflow_agent"
         ]
       },
+      "ManagedAgentTemplateStats": {
+        "type": "object",
+        "required": [
+          "hours_of_work",
+          "skills_count",
+          "updated_at"
+        ],
+        "properties": {
+          "hours_of_work": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "skills_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Time these statistics were computed."
+          }
+        }
+      },
+      "ManagedAgentToolApproval": {
+        "type": "object",
+        "description": "Per-tool override for the managed runtime's audited-by-default behavior.",
+        "required": [
+          "tool",
+          "approval"
+        ],
+        "properties": {
+          "approval": {
+            "$ref": "#/components/schemas/ManagedAgentToolApprovalMode"
+          },
+          "tool": {
+            "$ref": "#/components/schemas/ManagedAgentApprovalTool"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentToolApprovalMode": {
+        "type": "string",
+        "description": "Whether a configurable tool runs with audit logging or requires operator approval.",
+        "enum": [
+          "audit",
+          "required"
+        ]
+      },
       "ManagedAgentToolCatalogEntry": {
         "type": "object",
         "required": [
@@ -9426,6 +9837,16 @@
           "Failed"
         ]
       },
+      "ManagedDeploymentReadResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ManagedAgentDeploymentDetail"
+          },
+          {
+            "$ref": "#/components/schemas/ManagedAgentOwnerView"
+          }
+        ]
+      },
       "ManagedExternalDatabaseAccess": {
         "type": "string",
         "enum": [
@@ -9605,7 +10026,8 @@
             "format": "uuid"
           },
           "state": {
-            "$ref": "#/components/schemas/ManagedRuntimeReconciliationState"
+            "$ref": "#/components/schemas/ManagedRuntimeReconciliationState",
+            "description": "`applied` on a `next_start` target means the revision is staged, not Ready."
           },
           "status_path": {
             "type": "string"
@@ -9731,6 +10153,20 @@
           "fallback_registry",
           "unsupported_provider"
         ]
+      },
+      "RebindManagedAgentConnectionRequest": {
+        "type": "object",
+        "required": [
+          "oauth_connection_id"
+        ],
+        "properties": {
+          "oauth_connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The owner's connection of the deployment's mail and files provider."
+          }
+        },
+        "additionalProperties": false
       },
       "RequirementSource": {
         "type": "string",

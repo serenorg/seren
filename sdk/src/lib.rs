@@ -205,8 +205,8 @@ mod tests {
         }
     }
 
-    /// `build.rs` omits exactly one operation from code generation because
-    /// Progenitor cannot emit multipart request bodies, and
+    /// `build.rs` omits this operation from code generation because Progenitor
+    /// cannot emit multipart request bodies, and
     /// `upload_current_user_avatar` is hand-written against that omission. If
     /// the bundled contract stops declaring this operation as multipart, the
     /// filter and the hand-written method both need to be revisited.
@@ -257,6 +257,42 @@ mod tests {
             unexpected.is_empty(),
             "unsupported multipart operations need a hand-written SDK method: {unexpected:?}",
         );
+    }
+
+    /// `build.rs` omits these raw uploads from code generation because their
+    /// Content-Type header selects the stored file type and Progenitor sends a
+    /// single fixed media type. They stay in the bundled public contract; if an
+    /// operation narrows to one media type, drop its omission so the generated
+    /// client gains the method.
+    #[test]
+    fn bundled_cloud_spec_keeps_the_raw_upload_operations_omitted_from_codegen() {
+        let spec: serde_json::Value =
+            serde_json::from_str(include_str!("../openapi/openapi-seren-cloud.json"))
+                .expect("parse bundled seren-cloud OpenAPI document");
+
+        for (path, operation_id) in [
+            (
+                "/deployments/{id}/executions/{execution_id}/artifact-files",
+                "seren_cloud_runtime_publish_run_artifact",
+            ),
+            ("/deployments/{id}/files", "seren_cloud_upload_run_file"),
+        ] {
+            let operation = &spec["paths"][path]["post"];
+            assert_eq!(operation["operationId"], operation_id, "{path}");
+            let content = operation["requestBody"]["content"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{operation_id} must declare a request body"));
+            assert!(
+                content.len() > 1,
+                "{operation_id} now has one media type; remove its codegen omission",
+            );
+            assert!(
+                content.values().all(|media| {
+                    media["schema"]["$ref"] == "#/components/schemas/RunFileContent"
+                }),
+                "{operation_id} must upload raw RunFileContent for every media type",
+            );
+        }
     }
 
     #[test]

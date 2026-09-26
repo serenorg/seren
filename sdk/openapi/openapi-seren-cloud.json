@@ -580,6 +580,7 @@
           "seren-cloud"
         ],
         "summary": "List all deployments for the authenticated organization.",
+        "description": "Lists deployments visible to the caller. A hired Employee is listed as its owner view.",
         "operationId": "seren_cloud_list_deployments",
         "responses": {
           "200": {
@@ -587,7 +588,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DataResponse_Vec_CloudDeploymentSummary"
+                  "$ref": "#/components/schemas/DataResponse_Vec_CloudDeploymentView"
                 }
               }
             }
@@ -609,6 +610,7 @@
           "seren-cloud"
         ],
         "summary": "Get details of a specific deployment.",
+        "description": "Returns the deployment visible to the caller. A hired Employee is returned as its owner view.",
         "operationId": "seren_cloud_get_deployment",
         "parameters": [
           {
@@ -628,7 +630,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentSummary"
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentView"
                 }
               }
             }
@@ -2047,6 +2049,157 @@
         ]
       }
     },
+    "/deployments/{id}/executions/{execution_id}/artifact-files": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Record a file one of the deployment's active runs produced, using the deployment's runtime key.",
+        "description": "The deployment owner downloads the file with the returned reference.\nRecording the same content again returns the latest revision; changed\ncontent under the same file name adds the next revision.",
+        "operationId": "seren_cloud_runtime_publish_run_artifact",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "execution_id",
+            "in": "path",
+            "description": "Run execution ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "file_name",
+            "in": "query",
+            "description": "Artifact file name, 1-255 bytes without path separators or control characters",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Artifact content, at most 20 MiB. The Content-Type header selects the file type.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "application/pdf": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "image/gif": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "image/jpeg": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "image/png": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "image/webp": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "text/csv": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "text/markdown": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Unchanged content returned the latest revision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentRunFile"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Artifact revision stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentRunFile"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid file name, content type, or empty file"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Requires this deployment's runtime key"
+          },
+          "404": {
+            "description": "Deployment or run not found"
+          },
+          "409": {
+            "description": "The run no longer accepts runtime requests"
+          },
+          "413": {
+            "description": "File exceeds 20 MiB"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/executions/{execution_id}/capture": {
       "get": {
         "tags": [
@@ -2144,6 +2297,399 @@
           },
           "404": {
             "description": "Capture authority not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/executions/{execution_id}/files/{file_id}/content": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Download a run file with the deployment's runtime key.",
+        "description": "A run may read the files its message cites and the files it created.",
+        "operationId": "seren_cloud_runtime_download_run_file",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "execution_id",
+            "in": "path",
+            "description": "Run execution ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "file_id",
+            "in": "path",
+            "description": "Run file reference",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run file content with the stored Content-Type",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunFileContent"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Requires this deployment's runtime key"
+          },
+          "404": {
+            "description": "Deployment, run, or run file not found"
+          },
+          "409": {
+            "description": "The run no longer accepts runtime requests"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/files": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Upload a file that the deployment owner can cite in interactive session messages.",
+        "description": "Only the deployment owner may upload. Replaying the same `idempotency_key`\nwith the same file returns the stored file; a different file under the same\nkey is rejected.",
+        "operationId": "seren_cloud_upload_run_file",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "file_name",
+            "in": "query",
+            "description": "Display file name, 1-255 bytes without path separators or control characters",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "idempotency_key",
+            "in": "query",
+            "description": "Caller-chosen key, 1-256 bytes, that makes retries return the same file",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "File content, at most 20 MiB. The Content-Type header selects the file type.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "application/pdf": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "image/gif": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "image/jpeg": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "image/png": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "image/webp": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "text/csv": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "text/markdown": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Replayed upload returned the stored file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentRunFile"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Run file stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentRunFile"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid file name, idempotency key, content type, or empty file"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Caller is not the deployment owner"
+          },
+          "404": {
+            "description": "Deployment not found"
+          },
+          "409": {
+            "description": "Idempotency key belongs to a different file"
+          },
+          "413": {
+            "description": "File exceeds 20 MiB"
+          },
+          "429": {
+            "description": "Upload rate limit exceeded"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/files/{file_id}": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Get metadata for a run file the caller owns.",
+        "operationId": "seren_cloud_get_run_file",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "file_id",
+            "in": "path",
+            "description": "Run file reference",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run file metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentRunFile"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Caller is not the deployment owner"
+          },
+          "404": {
+            "description": "Deployment or run file not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/files/{file_id}/content": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Download the content of a run file the caller owns: an owner upload or a run artifact.",
+        "operationId": "seren_cloud_download_run_file",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "file_id",
+            "in": "path",
+            "description": "Run file reference",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run file content as an attachment, with the stored Content-Type",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunFileContent"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunFileContent"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunFileContent"
+                }
+              },
+              "image/gif": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunFileContent"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunFileContent"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunFileContent"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunFileContent"
+                }
+              },
+              "text/markdown": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunFileContent"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunFileContent"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunFileContent"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunFileContent"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunFileContent"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Caller is not the deployment owner"
+          },
+          "404": {
+            "description": "Deployment or run file not found"
           }
         },
         "security": [
@@ -4960,7 +5506,7 @@
           "seren-cloud"
         ],
         "summary": "Record an operator decision for one approval entry.",
-        "description": "Repeating a completed blocked-egress decision returns its current state.",
+        "description": "Only the user who started the run can decide an entry for a publisher\nrequest prepared by a managed skill script. Repeating a completed\nblocked-egress decision returns its current state.",
         "operationId": "seren_cloud_approval_inbox_decide",
         "parameters": [
           {
@@ -6433,11 +6979,39 @@
           "enabled"
         ],
         "properties": {
+          "display": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BrowserDisplay",
+                "description": "Chromium display mode for the full-profile browser supervisor."
+              }
+            ]
+          },
           "enabled": {
             "type": "boolean"
           },
+          "max_session_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Ceiling for one browser session lease, in seconds.",
+            "maximum": 3600,
+            "minimum": 60
+          },
           "profile": {
             "$ref": "#/components/schemas/AgentBrowserProfile"
+          },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "IANA time zone name exposed to the browser, such as `America/Chicago`."
           }
         },
         "additionalProperties": false
@@ -7891,6 +8465,16 @@
               }
             ]
           },
+          "tool_approvals": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentToolApproval"
+            },
+            "description": "Optional per-tool overrides of a built-in side-effecting tool's blocking\nbehavior. Side-effecting built-in tools audit by default (every call\nrecorded, none paused); list a tool as `required` to restore a blocking\noperator prompt for that tool only."
+          },
           "tool_presets": {
             "type": [
               "array",
@@ -8050,7 +8634,8 @@
                 "type": "string"
               },
               "require_approval": {
-                "type": "boolean"
+                "type": "boolean",
+                "description": "On the prompt surface, the model runs the operation only after an\napproval. On the script surface, each request waits for the owner\nto approve its exact payload; only a mutating operation may\nrequire it there."
               }
             }
           },
@@ -8681,6 +9266,17 @@
           "request_payload_summary": {
             "description": "Arguments preview. Callers may truncate large payloads upstream; this\nfield is opaque JSON so the renderer decides how to display it."
           },
+          "script_publisher_approval": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudRunScriptPublisherApproval",
+                "description": "The exact publisher request a managed skill script is waiting to send."
+              }
+            ]
+          },
           "tool_call_id": {
             "type": "string"
           },
@@ -8846,6 +9442,14 @@
             "description": "Complete opaque reference set covered by the next managed-agent Secrets policy."
           }
         }
+      },
+      "BrowserDisplay": {
+        "type": "string",
+        "description": "Display mode for the managed Chromium browser.",
+        "enum": [
+          "headless",
+          "headed"
+        ]
       },
       "CancelManagedAgentOnboardingRequest": {
         "type": "object",
@@ -10420,6 +11024,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "platform_managed": {
+            "type": "boolean",
+            "description": "Whether the deployment uses platform-owned template material."
+          },
           "publisher_only": {
             "type": "boolean"
           },
@@ -10446,6 +11054,17 @@
             "description": "Visibility mode: \"open\" (default) or \"opaque\" (redacts selected details from non-owners)."
           }
         }
+      },
+      "CloudDeploymentView": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ManagedAgentOwnerView"
+          },
+          {
+            "$ref": "#/components/schemas/CloudDeploymentSummary"
+          }
+        ],
+        "description": "A deployment as the caller sees it. A hired Employee appears only as its\nowner view."
       },
       "CloudEvalCase": {
         "type": "object",
@@ -11208,6 +11827,14 @@
           },
           "content": {
             "type": "string"
+          },
+          "file_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Files the session owner uploaded to this deployment for the run to read (at most 10)."
           },
           "idempotency_key": {
             "type": "string"
@@ -12430,6 +13057,17 @@
               "null"
             ]
           },
+          "script_publisher_approval": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudRunScriptPublisherApproval",
+                "description": "Present when a managed skill script paused before an approval-gated\npublisher request."
+              }
+            ]
+          },
           "tool": {
             "type": "string"
           }
@@ -12596,6 +13234,100 @@
             "type": "boolean"
           }
         }
+      },
+      "CloudRunScriptApprovalAttachment": {
+        "type": "object",
+        "description": "One attachment identity, bound by the SHA-256 of its content.",
+        "required": [
+          "name",
+          "sha256"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string",
+            "description": "64 lowercase hex characters."
+          }
+        },
+        "additionalProperties": false
+      },
+      "CloudRunScriptApprovalMessage": {
+        "type": "object",
+        "description": "The outgoing message the owner reviews, derived from the request body.\nRecipients are delivery addresses only: a display name does not decide\nwhere the message goes, so it is not shown.",
+        "required": [
+          "to",
+          "cc",
+          "bcc",
+          "attachments"
+        ],
+        "properties": {
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloudRunScriptApprovalAttachment"
+            }
+          },
+          "bcc": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cc": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "subject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "to": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "CloudRunScriptPublisherApproval": {
+        "type": "object",
+        "description": "An approval-gated publisher request that a managed skill script prepared.\nThe runtime derives `message` from the exact request body it would\ndispatch. `payload_digest` covers the deployment, that request, `message`\nand `consequences`, so any change to them requires a new approval.",
+        "required": [
+          "publisher_slug",
+          "operation_id",
+          "payload_digest",
+          "message"
+        ],
+        "properties": {
+          "consequences": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Effects outside the publisher request that the script declared, such as\na document link becoming public. They cannot be derived from the\nrequest."
+          },
+          "message": {
+            "$ref": "#/components/schemas/CloudRunScriptApprovalMessage"
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "payload_digest": {
+            "type": "string",
+            "description": "`sha256:` followed by 64 lowercase hex characters."
+          },
+          "publisher_slug": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "CloudRunToolAuditStatus": {
         "type": "string",
@@ -14536,6 +15268,10 @@
                 "type": "string",
                 "format": "uuid"
               },
+              "platform_managed": {
+                "type": "boolean",
+                "description": "Whether the deployment uses platform-owned template material."
+              },
               "publisher_only": {
                 "type": "boolean"
               },
@@ -14562,6 +15298,37 @@
                 "description": "Visibility mode: \"open\" (default) or \"opaque\" (redacts selected details from non-owners)."
               }
             }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudDeploymentView": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ManagedAgentOwnerView"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentSummary"
+              }
+            ],
+            "description": "A deployment as the caller sees it. A hired Employee appears only as its\nowner view."
           },
           "pagination": {
             "oneOf": [
@@ -15922,6 +16689,86 @@
                 "items": {
                   "$ref": "#/components/schemas/ManagedAgentOnboarding"
                 }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentRunFile": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Opaque, owner-scoped reference to one immutable run file.",
+            "required": [
+              "id",
+              "deployment_id",
+              "origin",
+              "file_name",
+              "revision",
+              "content_type",
+              "byte_length",
+              "sha256",
+              "created_at"
+            ],
+            "properties": {
+              "byte_length": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "content_type": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "file_name": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "description": "File reference. Pass it back to cite or download the file."
+              },
+              "origin": {
+                "$ref": "#/components/schemas/ManagedAgentRunFileOrigin"
+              },
+              "revision": {
+                "type": "integer",
+                "format": "int32",
+                "description": "Artifact revision within its run and file name; always 1 for uploads."
+              },
+              "run_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "Run that produced the file; absent for owner uploads."
+              },
+              "sha256": {
+                "type": "string",
+                "description": "Hex SHA-256 of the file content."
               }
             }
           },
@@ -17416,7 +18263,7 @@
           }
         }
       },
-      "DataResponse_Vec_CloudDeploymentSummary": {
+      "DataResponse_Vec_CloudDeploymentView": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
         "required": [
@@ -17426,202 +18273,15 @@
           "data": {
             "type": "array",
             "items": {
-              "type": "object",
-              "description": "Summary view for listing deployments (excludes large fields like code_bundle).",
-              "required": [
-                "id",
-                "organization_id",
-                "user_id",
-                "name",
-                "skill_slug",
-                "compute_backend",
-                "runtime_kind",
-                "mode",
-                "status",
-                "desired_lifecycle_state",
-                "desired_egress_state",
-                "control_generation",
-                "code_bundle_hash",
-                "orchestration_mode",
-                "requirements",
-                "visibility",
-                "created_at",
-                "updated_at"
-              ],
-              "properties": {
-                "active_revision_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "format": "uuid",
-                  "description": "Current managed-agent revision, when this is a managed seren-agent deployment."
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ManagedAgentOwnerView"
                 },
-                "alert_policy": {
-                  "oneOf": [
-                    {
-                      "type": "null"
-                    },
-                    {
-                      "$ref": "#/components/schemas/CloudDeploymentAlertPolicy"
-                    }
-                  ]
-                },
-                "code_bundle_hash": {
-                  "type": "string"
-                },
-                "compute_backend": {
-                  "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
-                },
-                "control_generation": {
-                  "type": "integer",
-                  "format": "int64",
-                  "description": "Monotonic operator-control epoch enforced at admission and egress."
-                },
-                "created_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "cron_schedule": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "cron_timezone": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "dashboard_config": {},
-                "deployment_bundle_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "format": "uuid"
-                },
-                "desired_egress_state": {
-                  "$ref": "#/components/schemas/DesiredEgressState",
-                  "description": "Operator-desired external publication fence."
-                },
-                "desired_lifecycle_state": {
-                  "$ref": "#/components/schemas/DesiredLifecycleState",
-                  "description": "Operator-desired lifecycle. Independent of observed compute status."
-                },
-                "endpoint_url": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "environment_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "format": "uuid"
-                },
-                "error_message": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "eval_gate_max_age_seconds": {
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
-                  "format": "int32"
-                },
-                "eval_gate_set_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "format": "uuid"
-                },
-                "eval_gate_status": {
-                  "oneOf": [
-                    {
-                      "type": "null"
-                    },
-                    {
-                      "$ref": "#/components/schemas/CloudDeploymentEvalGateStatus"
-                    }
-                  ]
-                },
-                "id": {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                "managed_agent": {
-                  "oneOf": [
-                    {
-                      "type": "null"
-                    },
-                    {
-                      "$ref": "#/components/schemas/ManagedAgentSummary"
-                    }
-                  ]
-                },
-                "mode": {
-                  "$ref": "#/components/schemas/CloudDeploymentMode"
-                },
-                "model_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "name": {
-                  "type": "string"
-                },
-                "network_policy": {
-                  "oneOf": [
-                    {
-                      "type": "null"
-                    },
-                    {
-                      "$ref": "#/components/schemas/CloudDeploymentNetworkPolicy"
-                    }
-                  ]
-                },
-                "orchestration_mode": {
-                  "$ref": "#/components/schemas/OrchestrationMode"
-                },
-                "organization_id": {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                "publisher_only": {
-                  "type": "boolean"
-                },
-                "requirements": {},
-                "runtime_kind": {
-                  "$ref": "#/components/schemas/CloudDeploymentRuntimeKind"
-                },
-                "skill_slug": {
-                  "type": "string"
-                },
-                "status": {
-                  "$ref": "#/components/schemas/CloudDeploymentStatus"
-                },
-                "updated_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "user_id": {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                "visibility": {
-                  "type": "string",
-                  "description": "Visibility mode: \"open\" (default) or \"opaque\" (redacts selected details from non-owners)."
+                {
+                  "$ref": "#/components/schemas/CloudDeploymentSummary"
                 }
-              }
+              ],
+              "description": "A deployment as the caller sees it. A hired Employee appears only as its\nowner view."
             }
           },
           "pagination": {
@@ -18945,6 +19605,30 @@
           "allow_mutations"
         ]
       },
+      "ManagedAgentApprovalTool": {
+        "type": "string",
+        "description": "Built-in side-effecting tool whose blocking behavior a deployment can configure.",
+        "enum": [
+          "seren_publisher_action",
+          "seren_mcp_call_tool"
+        ]
+      },
+      "ManagedAgentConnectionState": {
+        "type": "string",
+        "description": "Whether a user's connection can serve a provider's mail and files tools.",
+        "enum": [
+          "connected",
+          "reconnect_required",
+          "disconnected"
+        ]
+      },
+      "ManagedAgentHireProvider": {
+        "type": "string",
+        "enum": [
+          "google",
+          "microsoft"
+        ]
+      },
       "ManagedAgentLlmConnection": {
         "oneOf": [
           {
@@ -19465,11 +20149,216 @@
           }
         ]
       },
+      "ManagedAgentOwnerConnection": {
+        "type": "object",
+        "required": [
+          "provider",
+          "oauth_connection_id",
+          "state"
+        ],
+        "properties": {
+          "oauth_connection_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ManagedAgentHireProvider"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ManagedAgentConnectionState"
+          }
+        }
+      },
+      "ManagedAgentOwnerTemplate": {
+        "type": "object",
+        "required": [
+          "slug",
+          "display_name",
+          "revision"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Template revision currently applied to the deployment."
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentOwnerView": {
+        "type": "object",
+        "description": "A hired Employee as its organization sees it; only the owner sees its connection.",
+        "required": [
+          "id",
+          "organization_id",
+          "name",
+          "skill_slug",
+          "mode",
+          "platform_managed",
+          "status",
+          "desired_lifecycle_state",
+          "template",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "connection": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentOwnerConnection",
+                "description": "The mail and files connection the deployment uses. Only its owner sees it."
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "cron_schedule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cron_timezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "desired_lifecycle_state": {
+            "$ref": "#/components/schemas/DesiredLifecycleState"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CloudDeploymentMode"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "paused": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentPauseReason",
+                "description": "Why Seren paused the deployment, when it did."
+              }
+            ]
+          },
+          "platform_managed": {
+            "type": "boolean",
+            "description": "Always true; distinguishes this view from an ordinary deployment summary."
+          },
+          "skill_slug": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CloudDeploymentStatus"
+          },
+          "template": {
+            "$ref": "#/components/schemas/ManagedAgentOwnerTemplate"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ManagedAgentPauseReason": {
+        "type": "string",
+        "enum": [
+          "mail_connection_revoked"
+        ]
+      },
       "ManagedAgentPrivateOutputPolicy": {
         "type": "string",
         "enum": [
           "control_plane",
           "private_session_database"
+        ]
+      },
+      "ManagedAgentRunFile": {
+        "type": "object",
+        "description": "Opaque, owner-scoped reference to one immutable run file.",
+        "required": [
+          "id",
+          "deployment_id",
+          "origin",
+          "file_name",
+          "revision",
+          "content_type",
+          "byte_length",
+          "sha256",
+          "created_at"
+        ],
+        "properties": {
+          "byte_length": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "file_name": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "File reference. Pass it back to cite or download the file."
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ManagedAgentRunFileOrigin"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Artifact revision within its run and file name; always 1 for uploads."
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Run that produced the file; absent for owner uploads."
+          },
+          "sha256": {
+            "type": "string",
+            "description": "Hex SHA-256 of the file content."
+          }
+        }
+      },
+      "ManagedAgentRunFileOrigin": {
+        "type": "string",
+        "enum": [
+          "owner_upload",
+          "run_artifact"
         ]
       },
       "ManagedAgentRuntimeAdapter": {
@@ -19593,6 +20482,31 @@
         "enum": [
           "research_monitor",
           "workflow_agent"
+        ]
+      },
+      "ManagedAgentToolApproval": {
+        "type": "object",
+        "description": "Per-tool override for the managed runtime's audited-by-default behavior.",
+        "required": [
+          "tool",
+          "approval"
+        ],
+        "properties": {
+          "approval": {
+            "$ref": "#/components/schemas/ManagedAgentToolApprovalMode"
+          },
+          "tool": {
+            "$ref": "#/components/schemas/ManagedAgentApprovalTool"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentToolApprovalMode": {
+        "type": "string",
+        "description": "Whether a configurable tool runs with audit logging or requires operator approval.",
+        "enum": [
+          "audit",
+          "required"
         ]
       },
       "ManagedAgentToolPreset": {
@@ -20567,7 +21481,8 @@
             "format": "uuid"
           },
           "state": {
-            "$ref": "#/components/schemas/ManagedRuntimeReconciliationState"
+            "$ref": "#/components/schemas/ManagedRuntimeReconciliationState",
+            "description": "`applied` on a `next_start` target means the revision is staged, not Ready."
           },
           "status_path": {
             "type": "string"
@@ -21143,6 +22058,10 @@
             "$ref": "#/components/schemas/RequirementSource"
           }
         }
+      },
+      "RunFileContent": {
+        "type": "string",
+        "format": "binary"
       },
       "SideEffectPolicy": {
         "type": "object",

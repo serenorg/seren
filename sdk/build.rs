@@ -196,52 +196,86 @@ fn normalize_nullable_parameters(value: &mut serde_json::Value) {
 
 /// Keep the complete public contract bundled with the SDK while omitting
 /// operations that Progenitor cannot represent in its generated Rust client.
-fn remove_unsupported_multipart_operations(value: &mut serde_json::Value) -> anyhow::Result<()> {
-    const OMITTED_OPERATIONS: &[(&str, &str)] = &[("/users/me/avatar", "post")];
+fn remove_unsupported_operations(value: &mut serde_json::Value) -> anyhow::Result<()> {
+    const AVATAR_PATH: &str = "/users/me/avatar";
+    // Raw uploads whose Content-Type header selects the stored file type.
+    // Progenitor sends one fixed media type per operation, so a generated
+    // method could not upload the other declared types.
+    const MULTIPLE_MEDIA_TYPE_OPERATIONS: &[&str] = &[
+        "seren_cloud_runtime_publish_run_artifact",
+        "seren_cloud_upload_run_file",
+    ];
+    const METHODS: [&str; 8] = [
+        "get", "put", "post", "delete", "options", "head", "patch", "trace",
+    ];
 
     let paths = value
         .get_mut("paths")
         .and_then(serde_json::Value::as_object_mut)
         .context("OpenAPI document is missing paths")?;
 
-    for (path, method) in OMITTED_OPERATIONS {
-        let Some(path_item) = paths
-            .get_mut(*path)
-            .and_then(serde_json::Value::as_object_mut)
-        else {
-            continue;
-        };
+    if let Some(path_item) = paths
+        .get_mut(AVATAR_PATH)
+        .and_then(serde_json::Value::as_object_mut)
+    {
         let is_multipart = path_item
-            .get(*method)
+            .get("post")
             .and_then(|operation| operation.pointer("/requestBody/content/multipart~1form-data"))
             .is_some();
         if is_multipart {
-            path_item.remove(*method);
+            path_item.remove("post");
         }
     }
 
-    for (path, path_item) in paths {
+    for path_item in paths.values_mut() {
+        let Some(path_item) = path_item.as_object_mut() else {
+            continue;
+        };
+        for method in METHODS {
+            let omitted = path_item.get(method).is_some_and(|operation| {
+                operation["operationId"]
+                    .as_str()
+                    .is_some_and(|id| MULTIPLE_MEDIA_TYPE_OPERATIONS.contains(&id))
+                    && request_media_type_count(operation) > 1
+            });
+            if omitted {
+                path_item.remove(method);
+            }
+        }
+    }
+
+    for (path, path_item) in paths.iter() {
         let Some(path_item) = path_item.as_object() else {
             continue;
         };
-        for method in [
-            "get", "put", "post", "delete", "options", "head", "patch", "trace",
-        ] {
-            if path_item
-                .get(method)
-                .and_then(|operation| {
-                    operation.pointer("/requestBody/content/multipart~1form-data")
-                })
+        for method in METHODS {
+            let Some(operation) = path_item.get(method) else {
+                continue;
+            };
+            if operation
+                .pointer("/requestBody/content/multipart~1form-data")
                 .is_some()
             {
                 anyhow::bail!(
                     "Rust SDK generation does not support multipart operation {method} {path}"
                 );
             }
+            if request_media_type_count(operation) > 1 {
+                anyhow::bail!(
+                    "Rust SDK generation does not support multiple request media types for {method} {path}; omit it explicitly or narrow the contract"
+                );
+            }
         }
     }
 
     Ok(())
+}
+
+fn request_media_type_count(operation: &serde_json::Value) -> usize {
+    operation
+        .pointer("/requestBody/content")
+        .and_then(serde_json::Value::as_object)
+        .map_or(0, serde_json::Map::len)
 }
 
 fn ensure_schema(components: &mut openapiv3::Components, name: &str, schema: Schema) {
@@ -855,7 +889,7 @@ fn main() -> anyhow::Result<()> {
     strip_error_response_content(&mut raw_json);
     preserve_diagnostic_error_responses(&mut raw_json)?;
     normalize_binary_content_schemas(&mut raw_json);
-    remove_unsupported_multipart_operations(&mut raw_json)?;
+    remove_unsupported_operations(&mut raw_json)?;
 
     // Checked on the document the generator consumes, after every normalization
     // pass. `downconvert_31_to_30` rewrites an empty `items` schema to an

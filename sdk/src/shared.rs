@@ -56,6 +56,21 @@ fn cloud_deployment_lifecycle_route(
     }
 }
 
+/// A hired Employee is returned only as its owner view, which omits
+/// `managed_agent`; it is always a platform-managed seren-agent deployment.
+fn cloud_deployment_view_lifecycle_route(
+    deployment: &crate::DataResponseCloudDeploymentViewData,
+) -> Result<CloudDeploymentLifecycleRoute, CloudDeploymentLifecycleError> {
+    match deployment {
+        crate::DataResponseCloudDeploymentViewData::ManagedAgentOwnerView(_) => {
+            Ok(CloudDeploymentLifecycleRoute::SerenAgent)
+        }
+        crate::DataResponseCloudDeploymentViewData::CloudDeploymentSummary(summary) => {
+            cloud_deployment_lifecycle_route(summary)
+        }
+    }
+}
+
 impl crate::Client {
     /// Start or stop a cloud deployment through the lifecycle endpoint that owns it.
     ///
@@ -77,7 +92,7 @@ impl crate::Client {
             .map_err(|error| CloudDeploymentLifecycleError::Lookup(Box::new(error)))?
             .into_inner()
             .data;
-        let route = cloud_deployment_lifecycle_route(&deployment)?;
+        let route = cloud_deployment_view_lifecycle_route(&deployment)?;
 
         match (route, action) {
             (CloudDeploymentLifecycleRoute::SerenAgent, CloudDeploymentLifecycleAction::Start) => {
@@ -325,6 +340,52 @@ pub async fn managed_secrets_apply_target(
         .into());
     }
     Ok(binding.target)
+}
+
+/// Select the managed agent detail from a managed deployment read.
+///
+/// Platform-managed deployments return an owner view without editable template
+/// material, so they cannot be changed through the managed agent detail contract.
+pub fn managed_agent_deployment_detail(
+    data: crate::DataResponseManagedDeploymentReadResponseData,
+) -> Result<crate::ManagedAgentDeploymentDetail, ValidationError> {
+    match data {
+        crate::DataResponseManagedDeploymentReadResponseData::DeploymentDetail(detail) => {
+            Ok(detail)
+        }
+        crate::DataResponseManagedDeploymentReadResponseData::OwnerView(_) => {
+            Err(ValidationError::new(
+                "This deployment uses platform-managed template material and cannot be changed through the managed agent detail contract.",
+            ))
+        }
+    }
+}
+
+/// Resource identity shared by ordinary deployments and hired Employees.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CloudDeploymentViewIdentity {
+    pub id: uuid::Uuid,
+    pub organization_id: uuid::Uuid,
+}
+
+/// Return the resource identity shared by ordinary deployments and hired Employees.
+pub fn cloud_deployment_view_identity(
+    view: &crate::CloudDeploymentView,
+) -> CloudDeploymentViewIdentity {
+    match view {
+        crate::CloudDeploymentView::CloudDeploymentSummary(summary) => {
+            CloudDeploymentViewIdentity {
+                id: summary.id,
+                organization_id: summary.organization_id,
+            }
+        }
+        crate::CloudDeploymentView::ManagedAgentOwnerView(owner_view) => {
+            CloudDeploymentViewIdentity {
+                id: owner_view.id,
+                organization_id: owner_view.organization_id,
+            }
+        }
+    }
 }
 
 pub fn managed_agent_secrets_application(
@@ -2059,6 +2120,56 @@ mod tests {
         }
     }
 
+    #[test]
+    fn managed_deployment_reads_select_detail_and_reject_platform_managed_owner_views() {
+        let deployment_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, uuid::Uuid::new_v4());
+        let read: crate::DataResponseManagedDeploymentReadResponse =
+            serde_json::from_value(serde_json::json!({ "data": detail.clone() }))
+                .expect("managed detail decodes as the detail variant");
+        let selected = managed_agent_deployment_detail(read.data).expect("detail variant");
+        assert_eq!(selected.deployment_id, deployment_id);
+
+        let owner_view: crate::DataResponseManagedDeploymentReadResponse =
+            serde_json::from_value(serde_json::json!({
+                "data": {
+                    "id": deployment_id,
+                    "organization_id": uuid::Uuid::from_u128(1),
+                    "name": "Platform Template",
+                    "skill_slug": "platform-template",
+                    "created_at": "2026-09-01T00:00:00Z",
+                    "desired_lifecycle_state": "running",
+                    "mode": "always_on",
+                    "status": "running",
+                    "updated_at": "2026-09-01T00:00:00Z",
+                    "platform_managed": true,
+                    "template": {
+                        "slug": "platform-template",
+                        "display_name": "Platform Template",
+                        "revision": 1
+                    }
+                }
+            }))
+            .expect("platform-managed view decodes as the owner-view variant");
+        let crate::DataResponseManagedDeploymentReadResponseData::OwnerView(view) =
+            &owner_view.data
+        else {
+            panic!("hired Employee returns an owner view");
+        };
+        assert_eq!(
+            cloud_deployment_view_identity(&crate::CloudDeploymentView::ManagedAgentOwnerView(
+                view.clone()
+            )),
+            CloudDeploymentViewIdentity {
+                id: deployment_id,
+                organization_id: uuid::Uuid::from_u128(1),
+            }
+        );
+        let error = managed_agent_deployment_detail(owner_view.data)
+            .expect_err("an owner view is not editable managed agent detail");
+        assert!(error.0.contains("platform-managed"));
+    }
+
     fn managed_detail(
         deployment_id: uuid::Uuid,
         active_revision_id: uuid::Uuid,
@@ -2519,6 +2630,52 @@ mod tests {
             );
         }
         serde_json::from_value(data).expect("deployment summary fixture")
+    }
+
+    #[test]
+    fn hired_employee_owner_views_select_the_seren_agent_route() {
+        let owner_view: crate::DataResponseCloudDeploymentView =
+            serde_json::from_value(serde_json::json!({
+                "data": {
+                    "id": uuid::Uuid::from_u128(0x9002),
+                    "organization_id": uuid::Uuid::from_u128(1),
+                    "name": "Hired Employee",
+                    "skill_slug": "managed-hire-0000000000000000000000000000900a",
+                    "mode": "cron",
+                    "platform_managed": true,
+                    "status": "running",
+                    "desired_lifecycle_state": "running",
+                    "template": {
+                        "slug": "platform-template",
+                        "display_name": "Platform Template",
+                        "revision": 3
+                    },
+                    "created_at": "2026-09-01T00:00:00Z",
+                    "updated_at": "2026-09-01T00:00:00Z"
+                }
+            }))
+            .expect("a hired Employee decodes as its owner view");
+        assert!(matches!(
+            owner_view.data,
+            crate::DataResponseCloudDeploymentViewData::ManagedAgentOwnerView(_)
+        ));
+        assert_eq!(
+            cloud_deployment_view_lifecycle_route(&owner_view.data).expect("owner-view route"),
+            CloudDeploymentLifecycleRoute::SerenAgent
+        );
+
+        let summary: crate::DataResponseCloudDeploymentView = serde_json::from_value(
+            serde_json::json!({ "data": cloud_deployment_summary(None, None) }),
+        )
+        .expect("an ordinary deployment decodes as its summary");
+        assert!(matches!(
+            summary.data,
+            crate::DataResponseCloudDeploymentViewData::CloudDeploymentSummary(_)
+        ));
+        assert_eq!(
+            cloud_deployment_view_lifecycle_route(&summary.data).expect("summary route"),
+            CloudDeploymentLifecycleRoute::SerenCloud
+        );
     }
 
     #[test]

@@ -333,6 +333,19 @@ fn compact_preview_for_cli(value: &str, max_chars: usize) -> String {
     truncate_for_cli(&compact, max_chars)
 }
 
+/// Hired Employees appear only as owner views, which carry `platform_managed`
+/// instead of `managed_agent`.
+fn is_managed_agent_deployment(deployment: &serde_json::Value) -> bool {
+    !deployment
+        .get("managed_agent")
+        .unwrap_or(&serde_json::Value::Null)
+        .is_null()
+        || deployment
+            .get("platform_managed")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+}
+
 fn build_deployment_name_map(deployments: &[serde_json::Value]) -> HashMap<String, String> {
     deployments
         .iter()
@@ -1029,6 +1042,8 @@ pub async fn create_prepaid_deposit(amount_cents: i64, ctx: &CommandContext) -> 
     let body = seren::DepositRequest {
         amount_cents,
         referral_code: None,
+        success_url: None,
+        cancel_url: None,
     };
 
     let response = match client.create_deposit(&body).await {
@@ -5042,15 +5057,21 @@ async fn managed_agent_deployment_summary(
     client: &seren::Client,
     deployment_id: Uuid,
 ) -> Result<seren::CloudDeploymentSummary> {
-    client
+    let view = client
         .seren_agent_list_deployments()
         .await
         .map_err(|error| anyhow::anyhow!("Failed to list managed agent deployments: {error}"))?
         .into_inner()
         .data
         .into_iter()
-        .find(|deployment| deployment.id == deployment_id)
-        .ok_or_else(|| anyhow::anyhow!("Managed agent deployment not found: {deployment_id}"))
+        .find(|deployment| seren::cloud_deployment_view_identity(deployment).id == deployment_id)
+        .ok_or_else(|| anyhow::anyhow!("Managed agent deployment not found: {deployment_id}"))?;
+    match view {
+        seren::CloudDeploymentView::CloudDeploymentSummary(summary) => Ok(summary),
+        seren::CloudDeploymentView::ManagedAgentOwnerView(_) => anyhow::bail!(
+            "This Employee uses a platform-managed template and cannot be changed through this command."
+        ),
+    }
 }
 
 async fn managed_agent_secrets_policy_request(
@@ -5226,6 +5247,7 @@ pub async fn managed_agent_secrets_apply(setup_id: Uuid, ctx: &CommandContext) -
         .map_err(|error| anyhow::anyhow!("Failed to load managed agent detail: {error}"))?
         .into_inner()
         .data;
+    let detail = seren::managed_agent_deployment_detail(detail)?;
     match seren::managed_agent_secrets_application(
         &target,
         deployment.organization_id,
@@ -5269,6 +5291,7 @@ pub async fn managed_agent_secrets_apply(setup_id: Uuid, ctx: &CommandContext) -
         })?
         .into_inner()
         .data;
+    let after = seren::managed_agent_deployment_detail(after)?;
     if !matches!(
         seren::managed_agent_secrets_application(
             &target,
@@ -5317,6 +5340,7 @@ async fn build_publisher_credential_proposal_request(
         .map_err(|error| anyhow::anyhow!("Failed to load managed agent detail: {error}"))?
         .into_inner()
         .data;
+    let detail = seren::managed_agent_deployment_detail(detail)?;
     let expected_active_revision_id = detail.active_revision_id.ok_or_else(|| {
         anyhow::anyhow!("The managed agent deployment has no active revision to base a proposal on")
     })?;
@@ -5501,6 +5525,7 @@ pub async fn managed_publisher_credential_proposal_apply(
         .map_err(|error| anyhow::anyhow!("Failed to load managed agent detail: {error}"))?
         .into_inner()
         .data;
+    let detail = seren::managed_agent_deployment_detail(detail)?;
     let proposal = match client
         .seren_cloud_get_publisher_credential_proposal(&deployment_id)
         .await
@@ -5621,6 +5646,7 @@ async fn build_reference_env_credential_proposal_request(
         .map_err(|error| anyhow::anyhow!("Failed to load managed agent detail: {error}"))?
         .into_inner()
         .data;
+    let detail = seren::managed_agent_deployment_detail(detail)?;
     let expected_active_revision_id = detail.active_revision_id.ok_or_else(|| {
         anyhow::anyhow!("The managed agent deployment has no active revision to base a proposal on")
     })?;
@@ -5794,6 +5820,7 @@ pub async fn managed_reference_env_credential_proposal_apply(
         .map_err(|error| anyhow::anyhow!("Failed to load managed agent detail: {error}"))?
         .into_inner()
         .data;
+    let detail = seren::managed_agent_deployment_detail(detail)?;
     let proposal = match client
         .seren_cloud_get_reference_env_credential_proposal(&deployment_id)
         .await
@@ -5953,6 +5980,7 @@ pub async fn managed_connector_binding_proposal_apply(
         .map_err(|error| anyhow::anyhow!("Failed to load managed agent detail: {error}"))?
         .into_inner()
         .data;
+    let detail = seren::managed_agent_deployment_detail(detail)?;
     let proposal = match client
         .seren_cloud_get_connector_binding_proposal(&deployment_id, &connector_ref)
         .await
@@ -6111,6 +6139,7 @@ pub async fn managed_model_credential_proposal_apply(
         .map_err(|error| anyhow::anyhow!("Failed to load managed agent detail: {error}"))?
         .into_inner()
         .data;
+    let detail = seren::managed_agent_deployment_detail(detail)?;
     let proposal = match client
         .seren_cloud_get_model_credential_proposal(&deployment_id)
         .await
@@ -7112,7 +7141,7 @@ pub async fn cloud_overview(
             .count(),
         "managed_count": deployments
             .iter()
-            .filter(|deployment| !deployment.get("managed_agent").unwrap_or(&serde_json::Value::Null).is_null())
+            .filter(|deployment| is_managed_agent_deployment(deployment))
             .count(),
         "cron_count": deployments
             .iter()

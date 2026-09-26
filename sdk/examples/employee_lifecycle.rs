@@ -223,6 +223,7 @@ fn load_employee(slug: &str) -> Result<EmployeeBlueprint, Box<dyn std::error::Er
         secret_resolution_result_id: None,
         session_database: None,
         template: Some(manifest.template),
+        tool_approvals: None,
         tool_presets: Some(manifest.tool_presets),
         tool_refs: (!manifest.tool_refs.is_empty()).then_some(manifest.tool_refs),
         visibility: Some(manifest.visibility),
