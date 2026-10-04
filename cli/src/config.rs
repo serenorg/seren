@@ -149,11 +149,11 @@ impl Config {
     ///
     /// Layout:
     /// - Linux/macOS: `~/.config/seren/profiles/<profile>/credentials.toml`
-    /// - Windows:    `%APPDATA%\Seren\profiles\<profile>\credentials.toml`
+    /// - Windows:    `%APPDATA%\seren\profiles\<profile>\credentials.toml`
     ///
     /// When the active profile is `default` and the per-profile file does not
-    /// yet exist, the legacy single-profile path
-    /// (`~/.config/seren/credentials.toml`) is returned for backwards
+    /// yet exist, the legacy single-profile path (`credentials.toml` directly
+    /// under the `seren` config directory) is returned for backwards
     /// compatibility. If both exist, the per-profile path wins; the legacy
     /// file is then ignored and never migrated automatically.
     pub fn config_path() -> Result<PathBuf> {
@@ -238,9 +238,9 @@ impl ContextConfig {
     /// Get the path to the context config file for the active profile.
     ///
     /// When the active profile is `default` and no per-profile file exists,
-    /// the legacy single-profile path (`~/.config/seren/context.toml`) is
-    /// returned for backwards compatibility. If both exist, the per-profile
-    /// path wins.
+    /// the legacy single-profile path (`context.toml` directly under the
+    /// `seren` config directory) is returned for backwards compatibility. If
+    /// both exist, the per-profile path wins.
     pub fn context_path() -> Result<PathBuf> {
         Self::context_path_for(None)
     }
@@ -317,9 +317,24 @@ mod tests {
     use tempfile::tempdir;
 
     /// Serializes env-mutating tests in this module so concurrent runs do
-    /// not race on `XDG_CONFIG_HOME` / `SEREN_PROFILE`. `serial_test` is not
+    /// not race on `CONFIG_HOME_ENV` / `SEREN_PROFILE`. `serial_test` is not
     /// a dependency in this crate, so we roll our own.
     static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Environment variable that etcetera's base strategy reads for the config directory.
+    const CONFIG_HOME_ENV: &str = if cfg!(windows) {
+        "APPDATA"
+    } else {
+        "XDG_CONFIG_HOME"
+    };
+
+    /// Each `EnvGuard` restores its variable while a failed test unwinds, so a
+    /// poisoned lock still guards a consistent environment.
+    fn lock_env() -> std::sync::MutexGuard<'static, ()> {
+        ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 
     /// Scope guard: snapshots an env var on construction and restores it
     /// (or unsets it) on drop, even if the test panics in between.
@@ -407,9 +422,9 @@ expires_at = 123
 
     #[test]
     fn per_profile_credentials_path_wins_over_legacy_when_both_exist() {
-        let _lock = ENV_LOCK.lock().unwrap();
+        let _lock = lock_env();
         let xdg = tempdir().unwrap();
-        let _xdg_guard = EnvGuard::set("XDG_CONFIG_HOME", xdg.path().to_str().unwrap());
+        let _xdg_guard = EnvGuard::set(CONFIG_HOME_ENV, xdg.path().to_str().unwrap());
         let _profile_guard = EnvGuard::remove("SEREN_PROFILE");
 
         let seren_root = xdg.path().join("seren");
@@ -431,9 +446,9 @@ expires_at = 123
 
     #[test]
     fn legacy_credentials_path_returned_only_when_per_profile_missing() {
-        let _lock = ENV_LOCK.lock().unwrap();
+        let _lock = lock_env();
         let xdg = tempdir().unwrap();
-        let _xdg_guard = EnvGuard::set("XDG_CONFIG_HOME", xdg.path().to_str().unwrap());
+        let _xdg_guard = EnvGuard::set(CONFIG_HOME_ENV, xdg.path().to_str().unwrap());
         let _profile_guard = EnvGuard::remove("SEREN_PROFILE");
 
         let seren_root = xdg.path().join("seren");
@@ -453,9 +468,9 @@ expires_at = 123
 
     #[test]
     fn legacy_credentials_file_is_not_auto_migrated_on_read() {
-        let _lock = ENV_LOCK.lock().unwrap();
+        let _lock = lock_env();
         let xdg = tempdir().unwrap();
-        let _xdg_guard = EnvGuard::set("XDG_CONFIG_HOME", xdg.path().to_str().unwrap());
+        let _xdg_guard = EnvGuard::set(CONFIG_HOME_ENV, xdg.path().to_str().unwrap());
         let _profile_guard = EnvGuard::remove("SEREN_PROFILE");
 
         let seren_root = xdg.path().join("seren");
@@ -481,9 +496,9 @@ expires_at = 123
 
     #[test]
     fn per_profile_context_path_wins_over_legacy_when_both_exist() {
-        let _lock = ENV_LOCK.lock().unwrap();
+        let _lock = lock_env();
         let xdg = tempdir().unwrap();
-        let _xdg_guard = EnvGuard::set("XDG_CONFIG_HOME", xdg.path().to_str().unwrap());
+        let _xdg_guard = EnvGuard::set(CONFIG_HOME_ENV, xdg.path().to_str().unwrap());
         let _profile_guard = EnvGuard::remove("SEREN_PROFILE");
 
         let seren_root = xdg.path().join("seren");
@@ -512,9 +527,9 @@ expires_at = 123
         // `set_active_profile` writes to a process-global OnceLock, so we
         // exercise the same precedence rule through `resolve_profile` plus
         // the path resolver, which is what the rest of the codebase uses.
-        let _lock = ENV_LOCK.lock().unwrap();
+        let _lock = lock_env();
         let xdg = tempdir().unwrap();
-        let _xdg_guard = EnvGuard::set("XDG_CONFIG_HOME", xdg.path().to_str().unwrap());
+        let _xdg_guard = EnvGuard::set(CONFIG_HOME_ENV, xdg.path().to_str().unwrap());
         let _profile_guard = EnvGuard::set("SEREN_PROFILE", "from-env");
 
         let env_value = std::env::var("SEREN_PROFILE").ok();
@@ -531,9 +546,9 @@ expires_at = 123
 
     #[test]
     fn seren_profile_env_used_when_cli_flag_absent() {
-        let _lock = ENV_LOCK.lock().unwrap();
+        let _lock = lock_env();
         let xdg = tempdir().unwrap();
-        let _xdg_guard = EnvGuard::set("XDG_CONFIG_HOME", xdg.path().to_str().unwrap());
+        let _xdg_guard = EnvGuard::set(CONFIG_HOME_ENV, xdg.path().to_str().unwrap());
         let _profile_guard = EnvGuard::set("SEREN_PROFILE", "ci");
 
         let env_value = std::env::var("SEREN_PROFILE").ok();

@@ -33,15 +33,6 @@ pub static TOOL_DURATION: LazyLock<HistogramVec> = LazyLock::new(|| {
     hist
 });
 
-/// Active MCP sessions gauge.
-pub static ACTIVE_SESSIONS: LazyLock<prometheus::IntGauge> = LazyLock::new(|| {
-    let gauge =
-        prometheus::IntGauge::new("seren_mcp_active_sessions", "Number of active MCP sessions")
-            .expect("metric creation");
-    REGISTRY.register(Box::new(gauge.clone())).ok();
-    gauge
-});
-
 /// HTTP request counter by method, path, and status.
 pub static HTTP_REQUESTS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let counter = IntCounterVec::new(

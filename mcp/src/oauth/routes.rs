@@ -1903,11 +1903,19 @@ mod tests {
             .await;
 
         // Upstream user info
+        let user_id = Uuid::new_v4();
         Mock::given(method("GET"))
             .and(path("/auth/me"))
             .and(wm_header("authorization", "Bearer up_access_1"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": { "id": "user-123" }
+                "data": {
+                    "id": user_id,
+                    "email": "user@example.com",
+                    "name": "Test User",
+                    "status": "active",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "default_organization_id": Uuid::new_v4(),
+                }
             })))
             .mount(&upstream)
             .await;
@@ -1942,7 +1950,9 @@ mod tests {
             circuit_breaker: crate::oauth::circuit_breaker::create_oauth_circuit_breaker(),
             jwt_signer,
         });
-        let app = oauth_router(state.clone());
+        let app = oauth_router(state.clone()).layer(axum::Extension(axum::extract::ConnectInfo(
+            std::net::SocketAddr::from(([127, 0, 0, 1], 12345)),
+        )));
 
         // 1) Register downstream client (public client, PKCE only)
         let register_req = serde_json::json!({
@@ -1965,8 +1975,9 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
+        let status = res.status();
         let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
         let reg: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let client_id = reg
             .get("client_id")
@@ -2069,7 +2080,44 @@ mod tests {
         let consent_token = find_query_param(&consent_redirect, "token").unwrap();
 
         // 4) Approve consent -> should return JSON with redirect_url (for JavaScript-based navigation)
-        let consent_body = "token=".to_string() + &consent_token + "&action=approve";
+        // Submit the CSRF token the consent page gives the browser.
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "{}?{}",
+                        consent_redirect.path(),
+                        consent_redirect.query().unwrap()
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let page = String::from_utf8(
+            to_bytes(res.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        let csrf_token = page
+            .split_once("const csrfToken = \"")
+            .and_then(|(_, rest)| rest.split_once('"'))
+            .map(|(token, _)| token.to_string())
+            .expect("consent page should embed its CSRF token");
+        let pending_consent = store
+            .get_pending_consent(&consent_token)
+            .await
+            .unwrap()
+            .expect("callback should persist pending consent");
+        assert_eq!(csrf_token, pending_consent.csrf_token);
+        let consent_body = format!(
+            "token={}&csrf_token={}&action=approve",
+            consent_token, csrf_token
+        );
         let res = app
             .clone()
             .oneshot(
@@ -2139,6 +2187,7 @@ mod tests {
             .validate_access_token(mcp_access_token)
             .expect("MCP access token should be a valid JWT");
         assert_eq!(claims.client_id, client_id);
+        assert_eq!(claims.sub, user_id.to_string());
         assert_eq!(claims.scope, "api");
 
         // The rth claim should still be set (links to server-side upstream token vault)

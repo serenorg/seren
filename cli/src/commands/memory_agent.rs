@@ -87,8 +87,8 @@ fn claude_settings_path() -> Result<PathBuf> {
     {
         return Ok(PathBuf::from(config_dir).join("settings.json"));
     }
-    let home = std::env::var_os("HOME").context("HOME is not set")?;
-    Ok(PathBuf::from(home).join(".claude").join("settings.json"))
+    let home = etcetera::home_dir().context("Could not determine home directory")?;
+    Ok(home.join(".claude").join("settings.json"))
 }
 
 fn codex_settings_path() -> Result<PathBuf> {
@@ -97,8 +97,8 @@ fn codex_settings_path() -> Result<PathBuf> {
     {
         return Ok(PathBuf::from(config_dir).join("hooks.json"));
     }
-    let home = std::env::var_os("HOME").context("HOME is not set")?;
-    Ok(PathBuf::from(home).join(".codex").join("hooks.json"))
+    let home = etcetera::home_dir().context("Could not determine home directory")?;
+    Ok(home.join(".codex").join("hooks.json"))
 }
 
 fn hook_matches_definition(hook: &serde_json::Value, definition: &HookDefinition) -> bool {
@@ -152,7 +152,10 @@ fn owned_command_matches(command: &str, canonical: &str) -> bool {
     };
     let executable = Path::new(executable);
     executable.is_absolute()
-        && executable.file_name().and_then(|name| name.to_str()) == Some("seren")
+        && executable
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name == "seren" || (cfg!(windows) && name == "seren.exe"))
         && actual_args == expected_args
 }
 
@@ -810,6 +813,52 @@ pub async fn status(claude: bool, codex: bool) -> Result<()> {
 mod tests {
     use super::*;
 
+    #[cfg(windows)]
+    #[test]
+    fn settings_paths_resolve_without_home_environment_variable() {
+        const CHILD_FLAG: &str = "SEREN_TEST_SETTINGS_PATHS_CHILD";
+        if std::env::var(CHILD_FLAG).as_deref() == Ok("1") {
+            assert!(std::env::var_os("HOME").is_none());
+            let home = etcetera::home_dir().unwrap();
+            assert_eq!(
+                claude_settings_path().unwrap(),
+                home.join(".claude").join("settings.json")
+            );
+            assert_eq!(
+                codex_settings_path().unwrap(),
+                home.join(".codex").join("hooks.json")
+            );
+            return;
+        }
+
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "commands::memory_agent::tests::settings_paths_resolve_without_home_environment_variable",
+                "--nocapture",
+            ])
+            .env(CHILD_FLAG, "1")
+            .env_remove("HOME")
+            .env_remove("CLAUDE_CONFIG_DIR")
+            .env_remove("CODEX_HOME")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("test result: ok. 1 passed;"),
+            "{stdout}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn absolute_hook_executable(user: &str) -> String {
+        if cfg!(windows) {
+            format!("C:/Users/{user}/.local/bin/seren.exe")
+        } else {
+            format!("/Users/{user}/.local/bin/seren")
+        }
+    }
+
     #[test]
     fn install_is_idempotent_and_preserves_unrelated_hooks() {
         let mut settings = serde_json::json!({
@@ -901,23 +950,24 @@ mod tests {
 
     #[test]
     fn install_preserves_absolute_owned_commands_without_duplicates() {
+        let executable = absolute_hook_executable("example");
         let mut settings = serde_json::json!({
             "hooks": {
                 "SessionStart": [
                     {"hooks": [{
                         "type": "command",
-                        "command": "/Users/example/.local/bin/seren memory hook session-start --platform claude"
+                        "command": format!("{executable} memory hook session-start --platform claude")
                     }]},
                     {"hooks": [{
                         "type": "command",
-                        "command": "/Users/example/.local/bin/seren memory hook drain --platform claude",
+                        "command": format!("{executable} memory hook drain --platform claude"),
                         "async": true,
                         "timeout": 10
                     }]}
                 ],
                 "Stop": [{"hooks": [{
                     "type": "command",
-                    "command": "/Users/example/.local/bin/seren memory hook stop --platform claude"
+                    "command": format!("{executable} memory hook stop --platform claude")
                 }]}]
             }
         });
@@ -934,12 +984,13 @@ mod tests {
         assert!(
             commands
                 .iter()
-                .all(|command| command.starts_with("/Users/example/.local/bin/seren "))
+                .all(|command| command.starts_with(&format!("{executable} ")))
         );
     }
 
     #[test]
     fn install_does_not_duplicate_or_remove_existing_owned_command_forms() {
+        let executable = absolute_hook_executable("example");
         let mut settings = serde_json::json!({
             "hooks": {
                 "SessionStart": [
@@ -949,7 +1000,7 @@ mod tests {
                     }], "matcher": "startup"},
                     {"hooks": [{
                         "type": "command",
-                        "command": "/Users/example/.local/bin/seren memory hook session-start --platform claude"
+                        "command": format!("{executable} memory hook session-start --platform claude")
                     }], "matcher": "resume"},
                     {"hooks": [{
                         "type": "command",
@@ -977,7 +1028,12 @@ mod tests {
 
     #[test]
     fn non_shell_separators_are_not_owned() {
-        for executable in ["/tmp/seren", "\"/tmp/seren\"", "'/tmp/seren'"] {
+        let executable = absolute_hook_executable("example");
+        for executable in [
+            executable.clone(),
+            format!("\"{executable}\""),
+            format!("'{executable}'"),
+        ] {
             for separator in [
                 "\n", "\r\n", "\r", "\u{000b}", "\u{000c}", "\u{0085}", "\u{00a0}",
             ] {
@@ -1004,10 +1060,8 @@ mod tests {
 
     #[test]
     fn quoted_absolute_owned_commands_are_recognized() {
-        for executable in [
-            "\"/Users/Example User/.local/bin/seren\"",
-            "'/Users/Example User/.local/bin/seren'",
-        ] {
+        let executable = absolute_hook_executable("Example User");
+        for executable in [format!("\"{executable}\""), format!("'{executable}'")] {
             for separator in [" ", "\t", " \t "] {
                 let command = format!("{executable}{separator}memory hook stop --platform claude");
                 let mut settings = serde_json::json!({
@@ -1022,6 +1076,31 @@ mod tests {
                 assert!(installed_events(&settings).unwrap().is_empty());
             }
         }
+    }
+
+    #[test]
+    fn windows_executable_name_is_owned_only_on_windows() {
+        let directory = if cfg!(windows) {
+            "C:/Users/example/.local/bin"
+        } else {
+            "/Users/example/.local/bin"
+        };
+        let canonical = "seren memory hook stop --platform claude";
+        assert!(owned_command_matches(
+            &format!("{directory}/seren memory hook stop --platform claude"),
+            canonical
+        ));
+        assert_eq!(
+            owned_command_matches(
+                &format!("{directory}/seren.exe memory hook stop --platform claude"),
+                canonical
+            ),
+            cfg!(windows)
+        );
+        assert!(!owned_command_matches(
+            &format!("{directory}/seren.cmd memory hook stop --platform claude"),
+            canonical
+        ));
     }
 
     #[test]
@@ -1052,20 +1131,22 @@ mod tests {
 
     #[test]
     fn uninstall_removes_absolute_owned_commands_and_preserves_lookalikes() {
+        let executable = absolute_hook_executable("example");
+        let owned_command = format!("{executable} memory hook stop --platform claude");
         let mut settings = serde_json::json!({
             "hooks": {
                 "Stop": [{"hooks": [
                     {
                         "type": "command",
-                        "command": "/Users/example/.local/bin/seren memory hook stop --platform claude"
+                        "command": owned_command
                     },
                     {
                         "type": "command",
-                        "command": "/Users/example/.local/bin/not-seren memory hook stop --platform claude"
+                        "command": format!("{} memory hook stop --platform claude", executable.replace("/seren", "/not-seren"))
                     },
                     {
                         "type": "command",
-                        "command": "echo /Users/example/.local/bin/seren memory hook stop --platform claude"
+                        "command": format!("echo {executable} memory hook stop --platform claude")
                     },
                     {
                         "type": "command",
@@ -1078,8 +1159,7 @@ mod tests {
         assert!(uninstall_from(&mut settings).unwrap());
         let commands = settings["hooks"]["Stop"][0]["hooks"].as_array().unwrap();
         assert_eq!(commands.len(), 3);
-        assert!(commands.iter().all(|hook| hook["command"]
-            != "/Users/example/.local/bin/seren memory hook stop --platform claude"));
+        assert!(commands.iter().all(|hook| hook["command"] != owned_command));
     }
 
     #[test]
