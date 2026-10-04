@@ -2519,12 +2519,7 @@ fn default_employee_memory_policy_value() -> serde_json::Value {
             "chunk_overlap": null,
             "top_k": null
         },
-        "transcript_retention_days": 30,
-        "compaction": {
-            "token_threshold": 120000,
-            "event_retention_count": 24,
-            "overlap_tokens": 1500
-        }
+        "transcript_retention_days": 30
     })
 }
 
@@ -12056,6 +12051,173 @@ mod tests {
         merge_managed_agent_config(&mut body, agent_config).unwrap();
 
         assert_eq!(body.get("requirements_txt"), Some(&requirements_txt));
+    }
+
+    #[test]
+    fn default_employee_memory_policy_omits_compaction_and_keeps_its_four_sections() {
+        let policy = default_employee_memory_policy_value();
+
+        assert!(
+            policy.get("compaction").is_none(),
+            "the default memory policy must not send a compaction policy: {policy}"
+        );
+        assert_eq!(
+            policy,
+            serde_json::json!({
+                "graph_memory": {
+                    "enabled": true,
+                    "store": "seren_managed",
+                    "write_policy": "on_observation",
+                    "read_policy": "explicit_tool"
+                },
+                "semantic_memory": {
+                    "enabled": false,
+                    "store": "seren_managed",
+                    "write_policy": "none",
+                    "read_policy": "explicit_tool",
+                    "retention_days": null
+                },
+                "knowledge": {
+                    "enabled": true,
+                    "store": "seren_managed",
+                    "source": "agent_instructions",
+                    "read_policy": "explicit_tool",
+                    "index_policy": "encrypted_scan",
+                    "chunk_size": null,
+                    "chunk_overlap": null,
+                    "top_k": null
+                },
+                "transcript_retention_days": 30
+            })
+        );
+    }
+
+    /// Runs `seren agent create` against the real Core deploy route and
+    /// returns the `memory_policy` the request carried.
+    async fn managed_agent_create_memory_policy(
+        agent_config_path: Option<&str>,
+    ) -> serde_json::Value {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/publishers/seren-agent/deploy"))
+            .respond_with(
+                ResponseTemplate::new(202).set_body_json(cloud_deployment_body(
+                    Uuid::from_u128(0x230),
+                    Some("seren-agent"),
+                )),
+            )
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let context = CommandContext::new(
+            Some(proxy.uri()),
+            Some("test-key".to_string()),
+            OutputFormat::Json,
+        );
+
+        cloud_deploy_prompt(
+            CloudDeployPromptOptions {
+                name: "Memory Policy Employee",
+                agent_slug: None,
+                mode: "always-on",
+                cron_schedule: None,
+                cron_timezone: None,
+                eval_gate_set_id: None,
+                eval_gate_max_age_seconds: None,
+                compute_backend: None,
+                template: None,
+                tool_presets: &[],
+                approval_policy: None,
+                model_policy: None,
+                allowed_remote_agent_origins: &[],
+                config_path: None,
+                env_path: None,
+                agent_config_path,
+                capability_policy_json: None,
+                capability_policy_path: None,
+                prompt: Some("Summarize weekly changes."),
+                model_id: None,
+                visibility: None,
+            },
+            &context,
+        )
+        .await
+        .expect("managed agent create should reach the deploy route");
+
+        let requests = proxy
+            .received_requests()
+            .await
+            .expect("recorded deploy request");
+        assert_eq!(requests.len(), 1);
+        requests[0]
+            .body_json::<serde_json::Value>()
+            .expect("deploy request body is JSON")["memory_policy"]
+            .clone()
+    }
+
+    #[tokio::test]
+    async fn managed_agent_create_sends_the_default_memory_policy_without_compaction() {
+        let memory_policy = managed_agent_create_memory_policy(None).await;
+
+        assert!(
+            memory_policy.get("compaction").is_none(),
+            "the deploy request must not carry a compaction policy: {memory_policy}"
+        );
+        assert_eq!(
+            memory_policy,
+            serde_json::json!({
+                "graph_memory": {
+                    "enabled": true,
+                    "store": "seren_managed",
+                    "write_policy": "on_observation",
+                    "read_policy": "explicit_tool"
+                },
+                "semantic_memory": {
+                    "enabled": false,
+                    "store": "seren_managed",
+                    "write_policy": "none",
+                    "read_policy": "explicit_tool"
+                },
+                "knowledge": {
+                    "enabled": true,
+                    "store": "seren_managed",
+                    "source": "agent_instructions",
+                    "read_policy": "explicit_tool",
+                    "index_policy": "encrypted_scan"
+                },
+                "transcript_retention_days": 30
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn managed_agent_create_keeps_a_caller_supplied_memory_policy_compaction() {
+        let memory_policy = serde_json::json!({
+            "transcript_retention_days": 7,
+            "compaction": {
+                "token_threshold": 90000,
+                "event_retention_count": 12,
+                "overlap_tokens": 800
+            }
+        });
+        let temp = tempfile::tempdir().expect("temporary agent config fixture");
+        let agent_config_path = temp.path().join("agent.json");
+        fs::write(
+            &agent_config_path,
+            serde_json::to_vec(&serde_json::json!({ "memory_policy": memory_policy }))
+                .expect("serialize agent config"),
+        )
+        .expect("write agent config fixture");
+
+        let sent = managed_agent_create_memory_policy(Some(
+            agent_config_path.to_str().expect("utf-8 fixture path"),
+        ))
+        .await;
+
+        assert_eq!(sent, memory_policy);
     }
 
     #[test]
