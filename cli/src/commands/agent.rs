@@ -9141,13 +9141,13 @@ fn format_cloud_run_output_event(envelope: &serde_json::Value) -> String {
     let kind = json_string_field(envelope, "kind");
     let event_type = json_string_field(envelope, "event_type");
     let item_id = json_string_field(envelope, "item_id");
-    let event = envelope.get("event").unwrap_or(&serde_json::Value::Null);
-    let code = json_string_field(event, "code");
-    let retryable = json_bool_field(event, "retryable");
-    let tool = json_string_field(event, "name");
-    let event_id = json_string_field(event, "id");
-    let status = json_string_field(event, "status");
-    let summary = summarize_cloud_run_output_event(event);
+    // The envelope flattens the event's own fields beside its metadata.
+    let code = json_string_field(envelope, "code");
+    let retryable = json_bool_field(envelope, "retryable");
+    let tool = json_string_field(envelope, "name");
+    let event_id = json_string_field(envelope, "id");
+    let status = json_string_field(envelope, "status");
+    let summary = summarize_cloud_run_output_event(envelope);
 
     let mut parts = Vec::new();
     if sequence != "-" {
@@ -12205,22 +12205,29 @@ mod tests {
         assert_eq!(approval_decisions[1].id, "approval-2");
     }
 
+    /// Round-trips one wire item through the generated response type, as the
+    /// run-event commands do before rendering.
+    fn decoded_cloud_run_output_event(item: serde_json::Value) -> serde_json::Value {
+        let response: seren::DataResponseVecCloudRunOutputEventEnvelope =
+            serde_json::from_value(serde_json::json!({ "data": [item] }))
+                .expect("run event matches the generated contract");
+        serde_json::to_value(response).expect("serialize run events")["data"][0].clone()
+    }
+
     #[test]
     fn cloud_run_output_event_formatter_shows_tool_result_error_code() {
-        let envelope = serde_json::json!({
+        let envelope = decoded_cloud_run_output_event(serde_json::json!({
             "sequence_number": 4,
             "event_type": "response.output_item.done",
             "kind": "tool_call_completed",
             "item_id": "call_123",
-            "event": {
-                "type": "tool_result",
-                "id": "call_123",
-                "content": "Provider rate limit exceeded",
-                "is_error": true,
-                "code": "tool_rate_limited",
-                "retryable": true
-            }
-        });
+            "type": "tool_result",
+            "id": "call_123",
+            "content": "Provider rate limit exceeded",
+            "is_error": true,
+            "code": "tool_rate_limited",
+            "retryable": true
+        }));
 
         let row = format_cloud_run_output_event(&envelope);
         assert!(row.contains("#4"));
@@ -12232,16 +12239,42 @@ mod tests {
     }
 
     #[test]
+    fn cloud_run_output_event_formatter_shows_conversation_refusal_codes() {
+        for (code, retryable) in [
+            ("conversation_busy", true),
+            ("conversation_awaiting_approval", false),
+        ] {
+            let envelope = decoded_cloud_run_output_event(serde_json::json!({
+                "sequence_number": 2,
+                "event_type": "error",
+                "kind": "error",
+                "type": "error",
+                "code": code,
+                "cause": "session",
+                "message": "The conversation cannot accept this turn.",
+                "retryable": retryable
+            }));
+
+            let row = format_cloud_run_output_event(&envelope);
+            assert!(row.starts_with("#2 error "), "{row}");
+            assert!(row.contains(&format!("code={code}")), "{row}");
+            assert_eq!(row.contains("retryable=yes"), retryable, "{row}");
+            assert!(
+                row.contains("summary=The conversation cannot accept this turn."),
+                "{row}"
+            );
+        }
+    }
+
+    #[test]
     fn cloud_run_output_event_formatter_shows_text_preview() {
-        let envelope = serde_json::json!({
+        let envelope = decoded_cloud_run_output_event(serde_json::json!({
             "sequence_number": 1,
             "event_type": "response.output_text.done",
             "kind": "text",
-            "event": {
-                "type": "text",
-                "text": "hello from the employee"
-            }
-        });
+            "type": "text",
+            "text": "hello from the employee"
+        }));
 
         let row = format_cloud_run_output_event(&envelope);
         assert!(row.contains("#1"));

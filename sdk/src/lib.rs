@@ -126,13 +126,91 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Client, ClientConfig, PublisherCredentialProposalRequest};
+    use crate::{Client, ClientConfig, CloudRunErrorCode, PublisherCredentialProposalRequest};
     use serde_json::json;
     use uuid::Uuid;
     use wiremock::{
         Mock, MockServer, ResponseTemplate,
         matchers::{body_json, method, path},
     };
+
+    #[tokio::test]
+    async fn run_events_decode_conversation_refusals_and_reject_unknown_codes() {
+        let run_id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
+        for (code, expected, retryable) in [
+            (
+                "conversation_busy",
+                Some(CloudRunErrorCode::ConversationBusy),
+                true,
+            ),
+            (
+                "conversation_awaiting_approval",
+                Some(CloudRunErrorCode::ConversationAwaitingApproval),
+                false,
+            ),
+            ("conversation_unrecognized", None, false),
+        ] {
+            assert_eq!(
+                serde_json::from_value::<CloudRunErrorCode>(json!(code)).ok(),
+                expected
+            );
+            let server = MockServer::start().await;
+            let response_wire = json!({"data": [{
+                "sequence_number": 3,
+                "event_type": "error",
+                "kind": "error",
+                "type": "error",
+                "code": code,
+                "cause": "session",
+                "message": "The conversation cannot accept this turn.",
+                "retryable": retryable
+            }]});
+            for endpoint in [
+                format!("/publishers/seren-cloud/runs/{run_id}/events"),
+                format!("/publishers/seren-cloud/deployments/{deployment_id}/runs/{run_id}/events"),
+            ] {
+                Mock::given(method("GET"))
+                    .and(path(endpoint))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(response_wire.clone()))
+                    .expect(1)
+                    .mount(&server)
+                    .await;
+            }
+            let client = Client::new(&server.uri());
+            let global = client
+                .seren_cloud_run_events(&run_id, None, None, None, None, None)
+                .await;
+            let deployment = client
+                .seren_cloud_deployment_run_events(
+                    &deployment_id,
+                    &run_id,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .await;
+            for result in [global, deployment] {
+                if expected.is_some() {
+                    let decoded = result.expect("decode run events").into_inner();
+                    let decoded = serde_json::to_value(decoded).expect("serialize run events");
+                    assert_eq!(decoded["data"].as_array().unwrap().len(), 1);
+                    for (field, value) in response_wire["data"][0].as_object().unwrap() {
+                        assert_eq!(&decoded["data"][0][field], value, "{field}");
+                    }
+                } else {
+                    let error = result.expect_err("unknown error codes are rejected");
+                    assert!(
+                        matches!(error, crate::Error::InvalidResponsePayload(_, _)),
+                        "{error:?}"
+                    );
+                }
+            }
+            server.verify().await;
+        }
+    }
 
     #[tokio::test]
     async fn publisher_credential_create_preserves_replay_acceptance_and_validation_responses() {

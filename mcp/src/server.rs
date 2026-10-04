@@ -5388,7 +5388,7 @@ fn cloud_run_events_summary<T: Serialize>(response: &T) -> Result<String, McpErr
 }
 
 fn format_cloud_run_event_summary(envelope: &serde_json::Value) -> String {
-    let event = envelope.get("event").unwrap_or(&serde_json::Value::Null);
+    // The envelope flattens the event's own fields beside its metadata.
     let sequence = json_scalar_field(envelope, "sequence_number");
     let kind = json_string_field(envelope, "kind")
         .or_else(|| json_string_field(envelope, "event_type"))
@@ -5399,24 +5399,24 @@ fn format_cloud_run_event_summary(envelope: &serde_json::Value) -> String {
     }
     parts.push(kind);
     if let Some(id) =
-        json_string_field(event, "id").or_else(|| json_string_field(envelope, "item_id"))
+        json_string_field(envelope, "id").or_else(|| json_string_field(envelope, "item_id"))
     {
         parts.push(format!("id={id}"));
     }
-    if let Some(tool) = json_string_field(event, "name") {
+    if let Some(tool) = json_string_field(envelope, "name") {
         parts.push(format!("tool={tool}"));
     }
-    if let Some(code) = json_string_field(event, "code") {
+    if let Some(code) = json_string_field(envelope, "code") {
         parts.push(format!("code={code}"));
     }
-    if event
+    if envelope
         .get("retryable")
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false)
     {
         parts.push("retryable=true".to_string());
     }
-    if let Some(summary) = summarize_cloud_run_event_payload(event) {
+    if let Some(summary) = summarize_cloud_run_event_payload(envelope) {
         parts.push(format!("summary={}", truncate_for_client(&summary, 180)));
     }
     parts.join(" ")
@@ -20904,14 +20904,14 @@ mod tests {
 
     #[test]
     fn cloud_run_events_summary_includes_tool_result_error_code() {
-        let response = serde_json::json!({
-            "data": [
-                {
-                    "sequence_number": 4,
-                    "event_type": "response.output_item.done",
-                    "kind": "tool_call_completed",
-                    "item_id": "call_123",
-                    "event": {
+        let response: seren::DataResponseVecCloudRunOutputEventEnvelope =
+            serde_json::from_value(serde_json::json!({
+                "data": [
+                    {
+                        "sequence_number": 4,
+                        "event_type": "response.output_item.done",
+                        "kind": "tool_call_completed",
+                        "item_id": "call_123",
                         "type": "tool_result",
                         "id": "call_123",
                         "content": "Provider rate limit exceeded",
@@ -20919,9 +20919,9 @@ mod tests {
                         "code": "tool_rate_limited",
                         "retryable": true
                     }
-                }
-            ]
-        });
+                ]
+            }))
+            .expect("run events match the generated contract");
 
         let summary = cloud_run_events_summary(&response).unwrap();
         assert!(summary.contains("1 run event(s):"));
@@ -20931,6 +20931,48 @@ mod tests {
         assert!(summary.contains("code=tool_rate_limited"));
         assert!(summary.contains("retryable=true"));
         assert!(summary.contains("summary=Provider rate limit exceeded"));
+    }
+
+    #[test]
+    fn cloud_run_events_summary_includes_conversation_refusal_codes() {
+        let response: seren::DataResponseVecCloudRunOutputEventEnvelope =
+            serde_json::from_value(serde_json::json!({
+                "data": [
+                    {
+                        "sequence_number": 2,
+                        "event_type": "error",
+                        "kind": "error",
+                        "type": "error",
+                        "code": "conversation_busy",
+                        "cause": "session",
+                        "message": "The conversation is still working on your previous message.",
+                        "retryable": true
+                    },
+                    {
+                        "sequence_number": 5,
+                        "event_type": "error",
+                        "kind": "error",
+                        "type": "error",
+                        "code": "conversation_awaiting_approval",
+                        "cause": "session",
+                        "message": "The conversation is waiting for your decision.",
+                        "retryable": false
+                    }
+                ]
+            }))
+            .expect("run events match the generated contract");
+
+        let summary = cloud_run_events_summary(&response).unwrap();
+        assert_eq!(
+            summary,
+            concat!(
+                "2 run event(s):\n",
+                "- #2 error code=conversation_busy retryable=true ",
+                "summary=The conversation is still working on your previous message.\n",
+                "- #5 error code=conversation_awaiting_approval ",
+                "summary=The conversation is waiting for your decision."
+            )
+        );
     }
 
     #[test]

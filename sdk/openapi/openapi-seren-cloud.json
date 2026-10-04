@@ -432,6 +432,9 @@
           },
           "401": {
             "description": "Unauthorized"
+          },
+          "503": {
+            "description": "Deployment bundle unavailable"
           }
         },
         "security": [
@@ -474,6 +477,9 @@
           },
           "401": {
             "description": "Unauthorized"
+          },
+          "503": {
+            "description": "Deployment bundle unavailable"
           }
         },
         "security": [
@@ -565,6 +571,9 @@
           },
           "404": {
             "description": "Deployment bundle not found"
+          },
+          "503": {
+            "description": "Deployment bundle unavailable"
           }
         },
         "security": [
@@ -1693,6 +1702,9 @@
           },
           "404": {
             "description": "Deployment or bundle not found"
+          },
+          "503": {
+            "description": "Deployment bundle unavailable"
           }
         },
         "security": [
@@ -5473,6 +5485,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "deployment_id",
+            "in": "query",
+            "description": "Return only entries for this deployment.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "responses": {
@@ -5487,10 +5509,13 @@
             }
           },
           "400": {
-            "description": "Malformed limit or cursor"
+            "description": "Malformed limit, cursor or deployment_id"
           },
           "401": {
             "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Deployment not found"
           }
         },
         "security": [
@@ -5506,7 +5531,7 @@
           "seren-cloud"
         ],
         "summary": "Record an operator decision for one approval entry.",
-        "description": "Only the user who started the run can decide an entry for a publisher\nrequest prepared by a managed skill script. Repeating a completed\nblocked-egress decision returns its current state.",
+        "description": "Only the user who started the run can decide an entry for a publisher\nrequest prepared by a managed skill script. Repeating a completed\nblocked-egress decision returns its current state.\nThe owner may choose `allow_always` for an ordinary publisher action, which\napproves the pending request and lets later matching requests run without\nasking until the owner revokes it. Email sends always require approval of\neach exact message.",
         "operationId": "seren_cloud_approval_inbox_decide",
         "parameters": [
           {
@@ -8991,6 +9016,17 @@
           },
           "decision": {
             "$ref": "#/components/schemas/ApprovalInboxDecisionVerb"
+          },
+          "lease": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ActionLease",
+                "description": "Bounds a standing approval for the exact requested operation."
+              }
+            ]
           }
         }
       },
@@ -9015,6 +9051,7 @@
         "description": "Decision verb accepted by the inbox decision endpoint.\n\nDistinct from `CloudRunApprovalDecisionValue` (which uses `approve`/`reject`)\nbecause the inbox is the operator surface and `deny` reads better than\n`reject` for non-tool kinds like blocked egress. The mapping into the\nexisting tool-call resume path is internal.",
         "enum": [
           "approve",
+          "allow_always",
           "deny"
         ]
       },
@@ -9248,13 +9285,29 @@
         "description": "Tool-call approval surfaced from an `awaiting_approval` run.\n\n`tool_call_id` is the orchestrator-supplied id that round-trips into the\n`approval_decisions` array on resume. `tool_ref` is the human-meaningful\ntool name (e.g. `seren_publisher_request`).",
         "required": [
           "tool_call_id",
-          "tool_ref"
+          "tool_ref",
+          "allow_always"
         ],
         "properties": {
+          "allow_always": {
+            "type": "boolean",
+            "description": "Whether the caller may choose standing approval for this pending request.\nEach email send requires an individual approval. Decisions recheck availability."
+          },
           "function_call_id": {
             "type": [
               "string",
               "null"
+            ]
+          },
+          "model_publisher_approval": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudRunModelPublisherApproval",
+                "description": "The exact publisher request the model is waiting to send. Its `request`\nis present only when it reproduces `payload_digest`; an entry served\nwithout it is not reviewable and `allow_always` is false. Its\n`operation` is present while the current review matches the hold's\nbinding. A message body or request value is untrusted content and must\nbe displayed as text, never rendered as markup."
+              }
             ]
           },
           "reason": {
@@ -12215,6 +12268,8 @@
           "approval_required",
           "guardrail_blocked",
           "delivery_contract",
+          "conversation_busy",
+          "conversation_awaiting_approval",
           "runtime_error",
           "timeout",
           "unknown"
@@ -12344,6 +12399,68 @@
             "format": "date-time"
           }
         }
+      },
+      "CloudRunModelPublisherApproval": {
+        "type": "object",
+        "description": "One model-proposed change, bound to the request the owner reviewed.\n`payload_digest` covers the deployment, publisher, operation, operation\nbinding, `request` and `message`, so any change to them requires a new\napproval. Holds recorded before `purpose`, `operation` and `request`\nexisted still deserialize without them.",
+        "required": [
+          "publisher_slug",
+          "operation_id",
+          "operation_binding",
+          "payload_digest"
+        ],
+        "properties": {
+          "message": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudRunScriptApprovalMessage",
+                "description": "Present only for a full-message email send."
+              }
+            ]
+          },
+          "operation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PublisherApprovalOperation",
+                "description": "The reviewed definition of the operation, present when the current\ncatalog review still matches `operation_binding`."
+              }
+            ]
+          },
+          "operation_binding": {
+            "$ref": "#/components/schemas/PublisherApprovalBinding"
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "payload_digest": {
+            "type": "string",
+            "description": "`sha256:` followed by 64 lowercase hex characters."
+          },
+          "publisher_slug": {
+            "type": "string"
+          },
+          "purpose": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PublisherOperationPurpose",
+                "description": "Platform-reviewed purpose of the held operation."
+              }
+            ]
+          },
+          "request": {
+            "description": "The exact request the approval releases, as it would be dispatched and\nwithout its idempotency key. Present only when it reproduces\n`payload_digest`; a hold served without it is not reviewable."
+          }
+        },
+        "additionalProperties": false
       },
       "CloudRunOutputEvent": {
         "oneOf": [
@@ -12575,16 +12692,16 @@
                 ]
               },
               "contract_version": {
-                "type": "integer",
+                "type": [
+                  "integer",
+                  "null"
+                ],
                 "format": "int32",
                 "minimum": 0
               },
               "details": {},
               "pending_approvals": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/CloudRunPendingApproval"
-                }
+                "description": "History retains the original payload; only current contracts may be interpreted."
               },
               "state": {
                 "type": "string"
@@ -13051,6 +13168,17 @@
           "id": {
             "type": "string"
           },
+          "model_publisher_approval": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudRunModelPublisherApproval",
+                "description": "Present when a model publisher call paused after catalog resolution."
+              }
+            ]
+          },
           "reason": {
             "type": [
               "string",
@@ -13253,13 +13381,98 @@
         },
         "additionalProperties": false
       },
+      "CloudRunScriptApprovalBody": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "content",
+              "kind"
+            ],
+            "properties": {
+              "content": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "text"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "content",
+              "kind"
+            ],
+            "properties": {
+              "content": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "html"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "text",
+              "html",
+              "kind"
+            ],
+            "properties": {
+              "html": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "alternative"
+                ]
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "description": "Exact decoded message content, never a generated preview. HTML content\nmust be displayed as untrusted text, not rendered as active markup."
+      },
+      "CloudRunScriptApprovalMailbox": {
+        "type": "object",
+        "description": "A supplied mailbox and its decoded display name, never an assertion of the\neffective authenticated mailbox. Display both fields as untrusted text.",
+        "required": [
+          "address"
+        ],
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
       "CloudRunScriptApprovalMessage": {
         "type": "object",
-        "description": "The outgoing message the owner reviews, derived from the request body.\nRecipients are delivery addresses only: a display name does not decide\nwhere the message goes, so it is not shown.",
+        "description": "The outgoing message the owner reviews, derived from the request body.\nTo/Cc/Bcc are delivery addresses only. Supplied origin and reply mailboxes\nretain their display names; neither value asserts authenticated identity.",
         "required": [
+          "from",
+          "reply_to",
           "to",
           "cc",
           "bcc",
+          "body",
           "attachments"
         ],
         "properties": {
@@ -13275,11 +13488,39 @@
               "type": "string"
             }
           },
+          "body": {
+            "$ref": "#/components/schemas/CloudRunScriptApprovalBody"
+          },
           "cc": {
             "type": "array",
             "items": {
               "type": "string"
             }
+          },
+          "from": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloudRunScriptApprovalMailbox"
+            },
+            "description": "Supplied author addresses, not the effective authenticated mailbox.\nAn empty list means the request did not supply a From value."
+          },
+          "reply_to": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloudRunScriptApprovalMailbox"
+            },
+            "description": "Supplied reply destinations; absence is represented by an empty list."
+          },
+          "sender": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudRunScriptApprovalMailbox",
+                "description": "Supplied Sender address, not an assertion of authenticated identity."
+              }
+            ]
           },
           "subject": {
             "type": [
@@ -13298,12 +13539,12 @@
       },
       "CloudRunScriptPublisherApproval": {
         "type": "object",
-        "description": "An approval-gated publisher request that a managed skill script prepared.\nThe runtime derives `message` from the exact request body it would\ndispatch. `payload_digest` covers the deployment, that request, `message`\nand `consequences`, so any change to them requires a new approval.",
+        "description": "An approval-gated publisher request that a managed skill script prepared.\nThe runtime derives `message` from the exact request body it would\ndispatch. `payload_digest` covers the deployment, publisher, operation,\noperation binding, that request, `message` and `consequences`, so any\nchange to them requires a new approval.",
         "required": [
           "publisher_slug",
           "operation_id",
-          "payload_digest",
-          "message"
+          "operation_binding",
+          "payload_digest"
         ],
         "properties": {
           "consequences": {
@@ -13314,7 +13555,18 @@
             "description": "Effects outside the publisher request that the script declared, such as\na document link becoming public. They cannot be derived from the\nrequest."
           },
           "message": {
-            "$ref": "#/components/schemas/CloudRunScriptApprovalMessage"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudRunScriptApprovalMessage",
+                "description": "Present only for a full-message email send."
+              }
+            ]
+          },
+          "operation_binding": {
+            "$ref": "#/components/schemas/PublisherApprovalBinding"
           },
           "operation_id": {
             "type": "string"
@@ -19183,6 +19435,13 @@
             "$ref": "#/components/schemas/ChannelDmPolicy",
             "description": "Direct-message authorization for the linked provider account."
           },
+          "operator_actor_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Exact accounts allowed to stop the deployment. Ingress grants do not imply control."
+          },
           "outbound_recipient_ids": {
             "type": "array",
             "items": {
@@ -21464,7 +21723,7 @@
               "string",
               "null"
             ],
-            "description": "Bounded, redacted explanation for `reason` or `deferral`, when known."
+            "description": "Bounded, redacted explanation for `reason` or `deferral`, when known.\nWith `runtime_unavailable`, explains whether the action is still applying,\na failed attempt is being retried, or a required resource is unavailable."
           },
           "release_id": {
             "type": [
@@ -21886,6 +22145,100 @@
           }
         }
       },
+      "PublisherApprovalBinding": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "binding_sha256",
+              "kind"
+            ],
+            "properties": {
+              "binding_sha256": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "reviewed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "declared"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Platform reviews and deployment-authored approvals are separate authority scopes."
+      },
+      "PublisherApprovalOperation": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "method",
+              "path",
+              "transport"
+            ],
+            "properties": {
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "method": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "transport": {
+                "type": "string",
+                "enum": [
+                  "api"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "tool",
+              "transport"
+            ],
+            "properties": {
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "tool": {
+                "type": "string"
+              },
+              "transport": {
+                "type": "string",
+                "enum": [
+                  "native_mcp"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "The reviewed catalog definition of a held operation, in the form the owner\nreads. Core derives it from the definition that `binding_sha256`\nfingerprints when it serves the hold; the runtime never authors it."
+      },
       "PublisherCredentialProposalPreview": {
         "type": "object",
         "required": [
@@ -21956,6 +22309,14 @@
           }
         },
         "additionalProperties": false
+      },
+      "PublisherOperationPurpose": {
+        "type": "string",
+        "description": "Purpose is assigned by Seren, not by publisher-authored endpoint metadata.",
+        "enum": [
+          "action",
+          "email_send"
+        ]
       },
       "ReferenceEnvCredentialProposalPreview": {
         "type": "object",
