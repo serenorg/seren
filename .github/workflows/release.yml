@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags: ["v*.*.*"]
+    branches: ["release-*"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -24,7 +25,8 @@ jobs:
           persist-credentials: false
       - name: Validate release metadata
         env:
-          TAG_NAME: ${{ github.ref_name }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
         run: |
           python3 - <<'PY'
           import os
@@ -32,21 +34,22 @@ jobs:
           import re
           import tomllib
 
-          tag_name = os.environ["TAG_NAME"]
-          if not tag_name.startswith("v"):
-            raise SystemExit(f"expected v-prefixed tag, got {tag_name}")
-          tag_version = tag_name[1:]
+          ref_name = os.environ["REF_NAME"]
+          prefix = "v" if os.environ["REF_TYPE"] == "tag" else "release-"
+          if not ref_name.startswith(prefix):
+            raise SystemExit(f"expected a ref starting with {prefix!r}, got {ref_name}")
+          ref_version = ref_name[len(prefix):]
           cargo = tomllib.loads(pathlib.Path("Cargo.toml").read_text())
           workspace_version = cargo["workspace"]["package"]["version"]
-          if tag_version != workspace_version:
+          if ref_version != workspace_version:
             raise SystemExit(
-                f"tag version {tag_version} does not match workspace version {workspace_version}"
+                f"ref version {ref_version} does not match workspace version {workspace_version}"
             )
 
           changelog = pathlib.Path("CHANGELOG.md").read_text()
-          pattern = re.compile(rf"^## \[{re.escape(tag_version)}\]\s+-\s+.+$", re.MULTILINE)
+          pattern = re.compile(rf"^## \[{re.escape(ref_version)}\]\s+-\s+.+$", re.MULTILINE)
           if not pattern.search(changelog):
-            raise SystemExit(f"missing CHANGELOG entry for {tag_version}")
+            raise SystemExit(f"missing CHANGELOG entry for {ref_version}")
           PY
 
   build:
@@ -60,9 +63,9 @@ jobs:
       matrix:
         include:
           - target: aarch64-apple-darwin
-            runner: macos-14
+            runner: macos-15
           - target: x86_64-apple-darwin
-            runner: macos-latest
+            runner: macos-15-intel
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
           - target: aarch64-unknown-linux-musl
@@ -118,6 +121,7 @@ jobs:
 
   release:
     name: Release
+    if: github.ref_type == 'tag'
     needs: build
     runs-on: ubuntu-latest
     permissions:

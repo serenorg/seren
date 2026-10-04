@@ -9,11 +9,18 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  CARGO_INCREMENTAL: "0"
 
 jobs:
   check:
-    name: Check & Lint
-    runs-on: ubuntu-latest
+    name: Check & Lint (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -39,13 +46,20 @@ jobs:
       - name: Run clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
+      - name: Run clippy with all features
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+
       - name: Run cargo check
         run: cargo check --locked --workspace
 
   test:
-    name: Tests
-    runs-on: ubuntu-latest
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -65,3 +79,18 @@ jobs:
 
       - name: Run tests
         run: cargo test --locked --workspace
+
+      - name: Run tests with all features
+        run: cargo test --locked --workspace --all-features
+
+      # Fails if the test is renamed away or skips instead of running against Docker PostgreSQL.
+      - name: Test PostgreSQL OAuth integration
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          SEREN_MCP_INTEGRATION_TESTS: "1"
+        run: |
+          set -o pipefail
+          cargo test --locked -p seren-mcp --lib oauth::routes::tests::oauth_full_flow_consent_token_and_refresh -- --exact --nocapture 2>&1 | tee oauth-integration.log
+          grep -q "test result: ok. 1 passed" oauth-integration.log
+          ! grep -q "skipping oauth integration test" oauth-integration.log
