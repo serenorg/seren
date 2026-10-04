@@ -2,6 +2,62 @@
 
 Changes to Seren are documented in this file.
 
+## [0.10.0] - 2026-10-04
+
+Managed agent onboarding, credential setup, and bundle delivery, plus automatic memory capture and broader organization workflows.
+
+### Added
+
+- Managed agent onboarding across the CLI and MCP, with durable drafts, revision-bound previews, explicit apply, resume, and cancellation.
+- Template deployment and release publication through `seren agent managed-deploy-template` and `managed-publish-template-release`, with matching MCP tools.
+- Employee owner controls for connected accounts, aggregate template statistics, work feedback, weekly check-ins, browser sign-in handoffs, and skill proposals.
+- Publisher access requests, human consent, approved grants, and standing approval inspection and revocation for managed agents.
+- Reviewed Seren Passwords setup for publisher, connector, model credential, and reference-environment proposals, with status, apply, and recovery commands.
+- Cloud approval inbox operations to inspect and decide individual entries, with optional standing approval leases that limit expiry and usage.
+- Managed agent incident, action, and file operations, plus headed-browser capability configuration.
+- Content-addressed bundle updates, CLI repository bundle upload and apply, and MCP bundle upload and deployment from base64 content.
+- Organization-scoped Cloud runs and MCP collaboration tools for revision-checked policies, assignments, revocation, and reactivation.
+- Account profile and avatar operations, CLI recovery-email management, and expanded account, session, and organization SDK contracts.
+- Compact Memory search and batch retrieval, plus CLI memory reconciliation, human review, and governed knowledge administration and promotion.
+- Automatic memory capture and context injection through Claude Code and Codex hooks, with installation, status, flush, and retry commands.
+- Explicit preview and merge commands for workspace memory histories, with resumed-session lineage.
+- Optional `claude-mem` migration tooling with reviewable plans, local rehearsal, fixed-snapshot imports, resume, verification, and rollback. Requires the `claude-mem` feature.
+- Private-model chat reasoning controls across the CLI and MCP.
+- Hosted billing payment setup, automatic wallet reload preferences, and signup and payment-method bonuses.
+- CLI `--version` support.
+
+### Changed
+
+- **Breaking:** Update generated SDK callers for the current Memory, Passwords delegation, managed workload, and deployment-view types. Template deployments return restricted owner views.
+- Hosted MCP uses stateless streamable HTTP transport and publishes SEP-2549 cache hints for its tool catalog.
+- Managed updates preserve omitted workload fields, follow durable operation receipts, and use deployment-scoped Cloud lifecycle routes.
+- Synchronized SDK contracts include publisher operation metadata, credential requirements, direct-message operator identities, and current approval, browser, capture-recovery, and reconciliation models.
+- `seren oauth connect` confirms the exact connection from its consent attempt and writes progress to stderr. The MCP `consume_user_oauth_connection_result` tool consumes that state-bound result.
+- Updated CLI, MCP, and SDK workflow guides, and added account and organization collaboration SDK examples.
+
+### Removed
+
+- The duplicate root `openapi/` directory. SDK generation and packaging use the specifications in `sdk/openapi/`.
+
+### Fixed
+
+- Windows Memory hook setup recognizes native executable paths and resolves the user home directory without requiring `HOME`.
+- SerenDB query results preserve arbitrary JSON cells and numeric precision. Query failures retain bounded response details and request IDs.
+- Cloud approval resolution resumes the exact run and checks its execution identity instead of starting another run.
+- CLI and MCP run-event summaries read flattened fields and preserve conversation refusal codes and retry guidance.
+- Failed or queued memory captures retain their turns for retry and report delivery status without blocking session startup.
+- Managed deployment output preserves JSON object fields, counts template owner views correctly, and decodes publisher-scoped rollback responses.
+- Managed Passwords setup preserves proposal and revision bindings, reports recovery state, and supports cancellation of unapplied setups.
+- Realtime capability defaults use the canonical `openai` provider spelling.
+
+### Security
+
+- Queued hook transcripts are encrypted at rest. Delivery errors remain bounded and redacted, and capture applies the organization's policy.
+- Collaboration management and managed Passwords setup require signed-in human authority. Owner controls reject runtime credentials and organization work contexts.
+- MCP publisher mutations do not retry automatically. Proposal tools distinguish safe recovery from a new authorization decision.
+- Standing approval leases cover only the held operation, and email sends require approval for each message.
+- Template publication requires a user API key explicitly scoped to `managed-agent-template:publish`.
+
 ## [0.9.0] - 2026-07-27
 
 Self-contained Rust SDK packaging, broader Seren Storage and Seren Memory publisher workflows, and expanded managed employee operations.

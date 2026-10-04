@@ -101,7 +101,7 @@ See [cli/README.md](./cli/README.md) for the command reference and common workfl
 
 ```toml
 [dependencies]
-seren = { package = "seren-sdk", git = "https://github.com/serenorg/seren.git", tag = "v0.9.0" }
+seren = { package = "seren-sdk", git = "https://github.com/serenorg/seren.git", tag = "v0.10.0" }
 ```
 
 ```rust
