@@ -3392,12 +3392,7 @@ fn default_employee_memory_policy() -> Result<seren::AgentMemoryPolicy, McpError
             "chunk_overlap": null,
             "top_k": null
         },
-        "transcript_retention_days": 30,
-        "compaction": {
-            "token_threshold": 120000,
-            "event_retention_count": 24,
-            "overlap_tokens": 1500
-        }
+        "transcript_retention_days": 30
     }))
     .map_err(|error| {
         McpError::internal_error(
@@ -20398,6 +20393,79 @@ mod tests {
             error.message.contains("Invalid capability_policy payload"),
             "unexpected error: {}",
             error.message
+        );
+    }
+
+    #[tokio::test]
+    async fn deploy_seren_agent_sends_a_default_memory_policy_without_compaction() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let deployment_id = Uuid::new_v4();
+        Mock::given(method("POST"))
+            .and(path("/publishers/seren-agent/deploy"))
+            .respond_with(
+                ResponseTemplate::new(202).set_body_json(cloud_deployment_body(
+                    deployment_id,
+                    Some("seren-agent"),
+                    false,
+                )),
+            )
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let params: DeploySerenAgentParams = serde_json::from_value(serde_json::json!({
+            "name": "Memory Policy Employee",
+            "mode": "job",
+            "prompt": "Summarize weekly changes."
+        }))
+        .expect("MCP deploy parameters should decode");
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let response = server
+            .deploy_seren_agent(Parameters(params), Extensions::default())
+            .await
+            .expect("deploy_seren_agent should reach the deploy route");
+        assert!(result_contains(&response, &deployment_id.to_string()));
+
+        let requests = proxy
+            .received_requests()
+            .await
+            .expect("recorded deploy request");
+        assert_eq!(requests.len(), 1);
+        let body = requests[0]
+            .body_json::<Value>()
+            .expect("deploy request body is JSON");
+        let memory_policy = &body["memory_policy"];
+        assert!(
+            memory_policy.get("compaction").is_none(),
+            "the deploy request must not carry a compaction policy: {memory_policy}"
+        );
+        assert_eq!(
+            memory_policy,
+            &serde_json::json!({
+                "graph_memory": {
+                    "enabled": true,
+                    "store": "seren_managed",
+                    "write_policy": "on_observation",
+                    "read_policy": "explicit_tool"
+                },
+                "semantic_memory": {
+                    "enabled": false,
+                    "store": "seren_managed",
+                    "write_policy": "none",
+                    "read_policy": "explicit_tool"
+                },
+                "knowledge": {
+                    "enabled": true,
+                    "store": "seren_managed",
+                    "source": "agent_instructions",
+                    "read_policy": "explicit_tool",
+                    "index_policy": "encrypted_scan"
+                },
+                "transcript_retention_days": 30
+            })
         );
     }
 
