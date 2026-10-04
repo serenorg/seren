@@ -8,7 +8,7 @@ use seren_cli::{CommandContext, OutputFormat, config, defaults};
 #[derive(Parser)]
 #[command(name = "seren")]
 #[command(version)]
-#[command(about = "CLI tool for Seren database management", long_about = None)]
+#[command(about = "CLI for the Seren platform", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -1009,6 +1009,13 @@ enum OAuthAction {
 #[derive(Subcommand)]
 #[allow(clippy::large_enum_variant)]
 enum AgentAction {
+    #[command(flatten)]
+    Managed(commands::managed::ManagedAction),
+    /// Manage SerenBucks automatic reload and bonuses
+    Wallet {
+        #[command(subcommand)]
+        action: commands::managed::WalletAction,
+    },
     /// List publishers in the store
     ListPublishers,
     /// Get details about a specific publisher
@@ -1283,18 +1290,18 @@ enum AgentAction {
         #[arg(long)]
         input: String,
     },
-    /// Run an agent task via the unified publisher proxy
+    /// Invoke a publisher through the Seren publisher proxy
     RunCloud {
-        /// Publisher slug of the agent to invoke
+        /// Publisher slug to invoke
         #[arg(long)]
         publisher: String,
         /// Input message (text or JSON)
         #[arg(long)]
         message: String,
     },
-    /// Run an agent locally via A2A protocol (direct connection, no billing)
+    /// Invoke an A2A agent endpoint directly
     RunLocal {
-        /// A2A agent endpoint URL (e.g., http://localhost:8000)
+        /// Local or remote A2A agent endpoint URL (e.g., https://agent.example/a2a)
         #[arg(long)]
         endpoint: String,
         /// Input message (text or JSON)
@@ -2521,6 +2528,26 @@ enum CloudRunsAction {
 
 #[derive(Subcommand)]
 enum CloudApprovalsAction {
+    /// List exact approval inbox entries
+    Inbox {
+        #[arg(long)]
+        deployment_id: Option<Uuid>,
+        #[arg(long, value_parser = clap::value_parser!(i64).range(1..=100))]
+        limit: Option<i64>,
+        #[arg(long)]
+        cursor: Option<String>,
+    },
+    /// Decide one exact inbox entry; email sends require each message's approval
+    Decide {
+        entry_id: String,
+        #[arg(long, value_enum)]
+        decision: commands::managed::InboxDecision,
+        #[arg(long)]
+        comment: Option<String>,
+        /// ActionLease JSON file for an allow-always approval; it must grant only the held operation
+        #[arg(long)]
+        lease: Option<std::path::PathBuf>,
+    },
     /// List runs currently awaiting approval globally or for a deployment
     List {
         /// Deployment ID (UUID) to scope results to one deployment
@@ -4591,6 +4618,13 @@ enum BillingAction {
     },
     /// List payment methods for the authenticated user's primary organization
     ListPaymentMethods,
+    /// Start hosted payment method setup using allowlisted return URLs
+    SetupPaymentMethod {
+        #[arg(long)]
+        success_url: String,
+        #[arg(long)]
+        cancel_url: String,
+    },
     /// Add a payment method using a Stripe PaymentMethod ID
     AddPaymentMethod {
         /// Stripe PaymentMethod ID (pm_...)
@@ -5471,6 +5505,38 @@ async fn execute_agent_cloud_action(
             }
         },
         AgentCloudAction::Approvals { action } => match action {
+            CloudApprovalsAction::Inbox {
+                deployment_id,
+                limit,
+                cursor,
+            } => {
+                commands::managed::execute_inbox(
+                    commands::managed::InboxAction::List {
+                        deployment_id,
+                        limit,
+                        cursor,
+                    },
+                    ctx,
+                )
+                .await?
+            }
+            CloudApprovalsAction::Decide {
+                entry_id,
+                decision,
+                comment,
+                lease,
+            } => {
+                commands::managed::execute_inbox(
+                    commands::managed::InboxAction::Decide {
+                        entry_id,
+                        decision,
+                        comment,
+                        lease,
+                    },
+                    ctx,
+                )
+                .await?
+            }
             CloudApprovalsAction::List {
                 deployment_id,
                 limit,
@@ -6948,6 +7014,10 @@ async fn main() -> anyhow::Result<()> {
             BillingAction::ListPaymentMethods => {
                 commands::billing::list_payment_methods(&ctx).await?
             }
+            BillingAction::SetupPaymentMethod {
+                success_url,
+                cancel_url,
+            } => commands::billing::setup_payment_method(&success_url, &cancel_url, &ctx).await?,
             BillingAction::AddPaymentMethod {
                 stripe_payment_method_id,
                 default,
@@ -7759,6 +7829,10 @@ async fn main() -> anyhow::Result<()> {
             McpAction::StartServer => seren_mcp::run(seren_mcp::McpMode::Server).await?,
         },
         Commands::Agent { action } => match *action {
+            AgentAction::Managed(action) => commands::managed::execute(action, &ctx).await?,
+            AgentAction::Wallet { action } => {
+                commands::managed::execute_wallet(action, &ctx).await?
+            }
             AgentAction::ListPublishers => commands::agent::list_publishers(&ctx).await?,
             AgentAction::GetPublisher { publisher } => {
                 commands::agent::get_publisher(&publisher, &ctx).await?
@@ -8621,6 +8695,149 @@ async fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn automatic_reload_reads_use_the_settings_command() {
+        let cli = parse_cli_with_large_stack(vec!["seren", "agent", "wallet", "reload-settings"]);
+        assert!(
+            matches!(cli.command, Commands::Agent { action } if matches!(*action, AgentAction::Wallet { action: commands::managed::WalletAction::ReloadSettings }))
+        );
+        assert!(
+            try_parse_cli_with_large_stack(vec!["seren", "agent", "wallet", "reload"]).is_err()
+        );
+    }
+
+    #[test]
+    fn published_template_deployment_uses_the_deployment_verb() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-deploy-template",
+            "camilla",
+            "--provider",
+            "google",
+            "--connection-id",
+            "11111111-1111-4111-8111-111111111111",
+            "--timezone",
+            "UTC",
+        ]);
+        assert!(
+            matches!(cli.command, Commands::Agent { action } if matches!(*action, AgentAction::Managed(commands::managed::ManagedAction::ManagedDeployTemplate { provider: commands::managed::TemplateProvider::Google, .. })))
+        );
+        assert!(
+            try_parse_cli_with_large_stack(vec!["seren", "agent", "managed-hire", "camilla"])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn hosted_payment_setup_belongs_to_billing_commands() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "billing",
+            "setup-payment-method",
+            "--success-url",
+            "https://app.example.test/success",
+            "--cancel-url",
+            "https://app.example.test/cancel",
+        ]);
+        match cli.command {
+            Commands::Billing { action } => match action {
+                BillingAction::SetupPaymentMethod {
+                    success_url,
+                    cancel_url,
+                } => {
+                    assert_eq!(success_url, "https://app.example.test/success");
+                    assert_eq!(cancel_url, "https://app.example.test/cancel");
+                }
+                _ => panic!("expected setup-payment-method"),
+            },
+            _ => panic!("expected billing command"),
+        }
+        assert!(
+            try_parse_cli_with_large_stack(vec![
+                "seren",
+                "agent",
+                "wallet",
+                "setup-card",
+                "--success-url",
+                "https://app.example.test/success",
+                "--cancel-url",
+                "https://app.example.test/cancel"
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn managed_owner_commands_use_the_existing_agent_surface() {
+        let id = "11111111-1111-4111-8111-111111111111";
+        let cli = parse_cli_with_large_stack(vec!["seren", "agent", "managed-state", id]);
+        assert!(
+            matches!(cli.command, Commands::Agent { action } if matches!(*action, AgentAction::Managed(commands::managed::ManagedAction::ManagedState { .. })))
+        );
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-publish-template-release",
+            id,
+            "camilla",
+            "--request",
+            "release.json",
+        ]);
+        assert!(
+            matches!(cli.command, Commands::Agent { action } if matches!(*action, AgentAction::Managed(commands::managed::ManagedAction::ManagedPublishTemplateRelease { .. })))
+        );
+        assert!(
+            try_parse_cli_with_large_stack(vec!["seren", "agent", "employee", "state", id])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn exact_inbox_decisions_use_the_existing_cloud_approval_group() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "cloud",
+            "approvals",
+            "decide",
+            "tool:run:call",
+            "--decision",
+            "allow-always",
+            "--lease",
+            "lease.json",
+        ]);
+        match cli.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::Cloud { action } => {
+                    assert!(matches!(
+                        *action,
+                        AgentCloudAction::Approvals {
+                            action: CloudApprovalsAction::Decide {
+                                decision: commands::managed::InboxDecision::AllowAlways,
+                                ..
+                            }
+                        }
+                    ));
+                }
+                _ => panic!("expected cloud action"),
+            },
+            _ => panic!("expected agent command"),
+        }
+        assert!(
+            try_parse_cli_with_large_stack(vec![
+                "seren",
+                "agent",
+                "cloud",
+                "approvals",
+                "inbox",
+                "--limit",
+                "101"
+            ])
+            .is_err()
+        );
+    }
 
     fn parse_cli_with_large_stack(args: Vec<&'static str>) -> Cli {
         std::thread::Builder::new()

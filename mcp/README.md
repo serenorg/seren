@@ -199,11 +199,38 @@ Once configured, you can ask Claude to:
 Publishers with `requires_user_oauth` use connections authorized by the current user. Assistants can inspect the provider account email or user ID instead of guessing which identity a publisher call will use.
 
 1. Call `list_user_oauth_connections` to inspect connection IDs, provider identities, validity, and defaults.
-2. If no connection exists, call `list_user_oauth_providers`, then `start_user_oauth_connection` with an allowed redirect URI and ask the user to open the returned consent URL.
+2. If no connection exists, call `list_user_oauth_providers`, then `start_user_oauth_connection` with an allowed redirect URI and ask the user to open `authorization_url`. Keep the returned `state`; after the provider callback, call `consume_user_oauth_connection_result` with that state to obtain the exact new connection. The result can be consumed once within 10 minutes of the callback.
 3. Pass `connection_id` to `call_publisher`, `list_mcp_tools`, or `list_mcp_resources` when a workflow requires an exact account. Use `set_default_user_oauth_connection` when selector-less calls should use that account by default.
 4. For a managed deployment, set `oauth_connection_id` on each publisher `tool_ref` that must remain bound to an exact account. The runtime rejects a different per-call connection ID.
 
 OAuth consent remains a human action. These tools expose connection metadata and selection controls but never return provider tokens.
+
+### Employee Owner Tools
+
+Use `create_seren_agent_template_deployment` to create a managed agent deployment from a published template with an existing OAuth connection and an IANA timezone. `get_seren_agent_template_stats` reads aggregate work hours, skill count, and update time. Creating the deployment provisions paid infrastructure and requires user approval. `list_seren_agent_deployments` and `get_seren_agent_deployment` return the owner view for hired Employees. `rebind_seren_agent_connection` switches the owner connection and resets browser sign-ins when the connection changes.
+
+| Task | Tools |
+|------|-------|
+| State and weekly check-ins | `get_seren_agent_state`, `update_seren_agent_checkins` |
+| Work and owner ratings | `list_seren_agent_work_items`, `create_seren_agent_work_feedback` |
+| Review skill changes | `list_seren_agent_skill_proposals`, `approve_seren_agent_skill_proposal`, `reject_seren_agent_skill_proposal`, `undo_seren_agent_skill_proposal` |
+| Review publisher access requests | `list_seren_agent_publisher_access_requests`, `decide_seren_agent_publisher_access_request` |
+| Publisher grants | `list_seren_agent_publisher_grants`, `add_seren_agent_publisher_grant`, `revoke_seren_agent_publisher_grant` |
+| Standing approvals | `list_seren_agent_publisher_allowances`, `revoke_seren_agent_publisher_allowance` |
+| Browser sign-in | `get_active_seren_agent_browser_handoff`, `create_seren_agent_browser_handoff_ticket` |
+| Publish a template release | `publish_seren_agent_template_release` |
+
+Owner tools accept the Employee owner's session or user API key; agent keys and organization work contexts cannot act as the owner. Adding publisher grants and starting API-key credential setup require a signed-in user session. Credential approval and browser sign-in remain human actions. Show returned Seren Passwords launch URLs and one-use browser viewer tickets only to the owner; viewer tickets expire after 60 seconds. Template publication requires a user API key explicitly scoped `managed-agent-template:publish`; sessions and unrestricted API keys cannot publish.
+
+Review an exact proposal before approving it. Undo applies only to the most recently applied proposal while its applied revision remains active. Use a stable optional `idempotency_key` when retrying a work rating. Runtime state writes, work recording, access requests, allowance checks, proposal submission and browser handoff creation or settlement belong to the Employee runtime and are not ordinary owner MCP tools.
+
+### Approval Inbox
+
+Call `list_cloud_approval_inbox` to inspect tool calls, blocked egress, and other pending requests across deployments. For publisher holds, inspect the exact request and reviewed operation binding, and display request values and message bodies as text. After user approval, call `decide_cloud_approval_inbox_entry` for that single `entry_id` with `approve`, `deny`, or `allow_always`. Standing approval is available only when the entry's `allow_always` permits it and can be bounded by a lease whose `action` is the held operation ID, whose `specific` capability lists only that ID, and which has no `parent_lease_ref`. Publisher email sends require individual approval. A publisher hold without its exact request cannot be approved.
+
+### Saved Cards and Automatic Reload
+
+Use `list_saved_payment_methods`, `start_saved_payment_method_setup`, `add_saved_payment_method`, and `delete_saved_payment_method` to manage saved payment methods. Hosted setup returns a URL where the user enters card information directly with the payment provider. `get_wallet_reload_settings` reads reload preferences and `update_wallet_reload_settings` enables or disables future automatic charges. Enabling requires user approval, a default saved payment method, a reload amount and a monthly cap at least as large as that amount. Disabling omits amount and cap. Eligible accounts can claim bonuses with `claim_wallet_signup_bonus` and `claim_wallet_payment_method_bonus`. All mutations respect MCP read-only mode.
 
 ### Account Tools
 
@@ -268,7 +295,7 @@ The onboarding tools operate the same server-owned resource as hosted Seren Empl
 Create and update are write tools but are not marked destructive because they only create or replace an unapplied draft. Apply requires managed-deployment create authority. Update and cancel require managed-deployment update authority. Agent credentials cannot perform these mutations. Read-only MCP mode blocks every onboarding mutation. Raw credentials never belong in an onboarding tool call; a user-managed model selection proceeds through the existing proposal-bound Seren Passwords tools after baseline deployment.
 
 - `deploy_seren_agent` deploys a managed prompt-based agent
-- `get_seren_agent_deployment` returns the resolved deployment detail
+- `get_seren_agent_deployment` returns standalone deployment detail or the restricted owner view for a template deployment
 - `start_seren_agent_passwords_setup` starts or resumes the human-authorized Seren Passwords field-mapping flow and returns a fresh browser launch URL with the setup's current `status`; matching nonterminal setups retain their setup ID and report an approval already in progress, while changed requirements replace only setups without a completed approval. Treat that short-lived bearer URL as sensitive and never send it to another tool or third party
 - `get_seren_agent_passwords_setup_status` reads Core's status and consume-failure reason even before an approval request exists, and identifies the apply tool for an approved setup without exposing credential or mapping identifiers
 - `cancel_seren_agent_passwords_setup` takes `organization_id` and `setup_id` and cancels an abandoned setup for its signed-in requester; completed approvals prevent cancellation. Start again after cancellation to obtain a new setup. Core's recovery routes and Seren Passwords guarded cancellation must be deployed first
@@ -310,7 +337,7 @@ Typical workflow:
 
 1. Call `get_cloud_overview` to see whether anything is stuck or awaiting approval.
 2. Use `list_pending_cloud_approvals` to inspect the approval queue in more detail.
-3. Use `get_cloud_agent_run` or `get_cloud_agent_deployment` once you know which run or deployment needs attention.
+3. Use `get_cloud_agent_run` or `cloud_agent_status` once you know which run or deployment needs attention.
 
 Example `deploy_seren_agent` parameters:
 
@@ -362,10 +389,9 @@ Use prepaid balance (fiat/Stripe) for store access:
 
 - `get_prepaid_balance` - Check your prepaid balance summary (virtual wallet)
 - `create_prepaid_deposit` - Create a prepaid deposit (returns provider client data)
-- `execute_paid_query` - Run a prepaid SQL query against a publisher database
-- `execute_paid_api` - Run a prepaid HTTP request against a publisher API
+- `call_publisher` - Run a SQL query, HTTP request, or MCP operation against a publisher
 
-`execute_paid_query` and `execute_paid_api` accept an optional `request_id` (UUID) for idempotency.
+`call_publisher` accepts an optional `request_id` (UUID) for idempotency.
 
 ### Hosted Settlement Metadata
 

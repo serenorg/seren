@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 default-run = "seren"
-description = "CLI tool for Seren database management"
+description = "CLI for the Seren platform"
 repository = "https://github.com/serenorg/seren"
 
 [lib]

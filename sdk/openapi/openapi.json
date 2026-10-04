@@ -54,6 +54,9 @@
           "401": {
             "description": "Unauthorized"
           },
+          "403": {
+            "description": "The invite is for another user, or its inviter can no longer manage members or no longer holds every permission of the invited role"
+          },
           "404": {
             "description": "Invite not found"
           }
@@ -1453,6 +1456,94 @@
         }
       }
     },
+    "/checkins/unsubscribe": {
+      "get": {
+        "tags": [
+          "checkins"
+        ],
+        "summary": "Confirm an unsubscribe from weekly check-in emails. This page changes\nnothing; its button sends the unsubscribe.",
+        "operationId": "confirm_checkin_unsubscribe",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "description": "Token from the check-in email's unsubscribe link.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmation page",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown or expired link",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "checkins"
+        ],
+        "summary": "Unsubscribe from weekly check-in emails. A mail client's one-click request\nand the confirmation page both post here; repeating it succeeds.",
+        "operationId": "checkin_unsubscribe",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "description": "Token from the check-in email's unsubscribe link.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Unsubscribed",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown or expired link",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/databases": {
       "get": {
         "tags": [
@@ -2297,7 +2388,7 @@
               }
             }
           },
-          "302": {
+          "307": {
             "description": "Redirect to OAuth provider"
           },
           "400": {
@@ -2338,8 +2429,8 @@
           {
             "name": "code",
             "in": "query",
-            "description": "Authorization code from provider",
-            "required": true,
+            "description": "Authorization code from provider, omitted when consent is declined",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -2352,10 +2443,28 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "description": "Error from provider",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "error_description",
+            "in": "query",
+            "description": "Error description from provider",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
-          "302": {
+          "307": {
             "description": "Redirect to frontend with success/error"
           },
           "400": {
@@ -2482,7 +2591,7 @@
               }
             }
           },
-          "302": {
+          "307": {
             "description": "Redirect to OAuth provider"
           },
           "400": {
@@ -2523,8 +2632,8 @@
           {
             "name": "code",
             "in": "query",
-            "description": "Authorization code from provider",
-            "required": true,
+            "description": "Authorization code from provider, omitted when consent is declined",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -2537,10 +2646,28 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "description": "Error from provider",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "error_description",
+            "in": "query",
+            "description": "Error description from provider",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
-          "302": {
+          "307": {
             "description": "Redirect to frontend with success/error"
           },
           "400": {
@@ -2655,7 +2782,7 @@
           "Auth"
         ],
         "summary": "Create a new API key for the user's default organization",
-        "description": "This convenience endpoint resolves \"default\" to the user's first organization. It requires a signed-in user access token; API keys cannot manage API keys.",
+        "description": "This convenience endpoint resolves \"default\" to the user's first organization. It requires a signed-in user access token; API keys cannot manage API keys.\nOnly an owner of that resolved organization can grant `managed-agent-template:publish`.",
         "operationId": "create_default_org_api_key",
         "requestBody": {
           "content": {
@@ -2685,7 +2812,7 @@
             "description": "Unauthorized"
           },
           "403": {
-            "description": "A signed-in user session is required"
+            "description": "A signed-in user session is required, or a requested scope requires an organization owner"
           }
         },
         "security": [
@@ -2745,7 +2872,7 @@
           "Auth"
         ],
         "summary": "Replace scopes on an API key in the user's default organization.",
-        "description": "Requires a signed-in user access token. API keys cannot update their own privileges.",
+        "description": "Requires a signed-in user access token. API keys cannot update their own privileges.\nOnly an owner of the resolved organization can grant a scope set containing `managed-agent-template:publish`.",
         "operationId": "update_default_org_api_key_scopes",
         "parameters": [
           {
@@ -2787,7 +2914,7 @@
             "description": "Unauthorized"
           },
           "403": {
-            "description": "A signed-in user session is required"
+            "description": "A signed-in user session is required, or a requested scope requires an organization owner"
           },
           "404": {
             "description": "API key not found"
@@ -3300,7 +3427,7 @@
           "Auth"
         ],
         "summary": "Create a new API key for a specific organization",
-        "description": "Requires a signed-in user access token. API keys cannot manage API keys.",
+        "description": "Requires a signed-in user access token. API keys cannot manage API keys.\nOnly an organization owner can grant `managed-agent-template:publish`.",
         "operationId": "create_org_api_key",
         "parameters": [
           {
@@ -3339,7 +3466,7 @@
             "description": "Unauthorized"
           },
           "403": {
-            "description": "A signed-in user session is required"
+            "description": "A signed-in user session is required, or a requested scope requires an organization owner"
           },
           "404": {
             "description": "Organization not found"
@@ -3409,7 +3536,7 @@
           "Auth"
         ],
         "summary": "Replace the least-privilege scopes on an organization API key.",
-        "description": "Requires a signed-in user access token. A user may update only their own\nactive user API keys; API keys cannot update their own privileges.",
+        "description": "Requires a signed-in user access token. A user may update only their own\nactive user API keys; API keys cannot update their own privileges.\nOnly an organization owner can grant a scope set containing `managed-agent-template:publish`.",
         "operationId": "update_org_api_key_scopes",
         "parameters": [
           {
@@ -3461,7 +3588,7 @@
             "description": "Unauthorized"
           },
           "403": {
-            "description": "A signed-in user session is required"
+            "description": "A signed-in user session is required, or a requested scope requires an organization owner"
           },
           "404": {
             "description": "API key not found"
@@ -5235,7 +5362,7 @@
           "required": true
         },
         "responses": {
-          "201": {
+          "200": {
             "description": "Invite created and email sent",
             "content": {
               "application/json": {
@@ -5249,7 +5376,7 @@
             "description": "Invalid request"
           },
           "403": {
-            "description": "User is not allowed to create invites"
+            "description": "User is not allowed to create invites, or does not hold every permission of the invited role"
           },
           "500": {
             "description": "Internal server error"
@@ -5607,10 +5734,13 @@
             "description": "Unauthorized"
           },
           "403": {
-            "description": "Forbidden - requires org.manage_members permission"
+            "description": "Forbidden - requires org.manage_members permission, and every permission of the member's current role and of the new role"
           },
           "404": {
             "description": "Member or role not found"
+          },
+          "409": {
+            "description": "The change would leave the organization without an owner"
           }
         },
         "security": [
@@ -7614,7 +7744,7 @@
             "description": "Unauthorized"
           },
           "403": {
-            "description": "Forbidden - requires org.manage_roles permission"
+            "description": "Forbidden - requires org.manage_roles permission and every permission of the role"
           }
         },
         "security": [
@@ -7719,10 +7849,13 @@
             "description": "Unauthorized"
           },
           "403": {
-            "description": "Forbidden - requires org.manage_roles permission"
+            "description": "Forbidden - requires org.manage_roles permission and every permission of the role"
           },
           "404": {
             "description": "Role not found"
+          },
+          "409": {
+            "description": "Reassign members before deleting a role in use"
           }
         },
         "security": [
@@ -7787,7 +7920,7 @@
             "description": "Unauthorized"
           },
           "403": {
-            "description": "Forbidden - requires org.manage_roles permission"
+            "description": "Forbidden - requires org.manage_roles permission, and every permission of the role before and after a permission change"
           },
           "404": {
             "description": "Role not found"
@@ -7851,6 +7984,76 @@
           },
           "500": {
             "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/releases": {
+      "post": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Publish a release of a managed agent template.",
+        "description": "Creates the template when it does not exist, and otherwise adds the\nrelease as its next revision. A new template cannot be hired until it is\nactivated. Publishing the current revision again changes nothing.\nRequires a user API key with `managed-agent-template:publish`, granted by\nan owner of the publishing organization. An issued key remains valid if its\ncreator later loses ownership, until it expires or is revoked.",
+        "operationId": "publish_managed_agent_template_release",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishManagedAgentTemplateReleaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The template's current revision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateRelease"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid template release"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The credential or organization may not publish this template, or publication is not enabled"
+          },
+          "409": {
+            "description": "The display name differs from the template's, or the release conflicts with the template or its bundle"
           }
         },
         "security": [
@@ -11824,6 +12027,15 @@
           }
         }
       },
+      "AgentNetworkProtocol": {
+        "type": "string",
+        "enum": [
+          "tcp",
+          "rest",
+          "sse",
+          "websocket"
+        ]
+      },
       "AgentRegisterRequest": {
         "type": "object",
         "description": "Request to register a new AI agent account.",
@@ -12610,6 +12822,14 @@
           }
         }
       },
+      "BrowserDisplay": {
+        "type": "string",
+        "description": "Display mode for the managed Chromium browser.",
+        "enum": [
+          "headless",
+          "headed"
+        ]
+      },
       "ChangePlanRequest": {
         "type": "object",
         "description": "Request to upgrade/downgrade an organization's plan",
@@ -12632,6 +12852,15 @@
             ]
           }
         }
+      },
+      "CloudDeploymentMode": {
+        "type": "string",
+        "description": "Cloud deployment execution mode.",
+        "enum": [
+          "always_on",
+          "cron",
+          "job"
+        ]
       },
       "CommunityPriorResponse": {
         "type": "object",
@@ -12878,7 +13107,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Optional least-privilege scopes. Omit for an unrestricted user API key.\nPublisher invocation scopes, `managed-deployment:<operation>`, and the\nexact publisher-administration scopes `organization:read`,\n`publisher-definition:{read,create,update}`, `publisher-pricing:update`,\n`oauth-provider:{read,create,update}`, and `oauth-connection:read` grant\nseparate capabilities and may be combined. No administration wildcard\nor delete scope is supported. Publisher create or update payloads that\nset pricing, billing, or accepted-asset fields also require\n`publisher-pricing:update`."
+            "description": "Optional least-privilege scopes. Omit for an unrestricted user API key.\nPublisher invocation scopes, `managed-deployment:<operation>`, and the\nexact publisher-administration scopes `organization:read`,\n`publisher-definition:{read,create,update}`, `publisher-pricing:update`,\n`oauth-provider:{read,create,update}`, and `oauth-connection:read` grant\nseparate capabilities and may be combined. No administration wildcard\nor delete scope is supported. Publisher create or update payloads that\nset pricing, billing, or accepted-asset fields also require\n`publisher-pricing:update`. `managed-agent-template:publish` allows\npublishing managed agent template releases; no other scope and no\nunrestricted key allows it. Only an owner of the resolved organization\ncan grant it.\nPlatform deployment support uses explicit `deployment-support:read`,\n`deployment-support:logs`, and `deployment-support:control` scopes.\nThese scopes require platform-admin authority and are not implied by an unrestricted key."
           }
         }
       },
@@ -16171,6 +16400,59 @@
           }
         }
       },
+      "DataResponse_ManagedAgentTemplateRelease": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "The template's current revision after a release was published.",
+            "required": [
+              "slug",
+              "revision",
+              "created",
+              "revision_added",
+              "active"
+            ],
+            "properties": {
+              "active": {
+                "type": "boolean",
+                "description": "Whether the template can be hired."
+              },
+              "created": {
+                "type": "boolean",
+                "description": "Whether this request created the template."
+              },
+              "revision": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Current revision of the template."
+              },
+              "revision_added": {
+                "type": "boolean",
+                "description": "Whether this request added the revision. False when the release was\nalready the current revision."
+              },
+              "slug": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_NotificationReadResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -18693,6 +18975,16 @@
                 ],
                 "description": "MCP server endpoint URL. When present, enables native MCP proxying."
               },
+              "mcp_read_tools": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "description": "Tool names currently authorized as reviewed reads; included in publisher detail responses."
+              },
               "name": {
                 "type": "string"
               },
@@ -18703,6 +18995,27 @@
                 ],
                 "format": "uuid",
                 "description": "OAuth provider ID for BYOC (Bring Your Own Credentials) authentication"
+              },
+              "operation_purposes": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "$ref": "#/components/schemas/PublisherOperationApprovalPurpose"
+                },
+                "description": "Current platform-reviewed approval purposes for catalog operations."
+              },
+              "owner_credential": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/OwnerCredentialRequirement",
+                    "description": "The owner credential required for access, included in catalog responses."
+                  }
+                ]
               },
               "ownership_tracking_enabled": {
                 "type": "boolean"
@@ -21946,6 +22259,16 @@
                   ],
                   "description": "MCP server endpoint URL. When present, enables native MCP proxying."
                 },
+                "mcp_read_tools": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Tool names currently authorized as reviewed reads; included in publisher detail responses."
+                },
                 "name": {
                   "type": "string"
                 },
@@ -21956,6 +22279,27 @@
                   ],
                   "format": "uuid",
                   "description": "OAuth provider ID for BYOC (Bring Your Own Credentials) authentication"
+                },
+                "operation_purposes": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "$ref": "#/components/schemas/PublisherOperationApprovalPurpose"
+                  },
+                  "description": "Current platform-reviewed approval purposes for catalog operations."
+                },
+                "owner_credential": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/OwnerCredentialRequirement",
+                      "description": "The owner credential required for access, included in catalog responses."
+                    }
+                  ]
                 },
                 "ownership_tracking_enabled": {
                   "type": "boolean"
@@ -24960,6 +25304,14 @@
           }
         }
       },
+      "ManagedAgentModelPolicy": {
+        "type": "string",
+        "enum": [
+          "fast",
+          "balanced",
+          "deep"
+        ]
+      },
       "ManagedAgentPrivateOutputPolicy": {
         "type": "string",
         "enum": [
@@ -25446,6 +25798,173 @@
           "direct_url",
           "seren_organization_database"
         ]
+      },
+      "ManagedAgentTemplateBrowserDefaults": {
+        "type": "object",
+        "required": [
+          "display",
+          "max_session_seconds"
+        ],
+        "properties": {
+          "display": {
+            "$ref": "#/components/schemas/BrowserDisplay"
+          },
+          "max_session_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentTemplateDeployDefaults": {
+        "type": "object",
+        "description": "Deployment settings a template revision applies to every hired copy.",
+        "required": [
+          "mode",
+          "cron_schedule",
+          "model_policy",
+          "max_runtime_seconds",
+          "browser",
+          "network_egress",
+          "script_publisher_grants"
+        ],
+        "properties": {
+          "browser": {
+            "$ref": "#/components/schemas/ManagedAgentTemplateBrowserDefaults"
+          },
+          "cron_schedule": {
+            "type": "string"
+          },
+          "max_runtime_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CloudDeploymentMode"
+          },
+          "model_policy": {
+            "$ref": "#/components/schemas/ManagedAgentModelPolicy"
+          },
+          "network_egress": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentTemplateEgressRule"
+            }
+          },
+          "requirements_txt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Python packages installed for every hired copy before it starts. Each\nnon-comment line is `name==version` with a public version, followed by\none or more `--hash=sha256:<digest>` options on the same line,\nseparated by spaces, with each digest written as 64 lowercase\nhexadecimal digits. Each package appears once, and the list names every\npackage to install, dependencies included. Comment lines and blank\nlines are allowed."
+          },
+          "runtime_class": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplateRuntimeClass",
+                "description": "Optional sandbox runtime for every hired copy. Omit to use the cluster default."
+              }
+            ]
+          },
+          "script_publisher_grants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentTemplateScriptPublisherGrant"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentTemplateEgressRule": {
+        "type": "object",
+        "required": [
+          "host",
+          "port",
+          "protocol"
+        ],
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "protocol": {
+            "$ref": "#/components/schemas/AgentNetworkProtocol"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentTemplateRelease": {
+        "type": "object",
+        "description": "The template's current revision after a release was published.",
+        "required": [
+          "slug",
+          "revision",
+          "created",
+          "revision_added",
+          "active"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "description": "Whether the template can be hired."
+          },
+          "created": {
+            "type": "boolean",
+            "description": "Whether this request created the template."
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Current revision of the template."
+          },
+          "revision_added": {
+            "type": "boolean",
+            "description": "Whether this request added the revision. False when the release was\nalready the current revision."
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentTemplateRuntimeClass": {
+        "type": "string",
+        "enum": [
+          "gvisor",
+          "kata"
+        ]
+      },
+      "ManagedAgentTemplateScriptPublisherGrant": {
+        "type": "object",
+        "required": [
+          "publisher_slug",
+          "method",
+          "path",
+          "require_approval"
+        ],
+        "properties": {
+          "method": {
+            "$ref": "#/components/schemas/HttpMethod"
+          },
+          "path": {
+            "type": "string"
+          },
+          "publisher_slug": {
+            "$ref": "#/components/schemas/Slug"
+          },
+          "require_approval": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
       },
       "ManagedSecretsApplyTarget": {
         "oneOf": [
@@ -27148,6 +27667,16 @@
           }
         }
       },
+      "OwnerCredentialRequirement": {
+        "type": "string",
+        "description": "The owner credential needed to grant an Employee access to a publisher: `none` needs no owner\ncredential, `api_key` accepts an owner API-key grant, `sign_in` needs an owner sign-in grant,\nand `unreviewed` accepts no owner grant until its requirement is reviewed.",
+        "enum": [
+          "none",
+          "api_key",
+          "sign_in",
+          "unreviewed"
+        ]
+      },
       "PaginatedResponse_Vec_PublisherResponse": {
         "type": "object",
         "description": "Response wrapper with offset-based pagination\n\nUse this for list endpoints that use limit/offset pagination.",
@@ -27383,6 +27912,16 @@
                   ],
                   "description": "MCP server endpoint URL. When present, enables native MCP proxying."
                 },
+                "mcp_read_tools": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Tool names currently authorized as reviewed reads; included in publisher detail responses."
+                },
                 "name": {
                   "type": "string"
                 },
@@ -27393,6 +27932,27 @@
                   ],
                   "format": "uuid",
                   "description": "OAuth provider ID for BYOC (Bring Your Own Credentials) authentication"
+                },
+                "operation_purposes": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "$ref": "#/components/schemas/PublisherOperationApprovalPurpose"
+                  },
+                  "description": "Current platform-reviewed approval purposes for catalog operations."
+                },
+                "owner_credential": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/OwnerCredentialRequirement",
+                      "description": "The owner credential required for access, included in catalog responses."
+                    }
+                  ]
                 },
                 "ownership_tracking_enabled": {
                   "type": "boolean"
@@ -28603,6 +29163,34 @@
           }
         }
       },
+      "PublishManagedAgentTemplateReleaseRequest": {
+        "type": "object",
+        "required": [
+          "display_name",
+          "source_bundle_id",
+          "source_commit_sha",
+          "deploy_defaults"
+        ],
+        "properties": {
+          "deploy_defaults": {
+            "$ref": "#/components/schemas/ManagedAgentTemplateDeployDefaults"
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Name of the template. It must equal the name of an existing template."
+          },
+          "source_bundle_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Uploaded agent bundle of the organization in the path."
+          },
+          "source_commit_sha": {
+            "type": "string",
+            "description": "Full lowercase hex hash of the released commit."
+          }
+        },
+        "additionalProperties": false
+      },
       "PublisherAgentBalance": {
         "type": "object",
         "required": [
@@ -28872,6 +29460,14 @@
           }
         }
       },
+      "PublisherEmailMessageFormat": {
+        "type": "string",
+        "description": "Supported request representations carrying the complete message to review.",
+        "enum": [
+          "gmail_raw_message",
+          "microsoft_graph_send_mail"
+        ]
+      },
       "PublisherForbiddenResponse": {
         "anyOf": [
           {
@@ -28914,6 +29510,33 @@
                 "type": "string"
               },
               "message": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "error",
+              "message",
+              "publisher_slug",
+              "kind"
+            ],
+            "properties": {
+              "error": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "api_key",
+                  "sign_in"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "publisher_slug": {
                 "type": "string"
               }
             }
@@ -28985,6 +29608,46 @@
             "type": "string"
           }
         }
+      },
+      "PublisherOperationApprovalPurpose": {
+        "type": "object",
+        "description": "A current purpose review projected by publisher discovery.",
+        "required": [
+          "operation_id",
+          "purpose",
+          "binding_sha256"
+        ],
+        "properties": {
+          "binding_sha256": {
+            "type": "string"
+          },
+          "message_format": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PublisherEmailMessageFormat",
+                "description": "Email reference operations intentionally have no supported message format."
+              }
+            ]
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "purpose": {
+            "$ref": "#/components/schemas/PublisherOperationPurpose"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PublisherOperationPurpose": {
+        "type": "string",
+        "description": "Purpose is assigned by Seren, not by publisher-authored endpoint metadata.",
+        "enum": [
+          "action",
+          "email_send"
+        ]
       },
       "PublisherPayoutInfo": {
         "type": "object",
@@ -29305,6 +29968,16 @@
             ],
             "description": "MCP server endpoint URL. When present, enables native MCP proxying."
           },
+          "mcp_read_tools": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Tool names currently authorized as reviewed reads; included in publisher detail responses."
+          },
           "name": {
             "type": "string"
           },
@@ -29315,6 +29988,27 @@
             ],
             "format": "uuid",
             "description": "OAuth provider ID for BYOC (Bring Your Own Credentials) authentication"
+          },
+          "operation_purposes": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PublisherOperationApprovalPurpose"
+            },
+            "description": "Current platform-reviewed approval purposes for catalog operations."
+          },
+          "owner_credential": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OwnerCredentialRequirement",
+                "description": "The owner credential required for access, included in catalog responses."
+              }
+            ]
           },
           "ownership_tracking_enabled": {
             "type": "boolean"
@@ -30926,7 +31620,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Complete replacement scope set. At least one valid scope is required."
+            "description": "Complete replacement scope set. At least one valid scope is required.\nOnly an owner of the resolved organization can grant a set containing\n`managed-agent-template:publish`."
           }
         }
       },
@@ -33628,6 +34322,14 @@
     {
       "name": "federation",
       "description": "Cross-publisher resource discovery and federation"
+    },
+    {
+      "name": "checkins",
+      "description": "Unsubscribe links in weekly Employee check-in emails"
+    },
+    {
+      "name": "managed-agent-templates",
+      "description": "Managed agent template releases"
     }
   ]
 }

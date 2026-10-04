@@ -105,7 +105,15 @@ The client is auto-generated from the OpenAPI specs at build time. Methods are a
 
 The crate stores its OpenAPI inputs in `sdk/openapi`. Cargo packages include this directory, so code generation does not depend on files outside the crate.
 
+Managed Employee methods cover template hires, publisher access requests and grants, exact-operation allowances, browser sign-in handoffs, work records, feedback, and skill proposal review. Cloud approval inbox methods let an owner decide one entry with `approve`, `deny`, or `allow_always`; standing approvals can carry an expiry and use budget. Browser consent confirmation uses the proof returned by the consent flow. Template release publication requires an organization user API key with the explicit `managed-agent-template:publish` scope. Runtime operations, including allowance checks and publishing state or work records, require the deployment's runtime credential.
+
 Return values are wrapped in `ResponseValue<T>`. Call `.into_inner()` to get the response body.
+
+### Updating the API contract
+
+Export the contract from the owning `seren-core` checkout with `make openapi openapi-publishers`. Copy its `openapi.json`, `openapi-seren-db.json`, `openapi-seren-cloud.json`, `openapi-seren-agent.json`, `openapi-seren-models.json`, and `openapi-seren-private-models.json` into `sdk/openapi`, then rebuild the SDK. Do not edit these generated inputs directly. Keep the producer revision stable while syncing the Python SDK, TypeScript SDK, and documentation from the same inputs.
+
+Compare parsed OpenAPI operations and their referenced schemas, including changed requests, responses, enums, headers, and security requirements. Review the producer commits for behavior the schema cannot express, such as authorization, approval lifecycles, pagination, streaming, and owner versus runtime access. Verify handwritten CLI and MCP calls against those changes and exercise new operations through their generated clients.
 
 ### Error Handling
 

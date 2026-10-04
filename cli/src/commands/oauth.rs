@@ -147,62 +147,34 @@ pub async fn set_default(connection_id: Uuid, ctx: &CommandContext) -> Result<()
 
 /// Initiate OAuth flow to connect to a provider
 pub async fn connect(provider_slug: &str, ctx: &CommandContext) -> Result<()> {
-    // The initiate_oauth endpoint returns a 302 redirect to the provider's authorization URL.
-    // We need to read the Location header rather than follow the redirect, so we use the
-    // raw HTTP client with redirects disabled instead of the SDK client.
-    let client = ctx.http_client_no_redirect().await?;
-    let api_base = ctx.api_base();
+    let sdk_client = ctx.client().await?;
 
-    println!("{}", "Starting OAuth connection flow...".bold());
-    println!();
+    eprintln!("{}", "Starting OAuth connection flow...".bold());
+    eprintln!();
 
-    // Start local server to receive OAuth callback
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let local_addr = listener.local_addr()?;
     let redirect_url = format!("http://127.0.0.1:{}/callback", local_addr.port());
-
-    // Request authorization URL from the API
-    let response = client
-        .get(format!(
-            "{}/oauth/{}/authorize?redirect_uri={}",
-            api_base,
-            provider_slug,
-            urlencoding::encode(&redirect_url)
-        ))
-        .send()
+    let consent = sdk_client
+        .initiate_oauth(provider_slug, &redirect_url, Some("application/json"))
         .await
-        .context("Failed to initiate OAuth flow")?;
+        .context("Failed to initiate OAuth flow")?
+        .into_inner()
+        .data;
+    let authorization_url = consent.authorization_url;
+    let consent_state = consent.state;
 
-    if !response.status().is_redirection() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        if status.as_u16() == 404 {
-            anyhow::bail!(
-                "OAuth provider '{}' not found. Use 'seren oauth providers' to see available providers.",
-                provider_slug
-            );
-        }
-        anyhow::bail!("Failed to initiate OAuth flow: {} - {}", status, body);
-    }
-
-    let authorization_url = response
-        .headers()
-        .get(reqwest::header::LOCATION)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("OAuth authorize response missing Location header"))?;
-
-    println!("Opening browser for {} authorization...", provider_slug);
-    println!("If the browser doesn't open, visit:");
-    println!("{}", authorization_url.cyan());
-    println!();
+    eprintln!("Opening browser for {} authorization...", provider_slug);
+    eprintln!("If the browser doesn't open, visit:");
+    eprintln!("{}", authorization_url.cyan());
+    eprintln!();
 
     // Try to open browser
     if let Err(e) = open::that(&authorization_url) {
         eprintln!("Warning: Could not open browser: {}", e);
     }
 
-    println!("Waiting for authorization...");
+    eprintln!("Waiting for authorization...");
 
     // Wait for callback
     let callback = receive_oauth_callback(listener)?;
@@ -222,54 +194,44 @@ pub async fn connect(provider_slug: &str, ctx: &CommandContext) -> Result<()> {
     if let Some(provider) = callback.provider.as_deref()
         && provider != provider_slug
     {
-        eprintln!(
-            "Warning: OAuth completed for provider '{}', expected '{}'",
-            provider, provider_slug
-        );
+        anyhow::bail!("OAuth completed for provider '{provider}', expected '{provider_slug}'.");
     }
 
-    println!("Authorization complete. Verifying connection...");
-
-    // Poll for connection status using the SDK client
-    let sdk_client = ctx.client().await?;
-    for _ in 0..5 {
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
-        if let Ok(response) = sdk_client.list_connections().await {
-            let ConnectionsResponse { connections } = response.into_inner();
-            if connections
-                .iter()
-                .any(|c| c.provider_slug == provider_slug && c.is_valid)
-            {
-                println!();
-                println!(
-                    "{}",
-                    format!("✓ Successfully connected to {}!", provider_slug)
-                        .green()
-                        .bold()
-                );
-                println!();
-                println!("You can now use publishers that require this OAuth connection.");
-                return Ok(());
-            }
+    let result = resolve_consent_connection(&sdk_client, provider_slug, &consent_state).await?;
+    match ctx.format {
+        crate::OutputFormat::Json => crate::output::print_json(&result)?,
+        crate::OutputFormat::Table => {
+            println!(
+                "Successfully connected to {} (connection {}).",
+                result.provider, result.connection_id
+            );
         }
     }
-
-    // If we get here, the callback should have been processed by the server
-    println!();
-    println!(
-        "{}",
-        format!("✓ Authorization completed for {}!", provider_slug)
-            .green()
-            .bold()
-    );
-    println!();
-    println!(
-        "Use {} to verify your connection.",
-        "seren oauth connections".cyan()
-    );
-
     Ok(())
+}
+
+/// Read only the connection produced by this consent attempt. An earlier connection for the same provider cannot confirm it.
+async fn resolve_consent_connection(
+    client: &seren::Client,
+    provider: &str,
+    state: &str,
+) -> Result<seren::OAuthConnectionResultResponse> {
+    let result = client
+        .get_connection_result(state)
+        .await
+        .context("Failed to read the connection produced by this OAuth consent attempt")?
+        .into_inner()
+        .data;
+    if result.provider != provider {
+        anyhow::bail!(
+            "OAuth consent returned provider '{}', expected '{provider}'.",
+            result.provider
+        );
+    }
+    Ok(seren::OAuthConnectionResultResponse {
+        provider: result.provider,
+        connection_id: result.connection_id,
+    })
 }
 
 /// Disconnect/revoke an OAuth connection
@@ -427,6 +389,51 @@ fn receive_oauth_callback(listener: TcpListener) -> Result<LocalOAuthCallback> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn consent_completion_reads_only_the_exact_attempts_connection() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        let connection_id = Uuid::from_u128(24);
+        Mock::given(method("GET"))
+            .and(path("/oauth/results/this-consent-attempt"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({"data": {"provider": "google", "connection_id": connection_id}}),
+            ))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = seren::Client::new(&server.uri());
+        let result = resolve_consent_connection(&client, "google", "this-consent-attempt")
+            .await
+            .unwrap();
+        assert_eq!(result.connection_id, connection_id);
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn consent_completion_rejects_a_different_provider() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/oauth/results/this-consent-attempt"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {"provider": "microsoft", "connection_id": Uuid::from_u128(24)}})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = seren::Client::new(&server.uri());
+        assert!(
+            resolve_consent_connection(&client, "google", "this-consent-attempt")
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("expected 'google'")
+        );
+    }
 
     fn test_connection(
         id: &str,

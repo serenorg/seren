@@ -10,6 +10,7 @@ pub mod databases;
 pub mod endpoints;
 pub mod env;
 pub mod ip_allow_list;
+pub mod managed;
 pub mod memory;
 pub mod memory_agent;
 pub(crate) mod memory_gateway;

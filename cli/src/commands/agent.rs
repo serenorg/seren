@@ -459,7 +459,7 @@ async fn format_payment_required_response(response: reqwest::Response) -> String
     )
 }
 
-async fn anyhow_from_seren_error(context: &str, err: seren::Error<()>) -> anyhow::Error {
+pub(crate) async fn anyhow_from_seren_error(context: &str, err: seren::Error<()>) -> anyhow::Error {
     match err {
         seren::Error::UnexpectedResponse(response)
             if response.status() == reqwest::StatusCode::PAYMENT_REQUIRED =>
@@ -1619,7 +1619,7 @@ pub async fn invoke_template(slug: &str, input: &str, ctx: &CommandContext) -> R
     Ok(())
 }
 
-/// Run an agent task in the cloud.
+/// Invoke a publisher through the Seren publisher proxy.
 pub async fn run_cloud(publisher: &str, message: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
 
@@ -2133,7 +2133,7 @@ fn print_a2a_text_parts(parts: Option<&Vec<serde_json::Value>>) {
     }
 }
 
-/// Run an agent locally via A2A protocol (direct connection, no billing).
+/// Invoke a local or remote A2A agent endpoint directly.
 pub async fn run_local(
     endpoint: &str,
     message: &str,
@@ -5045,10 +5045,15 @@ pub async fn managed_agent_get(deployment_id: Uuid, ctx: &CommandContext) -> Res
     let payload = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&payload)?,
-        OutputFormat::Table => {
-            let value = serde_json::to_value(&payload)?;
-            print_managed_agent_detail_table(&value);
-        }
+        OutputFormat::Table => match &payload.data {
+            seren::DataResponseManagedDeploymentReadResponseData::OwnerView(_) => {
+                super::managed::print_response(&payload, ctx)?;
+            }
+            seren::DataResponseManagedDeploymentReadResponseData::DeploymentDetail(_) => {
+                let value = serde_json::to_value(&payload)?;
+                print_managed_agent_detail_table(&value);
+            }
+        },
     }
     Ok(())
 }

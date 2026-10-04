@@ -152,6 +152,37 @@ pub async fn list_payment_methods(ctx: &CommandContext) -> Result<()> {
     Ok(())
 }
 
+/// Start hosted payment method setup with the user's allowed return URLs.
+pub async fn setup_payment_method(
+    success_url: &str,
+    cancel_url: &str,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let request = seren::PaymentMethodSetupRequest {
+        success_url: success_url.to_string(),
+        cancel_url: cancel_url.to_string(),
+    };
+    let response = match client.setup_payment_method(&request).await {
+        Ok(response) => response.into_inner(),
+        Err(error) => {
+            return Err(super::agent::anyhow_from_seren_error(
+                "Failed to start payment method setup",
+                error,
+            )
+            .await);
+        }
+    };
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => output::print_key_value_table(
+            Some("Payment Method Setup"),
+            &[("URL", response.data.url)],
+        ),
+    }
+    Ok(())
+}
+
 /// Register an existing Stripe PaymentMethod ID with Seren as a billing method.
 pub async fn add_payment_method(
     stripe_payment_method_id: &str,
@@ -210,4 +241,41 @@ pub async fn remove_payment_method(id: &str, ctx: &CommandContext) -> Result<()>
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{body_json, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn hosted_payment_setup_sends_the_selected_return_urls() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/billing/payment-methods/setup"))
+            .and(body_json(serde_json::json!({
+                "success_url": "https://app.example.test/success",
+                "cancel_url": "https://app.example.test/cancel",
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {"url": "https://checkout.stripe.example.test/setup"},
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let context = CommandContext::new(
+            Some(server.uri()),
+            Some("test-key".into()),
+            OutputFormat::Json,
+        );
+        setup_payment_method(
+            "https://app.example.test/success",
+            "https://app.example.test/cancel",
+            &context,
+        )
+        .await
+        .unwrap();
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
 }

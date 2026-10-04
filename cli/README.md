@@ -379,6 +379,63 @@ seren agent private-models chat --model <model-id> --message "Summarize this inc
 
 ### Managed Agents
 
+Use `seren agent` to deploy managed agents from published templates, replace connected accounts, read completed work, create feedback records, configure weekly check-ins, review skill changes, and manage publisher access. `managed-list` and `managed-get` return the redacted owner view for a hired managed agent. Runtime-only state writes, work recording, access requests, issue reports, and browser relay operations stay with the deployed runtime.
+
+```bash
+seren agent managed-deploy-template <template-slug> --provider google --connection-id <connection-id> --timezone America/New_York
+seren agent managed-template-stats <template-slug>
+seren agent managed-list
+seren agent managed-get <deployment-id>
+seren agent managed-rebind <deployment-id> --connection-id <connection-id>
+seren agent managed-state <deployment-id>
+seren agent managed-checkins <deployment-id> --enabled false
+seren agent managed-work <deployment-id> --limit 20
+seren agent managed-feedback <deployment-id> <work-id> --rating great --idempotency-key <stable-retry-key>
+seren agent managed-access list <deployment-id> --limit 20
+seren agent managed-access decide <deployment-id> <request-id> --decision approve --redirect-origin https://app.serendb.com
+seren agent managed-grants list <deployment-id>
+seren agent managed-grants add <deployment-id> --publisher <publisher-slug> --kind sign-in --connection-id <connection-id> --redirect-origin https://app.serendb.com
+seren agent managed-grants confirm <deployment-id> <grant-id> --consent-id <completed-consent-id>
+seren agent managed-grants revoke <deployment-id> <grant-id>
+seren agent managed-allowances list <deployment-id>
+seren agent managed-allowances revoke <deployment-id> <allowance-id>
+seren agent managed-proposals list <deployment-id> --status pending
+seren agent managed-proposals approve <deployment-id> <proposal-id>
+seren agent managed-proposals reject <deployment-id> <proposal-id>
+seren agent managed-proposals undo <deployment-id> <proposal-id>
+seren agent managed-handoff active <deployment-id>
+seren -o json agent managed-handoff ticket <deployment-id> <handoff-id>
+```
+
+`managed-template-stats` returns aggregate work hours, skill count, and the latest update time. `managed-feedback` creates a feedback record for the selected work revision; its optional replay key prevents duplicate submissions.
+
+Adding publisher grants and confirming sign-in consent require browser-login OAuth authentication. Approving an API-key access request also requires a user session and `--redirect-origin`; omit `--redirect-origin` when approving a sign-in access request. Grant commands start or complete reviewed browser consent; they never accept secret values. An approved access request can return another consent action that must finish before access becomes active. Other owner operations accept the owner's session or user API key. Browser handoff tickets are single-use credentials for the viewer WebSocket and expire after 60 seconds.
+
+Use the approval inbox to inspect the exact request and decide one entry. `allow-always` can establish a standing approval for a matching publisher action, optionally bounded by an `ActionLease` JSON file. The lease must cover only the held operation: set `action` to its operation ID, list that ID as the sole `specific` capability action, and omit `parent_lease_ref`; `expiry` and `use_budget` are optional bounds. Email sends require approval of each exact message. The entry ID comes from the inbox response and may contain colons.
+
+```bash
+seren -o json agent cloud approvals inbox --deployment-id <deployment-id> --limit 20
+seren agent cloud approvals decide '<entry-id>' --decision approve --comment 'Reviewed the exact request'
+seren agent cloud approvals decide '<entry-id>' --decision allow-always --lease ./lease.json
+seren agent cloud approvals decide '<entry-id>' --decision deny
+
+# Publish an uploaded bundle as a managed template release
+seren --api-key <scoped-user-api-key> agent managed-publish-template-release <organization-id> <template-slug> --request ./release.json
+```
+
+The release request file follows `PublishManagedAgentTemplateReleaseRequest` and supplies `display_name`, `source_bundle_id`, `source_commit_sha`, and `deploy_defaults`. Publication requires a user API key explicitly scoped to `managed-agent-template:publish` for the configured publishing organization. A browser session or unrestricted API key cannot publish a release. Publishing does not activate a newly created template for hiring.
+
+The `seren agent wallet` group manages automatic balance reload and available bonuses. Use `seren billing setup-payment-method` for hosted saved-card setup. Reload amounts and monthly caps use USD cents. Automatic reload requires a saved default card, and the cap must cover at least one reload. Disabling preserves the saved amount and cap. Card setup returns a hosted setup URL; its success and cancellation URLs must be allowed by the server.
+
+```bash
+seren agent wallet reload-settings
+seren agent wallet enable-reload --amount-cents 1000 --monthly-cap-cents 5000
+seren agent wallet disable-reload
+seren billing setup-payment-method --success-url https://app.serendb.com/settings/billing --cancel-url https://app.serendb.com/settings/billing
+seren agent wallet signup-bonus
+seren agent wallet payment-method-bonus
+```
+
 Managed prompt-based agents run through the first-class `seren-agent` publisher. Use them when you want a hosted agent with prompt-defined behavior, publisher-backed tool presets, approval controls, revision history, and optional remote A2A delegation without shipping a code bundle. Seren Employees is the product name for managed `seren-agent` deployments that run on Seren Cloud with a stable role, instructions, tools, approvals, and lifecycle.
 
 See the [Seren Employee configuration guide](https://docs.serendb.com/guides/configure-a-managed-employee) for the full workflow.
@@ -563,6 +620,8 @@ seren storage grants --bucket employee-files set \
 
 ### OAuth Connections (BYOC)
 
+`seren oauth connect` completes one consent attempt and reports the exact connection that attempt created or refreshed. It does not treat an older connection for the same provider as a successful new sign-in. With `-o json`, browser guidance goes to stderr and the completed connection result goes to stdout.
+
 ```bash
 seren oauth providers                         # list available OAuth providers
 seren oauth connections                       # list your connections
@@ -676,6 +735,7 @@ Session revocation disables refresh credentials. Access tokens already issued fr
 ### Billing
 
 ```bash
+seren billing setup-payment-method --success-url https://app.serendb.com/settings/billing --cancel-url https://app.serendb.com/settings/billing
 seren billing list-payment-methods
 seren billing add-payment-method <stripe-pm-id>
 seren billing remove-payment-method <id>

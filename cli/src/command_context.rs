@@ -89,13 +89,4 @@ impl CommandContext {
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {}", e))
     }
-
-    /// Create an authenticated reqwest client with redirects disabled.
-    ///
-    /// Useful when the API endpoint intentionally returns 3xx (e.g. OAuth authorize redirect)
-    /// and the caller needs to inspect the Location header.
-    pub async fn http_client_no_redirect(&self) -> Result<reqwest::Client> {
-        self.http_client_with_redirect(reqwest::redirect::Policy::none())
-            .await
-    }
 }
