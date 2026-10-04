@@ -134,6 +134,174 @@ mod tests {
         matchers::{body_json, method, path},
     };
 
+    fn template_release_request_wire() -> serde_json::Value {
+        json!({
+            "display_name": "Release test",
+            "source_bundle_id": Uuid::new_v4(),
+            "source_commit_sha": "a".repeat(40),
+            "deploy_defaults": {
+                "mode": "cron",
+                "cron_schedule": "0 9 * * *",
+                "model_policy": "balanced",
+                "max_runtime_seconds": 300,
+                "browser": {"display": "headless", "max_session_seconds": 60},
+                "network_egress": [],
+                "script_publisher_grants": []
+            }
+        })
+    }
+
+    #[tokio::test]
+    async fn template_publication_preserves_rollout_requests_and_applied_revision() {
+        for rollout in [None, Some(false), Some(true)] {
+            let server = MockServer::start().await;
+            let organization_id = Uuid::new_v4();
+            let mut request_wire = template_release_request_wire();
+            if let Some(rollout) = rollout {
+                request_wire["rollout"] = json!(rollout);
+            }
+            let request: crate::PublishManagedAgentTemplateReleaseRequest =
+                serde_json::from_value(request_wire.clone()).unwrap();
+            assert_eq!(request.rollout, rollout);
+            assert_eq!(serde_json::to_value(&request).unwrap(), request_wire);
+            let mut response_wire = json!({"data": {
+                "slug": "release-test", "revision": 7, "created": false,
+                "revision_added": false, "active": true
+            }});
+            if rollout == Some(false) {
+                response_wire["data"]["rollout"] = serde_json::Value::Null;
+            } else if rollout == Some(true) {
+                response_wire["data"]["rollout"] = json!({
+                    "template_slug": "release-test", "template_revision": 8,
+                    "deployments": [
+                        {"deployment_id": Uuid::new_v4(), "outcome": "updated", "revision_id": Uuid::new_v4()},
+                        {"deployment_id": Uuid::new_v4(), "outcome": "already_current", "revision_id": Uuid::new_v4()},
+                        {"deployment_id": Uuid::new_v4(), "outcome": "hire_incomplete", "revision_id": null, "failure": null},
+                        {"deployment_id": Uuid::new_v4(), "outcome": "failed", "failure": "revision_conflict"}
+                    ]
+                });
+            }
+            Mock::given(method("POST"))
+                .and(path(format!(
+                    "/organizations/{organization_id}/templates/release-test/releases"
+                )))
+                .and(body_json(request_wire))
+                .respond_with(ResponseTemplate::new(200).set_body_json(response_wire.clone()))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let client = Client::new(&server.uri());
+            let response = client
+                .publish_managed_agent_template_release(&organization_id, "release-test", &request)
+                .await
+                .unwrap()
+                .into_inner();
+            let decoded = serde_json::to_value(response).unwrap();
+            assert_eq!(decoded["data"]["revision"], 7);
+            if rollout == Some(true) {
+                assert_eq!(decoded["data"]["rollout"]["template_revision"], 8);
+                assert_eq!(
+                    decoded["data"]["rollout"]["deployments"]
+                        .as_array()
+                        .unwrap()
+                        .len(),
+                    4
+                );
+                for (decoded, wire) in decoded["data"]["rollout"]["deployments"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .zip(
+                        response_wire["data"]["rollout"]["deployments"]
+                            .as_array()
+                            .unwrap(),
+                    )
+                {
+                    for (field, value) in wire.as_object().unwrap() {
+                        assert_eq!(&decoded[field], value, "{field}");
+                    }
+                }
+            } else {
+                assert!(decoded["data"]["rollout"].is_null());
+            }
+        }
+    }
+
+    #[test]
+    fn template_rollout_rejects_unknown_outcomes_and_failures() {
+        for outcome in ["updated", "already_current", "hire_incomplete", "failed"] {
+            let decoded: crate::TemplateRevisionOutcome =
+                serde_json::from_value(json!(outcome)).unwrap();
+            assert_eq!(serde_json::to_value(decoded).unwrap(), json!(outcome));
+        }
+        for failure in [
+            "revision_conflict",
+            "superseded",
+            "deployment_unavailable",
+            "invalid_material",
+            "internal",
+        ] {
+            let decoded: crate::TemplateRevisionFailure =
+                serde_json::from_value(json!(failure)).unwrap();
+            assert_eq!(serde_json::to_value(decoded).unwrap(), json!(failure));
+        }
+        assert!(
+            serde_json::from_value::<crate::TemplateRevisionOutcome>(json!("pending")).is_err()
+        );
+        assert!(
+            serde_json::from_value::<crate::TemplateRevisionFailure>(json!("unknown")).is_err()
+        );
+        for (outcome, failure) in [("pending", "internal"), ("failed", "unknown")] {
+            let report = json!({"template_slug": "release-test", "template_revision": 8,
+                "deployments": [{"deployment_id": Uuid::new_v4(), "outcome": outcome, "failure": failure}]
+            });
+            assert!(
+                serde_json::from_value::<crate::AdminTemplateRevisionApplication>(report).is_err()
+            );
+        }
+        let mut request = template_release_request_wire();
+        request["rollout"] = json!("true");
+        assert!(
+            serde_json::from_value::<crate::PublishManagedAgentTemplateReleaseRequest>(request)
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn template_publication_rejects_unknown_rollout_wire_values() {
+        for (outcome, failure) in [("pending", "internal"), ("failed", "unknown")] {
+            let server = MockServer::start().await;
+            let organization_id = Uuid::new_v4();
+            let mut request_wire = template_release_request_wire();
+            request_wire["rollout"] = json!(true);
+            let request = serde_json::from_value(request_wire).unwrap();
+            let response_wire = json!({"data": {
+                "slug": "release-test", "revision": 7, "created": false,
+                "revision_added": false, "active": true,
+                "rollout": {"template_slug": "release-test", "template_revision": 8,
+                    "deployments": [{"deployment_id": Uuid::new_v4(), "outcome": outcome, "failure": failure}]
+                }
+            }});
+            Mock::given(method("POST"))
+                .and(path(format!(
+                    "/organizations/{organization_id}/templates/release-test/releases"
+                )))
+                .respond_with(ResponseTemplate::new(200).set_body_json(response_wire))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let client = Client::new(&server.uri());
+            let error = client
+                .publish_managed_agent_template_release(&organization_id, "release-test", &request)
+                .await
+                .expect_err("unknown rollout wire values must reject the response");
+            assert!(
+                matches!(error, crate::Error::InvalidResponsePayload(_, _)),
+                "{error:?}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn run_events_decode_conversation_refusals_and_reject_unknown_codes() {
         let run_id = Uuid::new_v4();

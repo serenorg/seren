@@ -362,6 +362,10 @@ fn reload_request(
     })
 }
 
+fn template_publication_timeout(rollout: Option<bool>) -> Option<u64> {
+    (rollout == Some(true)).then_some(600)
+}
+
 pub(crate) fn print_response<T: Serialize>(payload: &T, ctx: &CommandContext) -> Result<()> {
     match ctx.format {
         OutputFormat::Json => output::print_json(payload),
@@ -621,6 +625,16 @@ pub async fn execute(action: ManagedAction, ctx: &CommandContext) -> Result<()> 
             request,
         } => {
             let request: seren::PublishManagedAgentTemplateReleaseRequest = request_file(&request)?;
+            let client = if let Some(timeout) = template_publication_timeout(request.rollout) {
+                let bearer_token = super::auth::get_bearer_token(ctx.api_key.clone()).await?;
+                seren::Client::from_config(
+                    &seren::ClientConfig::new(bearer_token)
+                        .with_base_url(ctx.api_base())
+                        .with_timeout(timeout),
+                )?
+            } else {
+                client
+            };
             respond!(client.publish_managed_agent_template_release(
                 &organization_id,
                 &template,
@@ -758,6 +772,77 @@ mod tests {
         // Runtime-only capabilities are absent from the owner surface.
         assert!(ManagedCli::try_parse_from(["agent", "managed-handoff", "create", id]).is_err());
         assert!(ManagedCli::try_parse_from(["agent", "managed-proposals", "create", id]).is_err());
+    }
+
+    #[test]
+    fn only_requested_rollouts_override_the_publication_timeout() {
+        assert_eq!(template_publication_timeout(None), None);
+        assert_eq!(template_publication_timeout(Some(false)), None);
+        assert_eq!(template_publication_timeout(Some(true)), Some(600));
+    }
+
+    #[tokio::test]
+    async fn template_publication_forwards_rollout_selection_and_authentication() {
+        use wiremock::matchers::{body_json, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        for rollout in [None, Some(false), Some(true)] {
+            let server = MockServer::start().await;
+            let organization_id = Uuid::new_v4();
+            let mut request = json!({
+                "display_name": "Release test",
+                "source_bundle_id": Uuid::new_v4(),
+                "source_commit_sha": "a".repeat(40),
+                "deploy_defaults": {
+                    "mode": "cron", "cron_schedule": "0 9 * * *",
+                    "model_policy": "balanced", "max_runtime_seconds": 300,
+                    "browser": {"display": "headless", "max_session_seconds": 60},
+                    "network_egress": [], "script_publisher_grants": []
+                }
+            });
+            if let Some(rollout) = rollout {
+                request["rollout"] = json!(rollout);
+            }
+            let mut response = json!({"data": {
+                "slug": "release-test", "revision": 7, "created": false,
+                "revision_added": false, "active": true
+            }});
+            if rollout == Some(true) {
+                response["data"]["rollout"] = json!({
+                    "template_slug": "release-test", "template_revision": 8,
+                    "deployments": [{"deployment_id": Uuid::new_v4(), "outcome": "hire_incomplete"}]
+                });
+            }
+            Mock::given(method("POST"))
+                .and(path(format!(
+                    "/organizations/{organization_id}/templates/release-test/releases"
+                )))
+                .and(header("Authorization", "Bearer seren_test_key"))
+                .and(body_json(request.clone()))
+                .respond_with(ResponseTemplate::new(200).set_body_json(response))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let fixture = tempfile::tempdir().unwrap();
+            let request_path = fixture.path().join("release.json");
+            fs::write(&request_path, serde_json::to_vec(&request).unwrap()).unwrap();
+            let context = CommandContext::new(
+                Some(server.uri()),
+                Some("seren_test_key".into()),
+                OutputFormat::Json,
+            );
+            execute(
+                ManagedAction::ManagedPublishTemplateRelease {
+                    organization_id,
+                    template: "release-test".into(),
+                    request: request_path,
+                },
+                &context,
+            )
+            .await
+            .unwrap();
+            assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        }
     }
 
     #[test]

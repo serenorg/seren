@@ -107,6 +107,10 @@ The crate stores its OpenAPI inputs in `sdk/openapi`. Cargo packages include thi
 
 Managed Employee methods cover template hires, publisher access requests and grants, exact-operation allowances, browser sign-in handoffs, work records, feedback, and skill proposal review. Cloud approval inbox methods let an owner decide one entry with `approve`, `deny`, or `allow_always`; standing approvals can carry an expiry and use budget. Browser consent confirmation uses the proof returned by the consent flow. Template release publication requires an organization user API key with the explicit `managed-agent-template:publish` scope. Runtime operations, including allowance checks and publishing state or work records, require the deployment's runtime credential.
 
+Set `rollout: true` in a template release request to apply the template's current revision to existing hires. Inspect the response's `rollout` report for each hire's outcome and applied template revision; another publication can advance that revision beyond the response's published `revision`. Use `ClientConfig::with_timeout(600)` for rollout publication, which can outlast the SDK's default 60-second timeout. CLI and MCP publication commands use a 600-second timeout for requested rollouts. Omit `rollout` or set it to `false` to publish without applying the release to existing hires.
+
+Publication commits before rollout begins. A timeout or transport error can leave the release published and some hires updated; inspect state before retrying. Configure any outer MCP client or proxy deadline to allow the rollout request's 600-second budget.
+
 Return values are wrapped in `ResponseValue<T>`. Call `.into_inner()` to get the response body.
 
 ### Updating the API contract

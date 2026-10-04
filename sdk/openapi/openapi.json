@@ -7999,7 +7999,7 @@
           "managed-agent-templates"
         ],
         "summary": "Publish a release of a managed agent template.",
-        "description": "Creates the template when it does not exist, and otherwise adds the\nrelease as its next revision. A new template cannot be hired until it is\nactivated. Publishing the current revision again changes nothing.\nRequires a user API key with `managed-agent-template:publish`, granted by\nan owner of the publishing organization. An issued key remains valid if its\ncreator later loses ownership, until it expires or is revoked.",
+        "description": "Creates the template when it does not exist, and otherwise adds the\nrelease as its next revision. A new template cannot be hired until it is\nactivated. Publishing the current revision again changes nothing.\nWith `rollout`, the template's current revision is then applied to each\nexisting hire and the response reports each hire's outcome. One hire's\nfailure neither fails the release nor undoes the others. Repeating the\ncurrent release retries a partly applied rollout. The rollout names its\napplied revision separately if another release advanced the template. A\nmode mismatch found before the sweep changes no hire; completed hires are\nreported failed and incomplete hires remain pending.\nRequires a user API key with `managed-agent-template:publish`, granted by\nan owner of the publishing organization. An issued key remains valid if its\ncreator later loses ownership, until it expires or is revoked.",
         "operationId": "publish_managed_agent_template_release",
         "parameters": [
           {
@@ -8053,7 +8053,7 @@
             "description": "The credential or organization may not publish this template, or publication is not enabled"
           },
           "409": {
-            "description": "The display name differs from the template's, or the release conflicts with the template or its bundle"
+            "description": "The display name differs from the template's, the release conflicts with the template or its bundle, or the current revision is unavailable for a rollout"
           }
         },
         "security": [
@@ -11527,6 +11527,64 @@
           },
           "stripe_payment_method_id": {
             "type": "string"
+          }
+        }
+      },
+      "AdminTemplateRevisionApplication": {
+        "type": "object",
+        "description": "The result of applying one template revision to deployments.",
+        "required": [
+          "template_slug",
+          "template_revision",
+          "deployments"
+        ],
+        "properties": {
+          "deployments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminTemplateRevisionDeploymentOutcome"
+            }
+          },
+          "template_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "template_slug": {
+            "type": "string"
+          }
+        }
+      },
+      "AdminTemplateRevisionDeploymentOutcome": {
+        "type": "object",
+        "required": [
+          "deployment_id",
+          "outcome"
+        ],
+        "properties": {
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "failure": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TemplateRevisionFailure"
+              }
+            ]
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/TemplateRevisionOutcome"
+          },
+          "revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Deployment revision the template revision was written as."
           }
         }
       },
@@ -16434,6 +16492,17 @@
               "revision_added": {
                 "type": "boolean",
                 "description": "Whether this request added the revision. False when the release was\nalready the current revision."
+              },
+              "rollout": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/AdminTemplateRevisionApplication",
+                    "description": "The applied template revision and each existing hire's outcome. Present\nonly when the request asked for a rollout. Its revision can differ from\nthe published revision if another release advanced the template."
+                  }
+                ]
               },
               "slug": {
                 "type": "string"
@@ -25930,6 +25999,17 @@
             "type": "boolean",
             "description": "Whether this request added the revision. False when the release was\nalready the current revision."
           },
+          "rollout": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AdminTemplateRevisionApplication",
+                "description": "The applied template revision and each existing hire's outcome. Present\nonly when the request asked for a rollout. Its revision can differ from\nthe published revision if another release advanced the template."
+              }
+            ]
+          },
           "slug": {
             "type": "string"
           }
@@ -29179,6 +29259,10 @@
             "type": "string",
             "description": "Name of the template. It must equal the name of an existing template."
           },
+          "rollout": {
+            "type": "boolean",
+            "description": "Whether to apply the template's current revision to its existing hires\nafter the release is published."
+          },
           "source_bundle_id": {
             "type": "string",
             "format": "uuid",
@@ -31235,6 +31319,25 @@
           "python",
           "typescript",
           "javascript"
+        ]
+      },
+      "TemplateRevisionFailure": {
+        "type": "string",
+        "enum": [
+          "revision_conflict",
+          "superseded",
+          "deployment_unavailable",
+          "invalid_material",
+          "internal"
+        ]
+      },
+      "TemplateRevisionOutcome": {
+        "type": "string",
+        "enum": [
+          "updated",
+          "already_current",
+          "hire_incomplete",
+          "failed"
         ]
       },
       "TemplateSetting": {

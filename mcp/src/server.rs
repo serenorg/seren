@@ -6636,6 +6636,10 @@ fn ensure_managed_agent_owner_credential(extensions: &Extensions) -> Result<(), 
     }
 }
 
+fn template_publication_timeout(rollout: Option<bool>) -> Option<std::time::Duration> {
+    (rollout == Some(true)).then_some(std::time::Duration::from_secs(600))
+}
+
 fn ensure_template_publication_credential(extensions: &Extensions) -> Result<(), McpError> {
     ensure_managed_agent_owner_credential(extensions)?;
     match request_auth_context_from_extensions(extensions).map(|auth| &auth.credential) {
@@ -15790,7 +15794,12 @@ API endpoint: {endpoint}",
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
         ensure_template_publication_credential(&extensions)?;
-        let api_client = self.api_client(&extensions)?;
+        let api_client = if let Some(timeout) = template_publication_timeout(params.request.rollout)
+        {
+            self.api_client_with_timeout(&extensions, timeout)?
+        } else {
+            self.api_client(&extensions)?
+        };
         let response = api_client
             .publish_managed_agent_template_release(
                 &params.organization_id,
@@ -23182,6 +23191,109 @@ mod tests {
             .is_ok()
         );
         assert!(ensure_template_publication_credential(&Extensions::default()).is_ok());
+    }
+
+    #[test]
+    fn only_requested_rollouts_override_the_publication_timeout() {
+        assert_eq!(template_publication_timeout(None), None);
+        assert_eq!(template_publication_timeout(Some(false)), None);
+        assert_eq!(
+            template_publication_timeout(Some(true)),
+            Some(std::time::Duration::from_secs(600))
+        );
+    }
+
+    #[tokio::test]
+    async fn template_publication_preserves_rollout_report_and_agent_headers() {
+        use wiremock::matchers::{body_json, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        for rollout in [None, Some(false), Some(true)] {
+            let proxy = MockServer::start().await;
+            let organization_id = Uuid::new_v4();
+            let mut request = serde_json::json!({
+                "display_name": "Release test",
+                "source_bundle_id": Uuid::new_v4(),
+                "source_commit_sha": "a".repeat(40),
+                "deploy_defaults": {
+                    "mode": "cron", "cron_schedule": "0 9 * * *",
+                    "model_policy": "balanced", "max_runtime_seconds": 300,
+                    "browser": {"display": "headless", "max_session_seconds": 60},
+                    "network_egress": [], "script_publisher_grants": []
+                }
+            });
+            if let Some(rollout) = rollout {
+                request["rollout"] = serde_json::json!(rollout);
+            }
+            let mut response = serde_json::json!({"data": {
+                "slug": "release-test", "revision": 7, "created": false,
+                "revision_added": false, "active": true
+            }});
+            if rollout == Some(true) {
+                response["data"]["rollout"] = serde_json::json!({
+                    "template_slug": "release-test", "template_revision": 8,
+                    "deployments": [{"deployment_id": Uuid::new_v4(), "outcome": "failed", "failure": "superseded"}]
+                });
+            }
+            Mock::given(method("POST"))
+                .and(path(format!(
+                    "/organizations/{organization_id}/templates/release-test/releases"
+                )))
+                .and(header("Authorization", "Bearer scoped-publication-key"))
+                .and(header("x-agent-client-id", "publication-client"))
+                .and(header("x-agent-client-name", "Release publisher"))
+                .and(header("x-agent-software-id", "publication-tool"))
+                .and(header("x-agent-software-version", "1.0"))
+                .and(body_json(request.clone()))
+                .respond_with(ResponseTemplate::new(200).set_body_json(response.clone()))
+                .expect(1)
+                .mount(&proxy)
+                .await;
+            let server = SerenMcpServer::new_oauth(&proxy.uri()).unwrap();
+            let extensions = extensions_with_headers_and_auth_context(
+                &[
+                    ("authorization", "Bearer scoped-publication-key"),
+                    ("x-agent-client-id", "publication-client"),
+                    ("x-agent-client-name", "Release publisher"),
+                    ("x-agent-software-id", "publication-tool"),
+                    ("x-agent-software-version", "1.0"),
+                ],
+                crate::SerenRequestAuthContext {
+                    user_id: Uuid::new_v4(),
+                    email: None,
+                    credential: crate::SerenRequestCredential::UserApiKey {
+                        api_key_id: Some(Uuid::new_v4()),
+                        api_key_scopes: Some(vec!["managed-agent-template:publish".into()]),
+                    },
+                },
+            );
+            let params: PublishSerenAgentTemplateReleaseParams = serde_json::from_value(
+                serde_json::json!({"organization_id": organization_id, "slug": "release-test", "request": request}),
+            )
+            .unwrap();
+            let result = server
+                .publish_seren_agent_template_release(Parameters(params), extensions)
+                .await
+                .unwrap();
+            assert!(!result.is_error.unwrap_or(false));
+            let content = serde_json::to_value(result).unwrap();
+            let decoded: Value =
+                serde_json::from_str(content["content"][0]["text"].as_str().unwrap()).unwrap();
+            assert_eq!(decoded["data"]["revision"], 7);
+            if rollout == Some(true) {
+                assert_eq!(decoded["data"]["rollout"]["template_revision"], 8);
+                assert_eq!(
+                    decoded["data"]["rollout"]["deployments"][0]["outcome"],
+                    "failed"
+                );
+                assert_eq!(
+                    decoded["data"]["rollout"]["deployments"][0]["failure"],
+                    "superseded"
+                );
+            } else {
+                assert!(decoded["data"]["rollout"].is_null());
+            }
+        }
     }
 
     #[test]
