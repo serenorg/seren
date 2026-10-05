@@ -4281,6 +4281,81 @@
         ]
       }
     },
+    "/deployments/{id}/sessions/{session_id}/stream": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Stream an interactive session's conversation state as Server-Sent Events.",
+        "description": "A connection starts with `active_requests`, a `CloudInteractiveSessionActiveRequests` snapshot of the conversation's runs that are queued, running or awaiting approval. Its payload `cursor` is `run-<nanoseconds>`. Without `Last-Event-ID`, its SSE `id` equals that cursor and later run updates start after it. With `Last-Event-ID`, the snapshot's SSE `id` preserves the supplied position and pending run updates continue after that position; use the last received SSE `id`, not the refreshed payload cursor, when reconnecting. Send `run-0` to receive all current run states, including completed runs. Each `run` event carries a `DataResponse<CloudDeploymentRunEvent>` and an `id` in the same `run-<nanoseconds>` format. IDs advance only after all run states at a timestamp are delivered, so reconnections can repeat run states; reconcile them by run ID. This is a current-state feed, not a log of every intermediate transition. The stream ends with `session_closed` (`{\"reason\": \"idle_expired\" | \"session_closed\"}`), `error` (`{\"error\": string}`, with an optional `code`) or `timeout` (`{\"status\": \"timeout\"}`). Ending events have no `id` and preserve the last received stream position. If the snapshot is unavailable, the first and only event is `error`.",
+        "operationId": "seren_cloud_stream_interactive_session",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "path",
+            "description": "Interactive session ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "description": "The `id` of the last event received. Omit it to start after the `active_requests` snapshot; send `run-0` to receive every run of the conversation.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream of the session's active requests and run updates",
+            "content": {
+              "text/event-stream": {}
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Deployment or session not found"
+          },
+          "406": {
+            "description": "Accept header does not include text/event-stream"
+          },
+          "409": {
+            "description": "Interactive session is closed or expired"
+          },
+          "429": {
+            "description": "Stream rate limit exceeded"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/spend": {
       "get": {
         "tags": [
@@ -7697,53 +7772,10 @@
           "external"
         ]
       },
-      "AgentMemoryCompactionPolicy": {
-        "type": "object",
-        "required": [
-          "token_threshold",
-          "event_retention_count",
-          "overlap_tokens"
-        ],
-        "properties": {
-          "event_retention_count": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "overlap_tokens": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "summarizer_model": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "token_threshold": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        },
-        "additionalProperties": false
-      },
       "AgentMemoryPolicy": {
         "type": "object",
         "description": "Typed memory policy declared by a managed agent.",
         "properties": {
-          "compaction": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/AgentMemoryCompactionPolicy",
-                "description": "Optional context-window compaction policy."
-              }
-            ]
-          },
           "graph_memory": {
             "oneOf": [
               {
@@ -8412,7 +8444,7 @@
               },
               {
                 "$ref": "#/components/schemas/AgentMemoryPolicy",
-                "description": "Optional memory policy (semantic memory, transcripts, compaction)."
+                "description": "Optional memory policy (semantic memory, graph memory, knowledge, transcripts)."
               }
             ]
           },
@@ -11796,6 +11828,73 @@
           }
         }
       },
+      "CloudInteractiveSessionActiveRequest": {
+        "type": "object",
+        "required": [
+          "run_id",
+          "execution_id",
+          "status",
+          "started_at",
+          "updated_at"
+        ],
+        "properties": {
+          "execution_id": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CloudInteractiveSessionActiveRequestStatus"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CloudInteractiveSessionActiveRequestStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "awaiting_approval"
+        ]
+      },
+      "CloudInteractiveSessionActiveRequests": {
+        "type": "object",
+        "description": "The runs on a session's conversation that have not finished, with a continuation cursor.",
+        "required": [
+          "session_id",
+          "conversation_id",
+          "cursor",
+          "runs"
+        ],
+        "properties": {
+          "conversation_id": {
+            "type": "string"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Continuation position for this snapshot, `run-<nanoseconds>`, or `run-0` before the conversation has a run. It equals the SSE event's `id` on a new connection; a resumed connection preserves its last delivered position as the event's `id` until pending run updates arrive."
+          },
+          "runs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloudInteractiveSessionActiveRequest"
+            }
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "CloudInteractiveSessionDetailResponse": {
         "type": "object",
         "required": [
@@ -11989,7 +12088,8 @@
             "type": "string"
           },
           "stream_url": {
-            "type": "string"
+            "type": "string",
+            "description": "The session's event stream, operation `seren_cloud_stream_interactive_session`."
           },
           "ws_ticket": {
             "type": "string"
@@ -16193,7 +16293,8 @@
                 "type": "string"
               },
               "stream_url": {
-                "type": "string"
+                "type": "string",
+                "description": "The session's event stream, operation `seren_cloud_stream_interactive_session`."
               },
               "ws_ticket": {
                 "type": "string"

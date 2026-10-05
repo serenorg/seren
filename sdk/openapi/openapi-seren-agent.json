@@ -4449,53 +4449,10 @@
           "external"
         ]
       },
-      "AgentMemoryCompactionPolicy": {
-        "type": "object",
-        "required": [
-          "token_threshold",
-          "event_retention_count",
-          "overlap_tokens"
-        ],
-        "properties": {
-          "event_retention_count": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "overlap_tokens": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "summarizer_model": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "token_threshold": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        },
-        "additionalProperties": false
-      },
       "AgentMemoryPolicy": {
         "type": "object",
         "description": "Typed memory policy declared by a managed agent.",
         "properties": {
-          "compaction": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/AgentMemoryCompactionPolicy",
-                "description": "Optional context-window compaction policy."
-              }
-            ]
-          },
           "graph_memory": {
             "oneOf": [
               {
@@ -5164,7 +5121,7 @@
               },
               {
                 "$ref": "#/components/schemas/AgentMemoryPolicy",
-                "description": "Optional memory policy (semantic memory, transcripts, compaction)."
+                "description": "Optional memory policy (semantic memory, graph memory, knowledge, transcripts)."
               }
             ]
           },
@@ -11315,13 +11272,9 @@
           "policy_configured",
           "semantic_memory_enabled",
           "graph_memory_enabled",
-          "knowledge_enabled",
-          "compaction_configured"
+          "knowledge_enabled"
         ],
         "properties": {
-          "compaction_configured": {
-            "type": "boolean"
-          },
           "graph_memory_enabled": {
             "type": "boolean"
           },

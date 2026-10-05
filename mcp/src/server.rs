@@ -20115,8 +20115,7 @@ mod tests {
                     "policy_configured": false,
                     "semantic_memory_enabled": false,
                     "graph_memory_enabled": false,
-                    "knowledge_enabled": false,
-                    "compaction_configured": false
+                    "knowledge_enabled": false
                 },
                 "capabilities": {
                     "policy_configured": false,
@@ -25996,6 +25995,17 @@ mod tests {
             .await
             .expect("managed resources should reach the first-class MCP wrapper");
         assert!(!result.is_error.unwrap_or(false));
+        let output: serde_json::Value =
+            serde_json::from_str(&result.content[0].as_text().unwrap().text).unwrap();
+        assert_eq!(
+            output.pointer("/data/memory"),
+            Some(&serde_json::json!({
+                "policy_configured": false,
+                "semantic_memory_enabled": false,
+                "graph_memory_enabled": false,
+                "knowledge_enabled": false
+            }))
+        );
     }
 
     #[tokio::test]

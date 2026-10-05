@@ -134,6 +134,23 @@ mod tests {
         matchers::{body_json, method, path},
     };
 
+    #[test]
+    fn managed_memory_resources_decode_the_current_policy_contract() {
+        let wire = json!({
+            "policy_configured": true,
+            "semantic_memory_enabled": true,
+            "graph_memory_enabled": false,
+            "knowledge_enabled": true
+        });
+        let resources: crate::ManagedAgentMemoryResources =
+            serde_json::from_value(wire.clone()).expect("current memory resources");
+        assert!(resources.policy_configured);
+        assert!(resources.semantic_memory_enabled);
+        assert!(!resources.graph_memory_enabled);
+        assert!(resources.knowledge_enabled);
+        assert_eq!(serde_json::to_value(resources).unwrap(), wire);
+    }
+
     fn template_release_request_wire() -> serde_json::Value {
         json!({
             "display_name": "Release test",

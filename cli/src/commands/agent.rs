@@ -12157,14 +12157,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn managed_agent_create_keeps_a_caller_supplied_memory_policy_compaction() {
+    async fn managed_agent_create_keeps_a_caller_supplied_memory_policy() {
         let memory_policy = serde_json::json!({
-            "transcript_retention_days": 7,
-            "compaction": {
-                "token_threshold": 90000,
-                "event_retention_count": 12,
-                "overlap_tokens": 800
-            }
+            "transcript_retention_days": 7
         });
         let temp = tempfile::tempdir().expect("temporary agent config fixture");
         let agent_config_path = temp.path().join("agent.json");
