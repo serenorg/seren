@@ -15780,7 +15780,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Publish an Employee template release using an uploaded bundle and exact commit hash after user authorization. Requires a user API key explicitly scoped managed-agent-template:publish; sessions and unrestricted keys cannot publish. A new template must be activated before hiring.",
+        description = "Publish an Employee template release using an uploaded bundle and exact commit hash after user authorization. Requires a user API key of the publishing organization explicitly scoped managed-agent-template:publish; sessions and unrestricted keys cannot publish. A new template can be hired as soon as it is published, only its publishing organization can release it again, and a suspended template refuses releases.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,

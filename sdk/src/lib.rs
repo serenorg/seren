@@ -256,6 +256,7 @@ mod tests {
             "superseded",
             "deployment_unavailable",
             "invalid_material",
+            "template_suspended",
             "internal",
         ] {
             let decoded: crate::TemplateRevisionFailure =
@@ -282,6 +283,39 @@ mod tests {
             serde_json::from_value::<crate::PublishManagedAgentTemplateReleaseRequest>(request)
                 .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn public_template_list_decodes_each_template_with_its_publisher() {
+        let server = MockServer::start().await;
+        let organization_id = Uuid::new_v4();
+        let wire = json!({
+            "data": [{
+                "slug": "release-test",
+                "display_name": "Release test",
+                "publisher": {"organization_id": organization_id, "name": "Acme Studio"},
+                "published_at": "2026-10-07T12:34:56Z"
+            }]
+        });
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/templates"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(wire.clone()))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let response = Client::new(&server.uri())
+            .seren_agent_list_managed_agent_templates()
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(response.data.len(), 1);
+        assert_eq!(response.data[0].publisher.organization_id, organization_id);
+        assert_eq!(
+            response.data[0].published_at,
+            "2026-10-07T12:34:56Z".parse::<jiff::Timestamp>().unwrap()
+        );
+        assert_eq!(serde_json::to_value(response).unwrap(), wire);
     }
 
     #[tokio::test]

@@ -7999,7 +7999,7 @@
           "managed-agent-templates"
         ],
         "summary": "Publish a release of a managed agent template.",
-        "description": "Creates the template when it does not exist, and otherwise adds the\nrelease as its next revision. A new template cannot be hired until it is\nactivated. Publishing the current revision again changes nothing.\nWith `rollout`, the template's current revision is then applied to each\nexisting hire and the response reports each hire's outcome. One hire's\nfailure neither fails the release nor undoes the others. Repeating the\ncurrent release retries a partly applied rollout. The rollout names its\napplied revision separately if another release advanced the template. A\nmode mismatch found before the sweep changes no hire; completed hires are\nreported failed and incomplete hires remain pending.\nRequires a user API key with `managed-agent-template:publish`, granted by\nan owner of the publishing organization. An issued key remains valid if its\ncreator later loses ownership, until it expires or is revoked.",
+        "description": "Creates the template when it does not exist, and otherwise adds the\nrelease as its next revision. A new template can be hired as soon as it is\npublished. Publication cannot create a template at a reserved slug, and a\nsuspended template accepts no release. Publishing the current revision\nagain changes nothing. With `rollout`, the template's current revision is\nthen applied to each existing hire and the response reports each hire's\noutcome. One hire's\nfailure neither fails the release nor undoes the others. Repeating the\ncurrent release retries a partly applied rollout. The rollout names its\napplied revision separately if another release advanced the template. A\nmode mismatch found before the sweep changes no hire; completed hires it\nwould change are reported failed and incomplete hires remain pending.\nRequires a user API key with `managed-agent-template:publish`, granted by\na built-in owner of the publishing organization. Any organization can\npublish, and only the organization that published a template can release\nit again. An issued key remains valid if its creator later loses\nownership, until it expires or is revoked.",
         "operationId": "publish_managed_agent_template_release",
         "parameters": [
           {
@@ -8050,10 +8050,10 @@
             "description": "Authentication required"
           },
           "403": {
-            "description": "The credential or organization may not publish this template, or publication is not enabled"
+            "description": "The credential or organization may not publish this template, or the template is suspended (`managed_agent_template_suspended`)"
           },
           "409": {
-            "description": "The display name differs from the template's, the release conflicts with the template or its bundle, or the current revision is unavailable for a rollout"
+            "description": "The slug is reserved and no template exists there (`managed_agent_template_slug_reserved`), the display name differs from the template's, the release conflicts with the template or its bundle, or the rollout of a published release could not start because the current revision is unavailable or the template is suspended"
           }
         },
         "security": [
@@ -9592,6 +9592,162 @@
         }
       }
     },
+    "/referrals/unsubscriptions/{token}": {
+      "get": {
+        "tags": [
+          "referrals"
+        ],
+        "summary": "Confirm whether to stop referral invitation emails. This page changes no preference.",
+        "operationId": "confirm_unsubscription",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "description": "Token from the invitation",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmation page",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown or expired link"
+          },
+          "503": {
+            "description": "Preferences temporarily unavailable"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "referrals"
+        ],
+        "summary": "Stop referral invitation emails using the invitation's unsubscribe token.",
+        "operationId": "unsubscribe",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "description": "Token from the invitation",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Preference saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ReferralUnsubscription"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid unsubscribe form"
+          },
+          "404": {
+            "description": "Unknown or expired link"
+          },
+          "503": {
+            "description": "Preferences temporarily unavailable"
+          }
+        }
+      }
+    },
+    "/service/publishers/seren-affiliates/users/{user_id}/affiliate-rewards": {
+      "post": {
+        "tags": [
+          "Service Publishers"
+        ],
+        "summary": "Grant spend-only referral credit. Repeating a reference with the same\nrecipient, amount, and description returns the original grant.",
+        "operationId": "service_create_affiliate_reward",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "Non-nil reward recipient",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AffiliateRewardRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Referral reward granted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_AffiliateRewardResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid reward"
+          },
+          "401": {
+            "description": "Service authentication required"
+          },
+          "403": {
+            "description": "Publisher is not permitted to grant referral rewards"
+          },
+          "404": {
+            "description": "User not found"
+          },
+          "409": {
+            "description": "Reference was already used for a different reward"
+          },
+          "422": {
+            "description": "Invalid reward request"
+          },
+          "503": {
+            "description": "Referral reward service is temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/service/publishers/{slug}/catalog/reconcile": {
       "post": {
         "tags": [
@@ -10635,73 +10791,6 @@
         ]
       }
     },
-    "/wallet/referral": {
-      "get": {
-        "tags": [
-          "agent-wallet"
-        ],
-        "summary": "Get user's referral info and code",
-        "operationId": "get_referral_info",
-        "responses": {
-          "200": {
-            "description": "Referral info retrieved",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DataResponse_ReferralInfoResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/wallet/referral/apply": {
-      "post": {
-        "tags": [
-          "agent-wallet"
-        ],
-        "summary": "Apply a referral code to the current user",
-        "operationId": "apply_referral_code",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ApplyReferralRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Referral code applied"
-          },
-          "400": {
-            "description": "Invalid referral code"
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "409": {
-            "description": "Already has a referrer"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
     "/wallet/reload": {
       "get": {
         "tags": [
@@ -11674,6 +11763,55 @@
           }
         }
       },
+      "AffiliateRewardRequest": {
+        "type": "object",
+        "required": [
+          "amount_atomic",
+          "reference_id",
+          "description"
+        ],
+        "properties": {
+          "amount_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Reward in atomic USD units; 1 USD is 1,000,000 units.",
+            "minimum": 1
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 1
+          },
+          "reference_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Non-nil commission reference used for idempotency."
+          }
+        },
+        "additionalProperties": false
+      },
+      "AffiliateRewardResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "user_id",
+          "amount_atomic"
+        ],
+        "properties": {
+          "amount_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "AgentCatalogEntry": {
         "type": "object",
         "description": "A single catalog entry. The four fields `organization_id`, `namespace`,\n`name`, and `version` together form the immutable identity of an entry.\n`tag` is an optional mutable pointer (for example `stable`) that resolves\nto the underlying version at lookup time.",
@@ -12019,6 +12157,7 @@
           "managed_agent_hire_bonus",
           "daily_claim",
           "referral_reward",
+          "affiliate_reward",
           "admin_grant",
           "promo_code",
           "tier_bonus",
@@ -12535,18 +12674,6 @@
           "user",
           "agent"
         ]
-      },
-      "ApplyReferralRequest": {
-        "type": "object",
-        "description": "Request to apply a referral code",
-        "required": [
-          "referral_code"
-        ],
-        "properties": {
-          "referral_code": {
-            "type": "string"
-          }
-        }
       },
       "AssetInfo": {
         "type": "object",
@@ -14349,6 +14476,48 @@
               "to_version": {
                 "type": "integer",
                 "format": "int64"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_AffiliateRewardResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "user_id",
+              "amount_atomic"
+            ],
+            "properties": {
+              "amount_atomic": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "user_id": {
+                "type": "string",
+                "format": "uuid"
               }
             }
           },
@@ -16362,9 +16531,18 @@
               "organization_id",
               "deployment_id",
               "deployment_name",
+              "agent_identity_id",
               "requirements"
             ],
             "properties": {
+              "agent_identity_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "Identity to reuse for this setup, or null to select the deployment's hosted identity."
+              },
               "deployment_id": {
                 "type": "string",
                 "format": "uuid"
@@ -19531,7 +19709,7 @@
           }
         }
       },
-      "DataResponse_ReferralInfoResponse": {
+      "DataResponse_ReferralUnsubscription": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
         "required": [
@@ -19540,40 +19718,12 @@
         "properties": {
           "data": {
             "type": "object",
-            "description": "Response for referral info",
             "required": [
-              "referral_code",
-              "referral_url",
-              "total_referrals",
-              "total_earnings_atomic",
-              "total_earnings_usd",
-              "pending_earnings_atomic",
-              "pending_earnings_usd"
+              "unsubscribed"
             ],
             "properties": {
-              "pending_earnings_atomic": {
-                "type": "integer",
-                "format": "int64"
-              },
-              "pending_earnings_usd": {
-                "type": "string"
-              },
-              "referral_code": {
-                "type": "string"
-              },
-              "referral_url": {
-                "type": "string"
-              },
-              "total_earnings_atomic": {
-                "type": "integer",
-                "format": "int64"
-              },
-              "total_earnings_usd": {
-                "type": "string"
-              },
-              "total_referrals": {
-                "type": "integer",
-                "format": "int64"
+              "unsubscribed": {
+                "type": "boolean"
               }
             }
           },
@@ -25722,9 +25872,18 @@
           "organization_id",
           "deployment_id",
           "deployment_name",
+          "agent_identity_id",
           "requirements"
         ],
         "properties": {
+          "agent_identity_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Identity to reuse for this setup, or null to select the deployment's hosted identity."
+          },
           "deployment_id": {
             "type": "string",
             "format": "uuid"
@@ -30623,42 +30782,14 @@
           }
         }
       },
-      "ReferralInfoResponse": {
+      "ReferralUnsubscription": {
         "type": "object",
-        "description": "Response for referral info",
         "required": [
-          "referral_code",
-          "referral_url",
-          "total_referrals",
-          "total_earnings_atomic",
-          "total_earnings_usd",
-          "pending_earnings_atomic",
-          "pending_earnings_usd"
+          "unsubscribed"
         ],
         "properties": {
-          "pending_earnings_atomic": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "pending_earnings_usd": {
-            "type": "string"
-          },
-          "referral_code": {
-            "type": "string"
-          },
-          "referral_url": {
-            "type": "string"
-          },
-          "total_earnings_atomic": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "total_earnings_usd": {
-            "type": "string"
-          },
-          "total_referrals": {
-            "type": "integer",
-            "format": "int64"
+          "unsubscribed": {
+            "type": "boolean"
           }
         }
       },
@@ -31074,15 +31205,9 @@
           },
           "password": {
             "type": "string"
-          },
-          "referral_code": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Optional referral code for affiliate tracking"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "SignupResult": {
         "type": "object",
@@ -31328,6 +31453,7 @@
           "superseded",
           "deployment_unavailable",
           "invalid_material",
+          "template_suspended",
           "internal"
         ]
       },
