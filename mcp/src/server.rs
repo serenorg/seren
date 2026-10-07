@@ -5679,6 +5679,73 @@ fn api_error_message(status: reqwest::StatusCode, body: &str, request_id: Option
     }
 }
 
+const PUBLISHER_CONFLICT_GUIDANCE: &str = "Publisher request conflicted with existing state. If request_id was reused, provide a new UUID; if the publisher uses OAuth, pass connection_id or set a default connection; otherwise inspect the publisher state before retrying.";
+
+fn response_request_id(headers: &reqwest::header::HeaderMap) -> Option<String> {
+    headers
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned)
+}
+
+/// Core names a refusal's code and message as `{"error": code, "message": text}`,
+/// `{"error": text, "code": code}` or `{"error": {"code": code, "message": text}}`.
+fn core_refusal_code_and_message(body: &serde_json::Value) -> (Option<&str>, Option<&str>) {
+    let text = |key: &str| body.get(key).and_then(|v| v.as_str());
+    match body.get("error") {
+        Some(serde_json::Value::Object(error)) => (
+            error.get("code").and_then(|v| v.as_str()),
+            error.get("message").and_then(|v| v.as_str()),
+        ),
+        Some(serde_json::Value::String(error)) => match text("code") {
+            Some(code) => (Some(code), text("message").or(Some(error.as_str()))),
+            None => (Some(error.as_str()), text("message")),
+        },
+        _ => (text("code"), text("message")),
+    }
+}
+
+/// The structured content of a refusal Core answered with a non-2xx status.
+fn publisher_refusal_details(
+    status: reqwest::StatusCode,
+    request_id: Option<&str>,
+    body_text: &str,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut details = serde_json::Map::new();
+    details.insert("status".to_string(), status.as_u16().into());
+    if let Ok(body) = serde_json::from_str::<serde_json::Value>(body_text) {
+        let (code, message) = core_refusal_code_and_message(&body);
+        if let Some(code) = code {
+            details.insert("error".to_string(), code.into());
+        }
+        if let Some(message) = message {
+            details.insert("message".to_string(), message.into());
+        }
+    }
+    if let Some(request_id) = request_id {
+        details.insert("request_id".to_string(), request_id.into());
+    }
+    if !body_text.is_empty() {
+        details.insert(
+            "body".to_string(),
+            truncate_for_client(body_text, 1200).into(),
+        );
+    }
+    details
+}
+
+/// Core answered and refused the call, so the tool ran: the refusal is a tool
+/// error result, not a protocol error. `summary` is the text a model reads.
+fn publisher_refusal_result(
+    summary: String,
+    details: serde_json::Map<String, serde_json::Value>,
+) -> Result<CallToolResult, McpError> {
+    let details = serde_json::Value::Object(details);
+    let mut result = CallToolResult::error(text_and_json_content(summary, &details)?);
+    result.structured_content = Some(details);
+    Ok(result)
+}
+
 fn publisher_skill_doc_url(api_base_url: &str, publisher: &str) -> Result<String, McpError> {
     skill_doc_url(api_base_url, &["publishers", publisher, "skill.md"])
 }
@@ -12640,26 +12707,37 @@ Examples:
             seren::Error::UnexpectedResponse(response)
                 if response.status() == reqwest::StatusCode::NOT_FOUND =>
             {
-                Err(McpError::internal_error(
+                let request_id = response_request_id(response.headers());
+                let body_text = response.text().await.unwrap_or_default();
+                publisher_refusal_result(
                     format!(
                         "Publisher '{}' or tool '{}' not found. Use list_mcp_tools to see available tools.",
                         params.publisher, tool_name
                     ),
-                    None,
-                ))
+                    publisher_refusal_details(
+                        reqwest::StatusCode::NOT_FOUND,
+                        request_id.as_deref(),
+                        &body_text,
+                    ),
+                )
             }
             seren::Error::UnexpectedResponse(response)
                 if response.status() == reqwest::StatusCode::BAD_REQUEST =>
             {
+                let request_id = response_request_id(response.headers());
                 let body_text = response.text().await.unwrap_or_default();
-                Err(McpError::invalid_params(
+                publisher_refusal_result(
                     format!(
                         "MCP tool call failed ({}): {}",
                         reqwest::StatusCode::BAD_REQUEST,
                         truncate_for_client(&body_text, 1200)
                     ),
-                    None,
-                ))
+                    publisher_refusal_details(
+                        reqwest::StatusCode::BAD_REQUEST,
+                        request_id.as_deref(),
+                        &body_text,
+                    ),
+                )
             }
             error => {
                 self.handle_call_publisher_error(
@@ -12812,26 +12890,37 @@ Examples:
                         seren::Error::UnexpectedResponse(response)
                             if response.status() == reqwest::StatusCode::NOT_FOUND =>
                         {
-                            return Err(McpError::internal_error(
+                            let request_id = response_request_id(response.headers());
+                            let body_text = response.text().await.unwrap_or_default();
+                            return publisher_refusal_result(
                                 format!(
                                     "Publisher '{}' or resource '{}' not found. Use list_mcp_resources to see available resources.",
                                     params.publisher, uri
                                 ),
-                                None,
-                            ));
+                                publisher_refusal_details(
+                                    reqwest::StatusCode::NOT_FOUND,
+                                    request_id.as_deref(),
+                                    &body_text,
+                                ),
+                            );
                         }
                         seren::Error::UnexpectedResponse(response)
                             if response.status() == reqwest::StatusCode::BAD_REQUEST =>
                         {
+                            let request_id = response_request_id(response.headers());
                             let body_text = response.text().await.unwrap_or_default();
-                            return Err(McpError::invalid_params(
+                            return publisher_refusal_result(
                                 format!(
                                     "MCP resource read failed ({}): {}",
                                     reqwest::StatusCode::BAD_REQUEST,
                                     truncate_for_client(&body_text, 1200)
                                 ),
-                                None,
-                            ));
+                                publisher_refusal_details(
+                                    reqwest::StatusCode::BAD_REQUEST,
+                                    request_id.as_deref(),
+                                    &body_text,
+                                ),
+                            );
                         }
                         _ => {
                             return self
@@ -12869,229 +12958,210 @@ Examples:
         ))
     }
 
-    /// Handle errors from call_publisher with x402 payment flow
+    /// Handle errors from call_publisher with x402 payment flow.
+    ///
+    /// A non-2xx answer from Core is a tool error result carrying Core's status,
+    /// error code and message. Only a failure that produced no answer is a
+    /// protocol error.
     async fn handle_call_publisher_error<T: Serialize>(
         &self,
         error: seren::Error<()>,
         ctx: CallPublisherErrorContext<'_, T>,
     ) -> Result<CallToolResult, McpError> {
-        match error {
+        let response = match error {
+            seren::Error::UnexpectedResponse(response) if !response.status().is_success() => {
+                response
+            }
             seren::Error::UnexpectedResponse(response) => {
-                let status = response.status();
-                if status == reqwest::StatusCode::PAYMENT_REQUIRED {
-                    let payment_required_header = response
-                        .headers()
-                        .get("PAYMENT-REQUIRED")
-                        .and_then(|v| v.to_str().ok())
-                        .map(|s| s.to_string());
-                    let body_text = response.text().await.unwrap_or_default();
-                    let has_x402_option = payment_required_header.is_some()
-                        || payment_required_has_non_prepaid_option(&body_text);
-
-                    if self.wallet.is_some() && has_x402_option {
-                        if ctx.return_text {
-                            let text = self
-                                .execute_x402_roundtrip_text(
-                                    ctx.method,
-                                    ctx.publisher_path,
-                                    ctx.body,
-                                    ctx.raw_body,
-                                    ctx.headers,
-                                    ctx.request_id,
-                                    ctx.confirm,
-                                    ctx.agent_metadata,
-                                    ctx.query_string,
-                                )
-                                .await?;
-                            return Ok(CallToolResult::success(vec![ContentBlock::text(text)]));
-                        } else {
-                            let result = self
-                                .execute_x402_roundtrip_json(
-                                    ctx.method,
-                                    ctx.publisher_path,
-                                    ctx.body,
-                                    ctx.raw_body,
-                                    ctx.headers,
-                                    ctx.request_id,
-                                    ctx.confirm,
-                                    ctx.agent_metadata,
-                                    ctx.query_string,
-                                )
-                                .await?;
-                            return Ok(CallToolResult::success(vec![json_content(&result)?]));
-                        }
-                    }
-
-                    if has_x402_option {
-                        return Err(McpError::invalid_request(
-                            format_payment_proxy_error(
-                                &body_text,
-                                payment_required_header.as_deref(),
-                            ),
-                            None,
-                        ));
-                    }
-
-                    return Err(McpError::invalid_request(
-                        format_payment_required_body(status, &body_text),
-                        None,
-                    ));
-                }
-                if status == reqwest::StatusCode::CONFLICT {
-                    let request_id = response
-                        .headers()
-                        .get("x-request-id")
-                        .and_then(|value| value.to_str().ok())
-                        .map(ToOwned::to_owned);
-                    let body_text = response.text().await.unwrap_or_default();
-                    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(&body_text)
-                        && payload.get("error").and_then(serde_json::Value::as_str)
-                            == Some("MultipleConnectionsAmbiguous")
-                    {
-                        let provider = payload
-                            .get("provider_slug")
-                            .and_then(serde_json::Value::as_str)
-                            .unwrap_or("this provider");
-                        return Err(McpError::invalid_request(
-                            format!(
-                                "Multiple OAuth connections are available for {provider}. Call list_user_oauth_connections, then pass connection_id or set a default connection."
-                            ),
-                            Some(serde_json::json!({
-                                "kind": "oauth_connection_selection_required",
-                                "publisher": ctx.publisher,
-                                "provider_slug": payload.get("provider_slug"),
-                                "connections": payload.get("connections"),
-                                "body": truncate_for_client(&body_text, 1200),
-                                "status": status.as_u16(),
-                                "request_id": request_id,
-                            })),
-                        ));
-                    }
-                    let mut message = api_error_message(status, &body_text, request_id.as_deref());
-                    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(&body_text)
-                        && payload.get("error").and_then(serde_json::Value::as_str)
-                            == Some("Conflict")
-                        && payload.get("message").and_then(serde_json::Value::as_str)
-                            == Some("Conflict: Request ID has already been used")
-                    {
-                        message.push_str(" Duplicate request_id. Provide a new UUID and retry.");
-                    }
-                    return Err(McpError::invalid_request(
-                        message,
-                        Some(serde_json::json!({
-                            "kind": "http_error",
-                            "status": status.as_u16(),
-                            "body": truncate_for_client(&body_text, 1200),
-                            "request_id": request_id,
-                        })),
-                    ));
-                }
-                if status == reqwest::StatusCode::BAD_REQUEST {
-                    let body_text = response.text().await.unwrap_or_default();
-                    // Provide helpful messages for category mismatches
-                    if body_text.contains("not a database category publisher") {
-                        return Err(McpError::invalid_request(
-                            format!(
-                                "Publisher '{}' is not a database publisher. Remove the 'query' parameter and use 'method'/'path' for API calls instead.",
-                                ctx.publisher
-                            ),
-                            None,
-                        ));
-                    }
-                    if body_text.contains("not an integration category publisher") {
-                        return Err(McpError::invalid_request(
-                            format!(
-                                "Publisher '{}' is a database publisher. Use the 'query' parameter instead of 'method'/'path'.",
-                                ctx.publisher
-                            ),
-                            None,
-                        ));
-                    }
-                    return Err(McpError::internal_error(
-                        format!(
-                            "{} call failed ({}): {}",
-                            ctx.publisher_type,
-                            status,
-                            truncate_for_client(&body_text, 1200)
-                        ),
-                        None,
-                    ));
-                }
-                if status == reqwest::StatusCode::FORBIDDEN {
-                    let body_text = response.text().await.unwrap_or_default();
-                    if body_text.contains("geo_restricted") {
-                        if let Ok(geo_error) = serde_json::from_str::<serde_json::Value>(&body_text)
-                        {
-                            let publisher = geo_error
-                                .get("publisher")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or(ctx.publisher);
-                            let region_raw = geo_error
-                                .get("proxy_region")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("EU");
-                            let region = region_raw.to_ascii_uppercase();
-                            let endpoint = geo_error
-                                .get("opt_in_endpoint")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("publisher routing opt-in endpoint (not provided)");
-
-                            tracing::info!(
-                                publisher = %publisher,
-                                region = %region,
-                                endpoint = %endpoint,
-                                "Geo-restricted: user has not opted in"
-                            );
-                            #[cfg(feature = "telemetry")]
-                            crate::metrics::GEO_RESTRICTED
-                                .with_label_values(&[publisher, region.as_str()])
-                                .inc();
-
-                            return Err(McpError::invalid_request(
-                                format!(
-                                    "Publisher '{publisher}' requires geographic routing via region {region}, but you have not opted in.\n\
-Configure publisher routing (via create_publisher/update_publisher `routing`) or call the API endpoint directly.\n\
-API endpoint: {endpoint}",
-                                ),
-                                None,
-                            ));
-                        }
-                        return Err(McpError::invalid_request(
-                            format!(
-                                "Publisher '{}' requires geographic routing opt-in. \
-                                Check the error details for the opt-in endpoint.",
-                                ctx.publisher
-                            ),
-                            None,
-                        ));
-                    }
-                    return Err(McpError::internal_error(
-                        format!(
-                            "{} call failed ({}): {}",
-                            ctx.publisher_type,
-                            status,
-                            truncate_for_client(&body_text, 1200)
-                        ),
-                        None,
-                    ));
-                }
-                Err(
+                return Err(
                     seren_error_to_mcp_error(seren::Error::<()>::UnexpectedResponse(response))
                         .await,
-                )
+                );
             }
-            _ => {
+            seren::Error::ErrorResponse(response) => {
+                let status = response.status();
+                let request_id = response_request_id(response.headers());
+                let summary = if status == reqwest::StatusCode::CONFLICT {
+                    PUBLISHER_CONFLICT_GUIDANCE.to_string()
+                } else {
+                    api_error_message(status, "", request_id.as_deref())
+                };
+                return publisher_refusal_result(
+                    summary,
+                    publisher_refusal_details(status, request_id.as_deref(), ""),
+                );
+            }
+            error => {
                 if let Some(status) = error.status()
                     && status == reqwest::StatusCode::CONFLICT
                 {
                     return Err(McpError::invalid_request(
-                        "Publisher request conflicted with existing state. If request_id was reused, provide a new UUID; if the publisher uses OAuth, pass connection_id or set a default connection; otherwise inspect the publisher state before retrying.".to_string(),
+                        PUBLISHER_CONFLICT_GUIDANCE.to_string(),
                         None,
                     ));
                 }
-                Err(McpError::internal_error(error.to_string(), None))
+                return Err(McpError::internal_error(error.to_string(), None));
             }
-        }
+        };
+
+        let status = response.status();
+        let request_id = response_request_id(response.headers());
+        let payment_required_header = response
+            .headers()
+            .get("PAYMENT-REQUIRED")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        let body_text = response.text().await.unwrap_or_default();
+        let payload = serde_json::from_str::<serde_json::Value>(&body_text).ok();
+        let mut details = publisher_refusal_details(status, request_id.as_deref(), &body_text);
+        let summary = if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+            let has_x402_option = payment_required_header.is_some()
+                || payment_required_has_non_prepaid_option(&body_text);
+
+            if self.wallet.is_some() && has_x402_option {
+                if ctx.return_text {
+                    let text = self
+                        .execute_x402_roundtrip_text(
+                            ctx.method,
+                            ctx.publisher_path,
+                            ctx.body,
+                            ctx.raw_body,
+                            ctx.headers,
+                            ctx.request_id,
+                            ctx.confirm,
+                            ctx.agent_metadata,
+                            ctx.query_string,
+                        )
+                        .await?;
+                    return Ok(CallToolResult::success(vec![ContentBlock::text(text)]));
+                } else {
+                    let result = self
+                        .execute_x402_roundtrip_json(
+                            ctx.method,
+                            ctx.publisher_path,
+                            ctx.body,
+                            ctx.raw_body,
+                            ctx.headers,
+                            ctx.request_id,
+                            ctx.confirm,
+                            ctx.agent_metadata,
+                            ctx.query_string,
+                        )
+                        .await?;
+                    return Ok(CallToolResult::success(vec![json_content(&result)?]));
+                }
+            }
+
+            if has_x402_option {
+                format_payment_proxy_error(&body_text, payment_required_header.as_deref())
+            } else {
+                format_payment_required_body(status, &body_text)
+            }
+        } else if status == reqwest::StatusCode::CONFLICT {
+            let error_code = payload
+                .as_ref()
+                .and_then(|payload| payload.get("error"))
+                .and_then(serde_json::Value::as_str);
+            if let Some(payload) = payload.as_ref()
+                && error_code == Some("MultipleConnectionsAmbiguous")
+            {
+                let provider = payload
+                    .get("provider_slug")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("this provider");
+                for key in ["provider_slug", "connections"] {
+                    if let Some(value) = payload.get(key) {
+                        details.insert(key.to_string(), value.clone());
+                    }
+                }
+                format!(
+                    "Multiple OAuth connections are available for {provider}. Call list_user_oauth_connections, then pass connection_id or set a default connection."
+                )
+            } else {
+                let mut message = api_error_message(status, &body_text, request_id.as_deref());
+                if error_code == Some("Conflict")
+                    && payload
+                        .as_ref()
+                        .and_then(|payload| payload.get("message"))
+                        .and_then(serde_json::Value::as_str)
+                        == Some("Conflict: Request ID has already been used")
+                {
+                    message.push_str(" Duplicate request_id. Provide a new UUID and retry.");
+                }
+                message
+            }
+        } else if status == reqwest::StatusCode::BAD_REQUEST {
+            // Provide helpful messages for category mismatches
+            if body_text.contains("not a database category publisher") {
+                format!(
+                    "Publisher '{}' is not a database publisher. Remove the 'query' parameter and use 'method'/'path' for API calls instead.",
+                    ctx.publisher
+                )
+            } else if body_text.contains("not an integration category publisher") {
+                format!(
+                    "Publisher '{}' is a database publisher. Use the 'query' parameter instead of 'method'/'path'.",
+                    ctx.publisher
+                )
+            } else {
+                format!(
+                    "{} call failed ({}): {}",
+                    ctx.publisher_type,
+                    status,
+                    truncate_for_client(&body_text, 1200)
+                )
+            }
+        } else if status == reqwest::StatusCode::FORBIDDEN {
+            if body_text.contains("geo_restricted") {
+                if let Some(geo_error) = payload.as_ref() {
+                    let publisher = geo_error
+                        .get("publisher")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(ctx.publisher);
+                    let region_raw = geo_error
+                        .get("proxy_region")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("EU");
+                    let region = region_raw.to_ascii_uppercase();
+                    let endpoint = geo_error
+                        .get("opt_in_endpoint")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("publisher routing opt-in endpoint (not provided)");
+
+                    tracing::info!(
+                        publisher = %publisher,
+                        region = %region,
+                        endpoint = %endpoint,
+                        "Geo-restricted: user has not opted in"
+                    );
+                    #[cfg(feature = "telemetry")]
+                    crate::metrics::GEO_RESTRICTED
+                        .with_label_values(&[publisher, region.as_str()])
+                        .inc();
+
+                    format!(
+                        "Publisher '{publisher}' requires geographic routing via region {region}, but you have not opted in.\n\
+Configure publisher routing (via create_publisher/update_publisher `routing`) or call the API endpoint directly.\n\
+API endpoint: {endpoint}",
+                    )
+                } else {
+                    format!(
+                        "Publisher '{}' requires geographic routing opt-in. \
+                        Check the error details for the opt-in endpoint.",
+                        ctx.publisher
+                    )
+                }
+            } else {
+                format!(
+                    "{} call failed ({}): {}",
+                    ctx.publisher_type,
+                    status,
+                    truncate_for_client(&body_text, 1200)
+                )
+            }
+        } else {
+            api_error_message(status, &body_text, request_id.as_deref())
+        };
+        publisher_refusal_result(summary, details)
     }
 
     // =========================================================================
@@ -23776,17 +23846,23 @@ mod tests {
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
-        for (body, duplicate) in [
+        for (body, code, message, duplicate) in [
             (
                 serde_json::json!({"error": "Conflict", "message": "Conflict: A reference environment binding collides with another credential authority."}),
+                "Conflict",
+                "Conflict: A reference environment binding collides with another credential authority.",
                 false,
             ),
             (
                 serde_json::json!({"error": "A different result is already bound.", "code": "managed_action_idempotency_conflict"}),
+                "managed_action_idempotency_conflict",
+                "A different result is already bound.",
                 false,
             ),
             (
                 serde_json::json!({"error": "Conflict", "message": "Conflict: Request ID has already been used"}),
+                "Conflict",
+                "Conflict: Request ID has already been used",
                 true,
             ),
         ] {
@@ -23805,7 +23881,7 @@ mod tests {
             let params: CallPublisherParams = serde_json::from_value(serde_json::json!({
                 "publisher": "seren-cloud", "method": "POST", "path": "/proposals/preview", "body": {}
             })).unwrap();
-            let error = server
+            let result = server
                 .call_publisher_api(
                     &params,
                     &extensions_with_headers(&[]),
@@ -23813,28 +23889,28 @@ mod tests {
                     false,
                 )
                 .await
-                .unwrap_err();
-            let message = body
-                .get("message")
-                .or_else(|| body.get("error"))
-                .unwrap()
-                .as_str()
-                .unwrap();
-            assert!(error.message.contains(message), "{error:?}");
-            let code = body
-                .get("code")
-                .or_else(|| body.get("error"))
-                .unwrap()
-                .as_str()
-                .unwrap();
-            assert!(error.message.contains(code));
-            assert_eq!(error.message.contains("Duplicate request_id"), duplicate);
-            let data = error.data.unwrap();
-            assert_eq!(data["status"], 409);
-            assert_eq!(data["request_id"], "conflict-request");
+                .expect("a refusal is a tool result");
+            assert_eq!(result.is_error, Some(true));
+            let summary = &result.content[0].as_text().unwrap().text;
+            assert!(summary.contains(message), "{summary}");
+            assert!(summary.contains(code), "{summary}");
+            assert_eq!(summary.contains("Duplicate request_id"), duplicate);
+            let details = result.structured_content.unwrap();
+            assert_eq!(details["status"], 409);
+            assert_eq!(details["error"], code);
+            assert_eq!(details["message"], message);
+            assert_eq!(details["request_id"], "conflict-request");
             assert_eq!(
-                serde_json::from_str::<serde_json::Value>(data["body"].as_str().unwrap()).unwrap(),
+                serde_json::from_str::<serde_json::Value>(details["body"].as_str().unwrap())
+                    .unwrap(),
                 body
+            );
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(
+                    &result.content[1].as_text().unwrap().text
+                )
+                .unwrap(),
+                details
             );
         }
     }
@@ -23879,7 +23955,7 @@ mod tests {
             x402_payment: None,
         };
 
-        let error = server
+        let result = server
             .call_publisher_api(
                 &params,
                 &extensions_with_headers(&[]),
@@ -23887,16 +23963,20 @@ mod tests {
                 false,
             )
             .await
-            .expect_err("ambiguous OAuth identity must require selection");
+            .expect("ambiguous OAuth identity is a tool error that requires selection");
 
-        assert!(error.message.contains("list_user_oauth_connections"));
-        assert!(!error.message.contains("Duplicate request_id"));
+        assert_eq!(result.is_error, Some(true));
+        let summary = &result.content[0].as_text().unwrap().text;
+        assert!(summary.contains("list_user_oauth_connections"));
+        assert!(!summary.contains("Duplicate request_id"));
+        let details = result.structured_content.unwrap();
+        assert_eq!(details["status"], 409);
+        assert_eq!(details["error"], "MultipleConnectionsAmbiguous");
+        assert_eq!(details["message"], "select a connection");
+        assert_eq!(details["provider_slug"], "google");
         assert_eq!(
-            error
-                .data
-                .as_ref()
-                .and_then(|data| data.get("provider_slug")),
-            Some(&serde_json::json!("google"))
+            details["connections"][0]["id"],
+            "00000000-0000-0000-0000-000000000001"
         );
     }
 
@@ -23922,7 +24002,7 @@ mod tests {
         let method = reqwest::Method::GET;
         let agent_metadata = AgentMetadata::default();
 
-        let error = server
+        let result = server
             .handle_call_publisher_error::<serde_json::Value>(
                 seren::Error::ErrorResponse(response),
                 CallPublisherErrorContext {
@@ -23941,11 +24021,272 @@ mod tests {
                 },
             )
             .await
-            .expect_err("bodyless conflicts must remain generic");
+            .expect("a typed refusal is a tool result");
 
-        assert!(error.message.contains("conflicted with existing state"));
-        assert!(error.message.contains("pass connection_id"));
-        assert!(!error.message.contains("Duplicate request_id"));
+        assert_eq!(result.is_error, Some(true));
+        let summary = &result.content[0].as_text().unwrap().text;
+        assert!(summary.contains("conflicted with existing state"));
+        assert!(summary.contains("pass connection_id"));
+        assert!(!summary.contains("Duplicate request_id"));
+        assert_eq!(
+            result.structured_content,
+            Some(serde_json::json!({"status": 409}))
+        );
+    }
+
+    #[tokio::test]
+    async fn call_publisher_refusals_carry_cores_status_code_and_message() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let prepaid_payment_required = serde_json::json!({
+            "x402Version": 2,
+            "error": "Insufficient prepaid balance",
+            "resource": {
+                "url": "/publishers/canva/designs",
+                "description": "API request to canva",
+                "mimeType": "application/json"
+            },
+            "accepts": [{
+                "scheme": "prepaid",
+                "network": "seren:fiat",
+                "asset": "USDC",
+                "amount": "50000",
+                "payTo": "seren",
+                "maxTimeoutSeconds": 60,
+                "extra": {"requiredAmount": "0.05", "availableBalance": "0.00", "deficit": "0.05"}
+            }]
+        });
+        for (status, body, code, message) in [
+            (
+                402,
+                prepaid_payment_required,
+                Some("Insufficient prepaid balance"),
+                None,
+            ),
+            (
+                403,
+                serde_json::json!({
+                    "error": "publisher_access_required",
+                    "message": "Ask your owner to grant publisher access.",
+                    "publisher_slug": "canva",
+                    "kind": "sign_in"
+                }),
+                Some("publisher_access_required"),
+                Some("Ask your owner to grant publisher access."),
+            ),
+            (
+                429,
+                serde_json::json!({
+                    "error": "TooManyRequests",
+                    "message": "Too many requests: Rate limit exceeded: 60 queries per minute"
+                }),
+                Some("TooManyRequests"),
+                Some("Too many requests: Rate limit exceeded: 60 queries per minute"),
+            ),
+            (
+                429,
+                serde_json::json!({
+                    "error": {
+                        "code": "rate_limit_exceeded",
+                        "message": "Too many requests. Please try again later."
+                    }
+                }),
+                Some("rate_limit_exceeded"),
+                Some("Too many requests. Please try again later."),
+            ),
+            (
+                400,
+                serde_json::json!({"error": "BadRequest", "message": "Bad request: design_id is required"}),
+                Some("BadRequest"),
+                Some("Bad request: design_id is required"),
+            ),
+        ] {
+            let proxy = MockServer::start().await;
+            let mut response = ResponseTemplate::new(status)
+                .insert_header("x-request-id", "refused-request")
+                .set_body_json(&body);
+            if status == 402 {
+                response = response.insert_header("PAYMENT-REQUIRED", "eyJ4NDAyVmVyc2lvbiI6Mn0=");
+            }
+            Mock::given(method("POST"))
+                .and(path("/publishers/canva/designs"))
+                .respond_with(response)
+                .expect(2)
+                .mount(&proxy)
+                .await;
+            let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+            let params: CallPublisherParams = serde_json::from_value(serde_json::json!({
+                "publisher": "canva", "method": "POST", "path": "/designs", "body": {}
+            }))
+            .unwrap();
+            for return_text in [false, true] {
+                let result = server
+                    .call_publisher_api(
+                        &params,
+                        &extensions_with_headers(&[]),
+                        &AgentMetadata::default(),
+                        return_text,
+                    )
+                    .await
+                    .unwrap_or_else(|error| panic!("{status} must be a tool result: {error:?}"));
+                assert_eq!(result.is_error, Some(true), "{status}");
+                let details = result.structured_content.expect("refusal details");
+                assert_eq!(details["status"], status);
+                assert_eq!(details["error"].as_str(), code, "{status}");
+                assert_eq!(details["message"].as_str(), message, "{status}");
+                assert_eq!(details["request_id"], "refused-request");
+                assert_eq!(
+                    serde_json::from_str::<serde_json::Value>(details["body"].as_str().unwrap())
+                        .unwrap(),
+                    body,
+                    "Core's whole refusal reaches the caller"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn call_publisher_mcp_and_database_refusals_are_tool_errors() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/publishers/acme/_mcp/tools/missing"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(
+                serde_json::json!({"error": "NotFound", "message": "Not found: tool missing"}),
+            ))
+            .mount(&proxy)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/publishers/acme/_mcp/tools/search"))
+            .respond_with(ResponseTemplate::new(400).set_body_json(
+                serde_json::json!({"error": "BadRequest", "message": "Bad request: query is required"}),
+            ))
+            .mount(&proxy)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/publishers/acme/_mcp/resources"))
+            .respond_with(ResponseTemplate::new(429).set_body_json(
+                serde_json::json!({"error": "TooManyRequests", "message": "Too many requests: slow down"}),
+            ))
+            .mount(&proxy)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/publishers/records"))
+            .respond_with(ResponseTemplate::new(402).set_body_json(
+                serde_json::json!({"error": "PaymentRequired", "message": "Payment required: balance"}),
+            ))
+            .mount(&proxy)
+            .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let extensions = extensions_with_headers(&[]);
+        let metadata = AgentMetadata::default();
+        let params = |value: serde_json::Value| -> CallPublisherParams {
+            serde_json::from_value(value).unwrap()
+        };
+
+        let missing = server
+            .call_publisher_mcp_tool(
+                &params(serde_json::json!({"publisher": "acme", "tool": "missing"})),
+                &extensions,
+                &metadata,
+                false,
+            )
+            .await
+            .unwrap();
+        assert_eq!(missing.is_error, Some(true));
+        assert!(
+            missing.content[0]
+                .as_text()
+                .unwrap()
+                .text
+                .contains("Use list_mcp_tools")
+        );
+        let details = missing.structured_content.unwrap();
+        assert_eq!(
+            (details["status"].as_u64(), details["error"].as_str()),
+            (Some(404), Some("NotFound"))
+        );
+
+        let invalid = server
+            .call_publisher_mcp_tool(
+                &params(serde_json::json!({"publisher": "acme", "tool": "search"})),
+                &extensions,
+                &metadata,
+                false,
+            )
+            .await
+            .unwrap();
+        assert_eq!(invalid.is_error, Some(true));
+        let details = invalid.structured_content.unwrap();
+        assert_eq!(details["status"], 400);
+        assert_eq!(details["message"], "Bad request: query is required");
+
+        let limited = server
+            .call_publisher_mcp_resource(
+                &params(serde_json::json!({"publisher": "acme", "resource_uri": "file:///a"})),
+                &extensions,
+                &metadata,
+                false,
+            )
+            .await
+            .unwrap();
+        assert_eq!(limited.is_error, Some(true));
+        let details = limited.structured_content.unwrap();
+        assert_eq!(details["status"], 429);
+        assert_eq!(details["error"], "TooManyRequests");
+
+        // The generated client drops a documented refusal's body, so only the
+        // status survives.
+        let unpaid = server
+            .call_publisher_database(
+                &params(serde_json::json!({"publisher": "records", "query": "SELECT 1"})),
+                &extensions,
+                &metadata,
+                false,
+            )
+            .await
+            .unwrap();
+        assert_eq!(unpaid.is_error, Some(true));
+        assert_eq!(unpaid.structured_content.unwrap()["status"], 402);
+        let unpaid_text = server
+            .call_publisher_database(
+                &params(serde_json::json!({"publisher": "records", "query": "SELECT 1"})),
+                &extensions,
+                &metadata,
+                true,
+            )
+            .await
+            .unwrap();
+        let details = unpaid_text.structured_content.unwrap();
+        assert_eq!(details["status"], 402);
+        assert_eq!(details["error"], "PaymentRequired");
+    }
+
+    #[tokio::test]
+    async fn call_publisher_transport_failure_stays_a_protocol_error() {
+        let unused = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = unused.local_addr().unwrap();
+        drop(unused);
+        let server = SerenMcpServer::new("test-key", &format!("http://{address}")).unwrap();
+        let params: CallPublisherParams = serde_json::from_value(serde_json::json!({
+            "publisher": "canva", "method": "POST", "path": "/designs", "body": {}
+        }))
+        .unwrap();
+
+        let error = server
+            .call_publisher_api(
+                &params,
+                &extensions_with_headers(&[]),
+                &AgentMetadata::default(),
+                false,
+            )
+            .await
+            .expect_err("no answer from Core is a protocol error");
+
+        assert_eq!(error.code, rmcp::model::ErrorCode::INTERNAL_ERROR);
     }
 
     #[tokio::test]
