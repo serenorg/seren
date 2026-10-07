@@ -4450,7 +4450,7 @@ async fn build_rotation_complete_request(
     let vault_description_ciphertext = vault
         .description_ciphertext
         .as_deref()
-        .map(|description| {
+        .map(|description| -> Result<String, McpError> {
             let description = decrypt_vault_description(
                 &old_vault_key,
                 vault_id.as_bytes(),
