@@ -51,10 +51,9 @@ impl ClientConfig {
     /// Create a client configuration from the environment.
     ///
     /// Reads `SEREN_API_KEY` for the bearer token and `SEREN_API_BASE` for the
-    /// base URL, matching the `@serendb/sdk` and `seren-python` defaults. Both
-    /// values are optional: a missing or empty `SEREN_API_KEY` yields an
-    /// unauthenticated configuration, and a missing `SEREN_API_BASE` falls back
-    /// to the production host.
+    /// base URL. Both values are optional: a missing or empty `SEREN_API_KEY`
+    /// yields an unauthenticated configuration, and a missing `SEREN_API_BASE`
+    /// falls back to the production host.
     pub fn from_env() -> Self {
         let bearer_token = std::env::var("SEREN_API_KEY")
             .ok()

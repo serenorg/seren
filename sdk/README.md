@@ -34,7 +34,7 @@ Get your API key from the Seren Console at https://console.serendb.com/settings/
 
 ### From the environment
 
-`ClientConfig::from_env()` reads `SEREN_API_KEY` for the bearer token and `SEREN_API_BASE` for the base URL, matching the `@serendb/sdk` and `seren-python` defaults. Both are optional; a missing key yields an unauthenticated configuration.
+`ClientConfig::from_env()` reads `SEREN_API_KEY` for the bearer token and `SEREN_API_BASE` for the base URL. Both are optional; a missing key yields an unauthenticated configuration.
 
 ```rust
 let config = ClientConfig::from_env();
