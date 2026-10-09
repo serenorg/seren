@@ -23655,6 +23655,39 @@ mod tests {
         }
     }
 
+    #[test]
+    fn template_publish_tool_says_a_published_template_is_hireable() {
+        let server = SerenMcpServer::new("test-key", "http://localhost").unwrap();
+        let tools = server.tool_router.list_all();
+        let description = tools
+            .iter()
+            .find(|tool| tool.name == "publish_seren_agent_template_release")
+            .and_then(|tool| tool.description.as_deref())
+            .expect("publish_seren_agent_template_release has a description");
+        // Core creates a new template active, so callers have nothing to activate.
+        assert!(
+            !description.to_lowercase().contains("activat"),
+            "{description}"
+        );
+        assert!(
+            description.contains("A new template can be hired as soon as it is published"),
+            "{description}"
+        );
+        assert!(
+            description.contains("a suspended template refuses releases"),
+            "{description}"
+        );
+        // Only the publisher can release again, and a release needs a hireable provider.
+        assert!(
+            description.contains("only its publishing organization can release it again"),
+            "{description}"
+        );
+        assert!(
+            description.contains("A release that no provider can hire is refused"),
+            "{description}"
+        );
+    }
+
     #[tokio::test]
     async fn execute_sql_sends_required_headers_and_body_to_proxy() {
         use wiremock::matchers::{body_json, header, method, path};
