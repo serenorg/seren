@@ -15776,7 +15776,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Publish an Employee template release using an uploaded bundle and exact commit hash after user authorization. Requires a user API key explicitly scoped managed-agent-template:publish; sessions and unrestricted keys cannot publish. A new template must be activated before hiring.",
+        description = "Publish an Employee template release using an uploaded bundle and exact commit hash after user authorization. Requires a user API key explicitly scoped managed-agent-template:publish; sessions and unrestricted keys cannot publish. A new template can be hired as soon as it is published. A suspended template refuses publication.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -23244,6 +23244,30 @@ mod tests {
                 "{excluded}"
             );
         }
+    }
+
+    #[test]
+    fn template_publish_tool_says_a_published_template_is_hireable() {
+        let server = SerenMcpServer::new("test-key", "http://localhost").unwrap();
+        let tools = server.tool_router.list_all();
+        let description = tools
+            .iter()
+            .find(|tool| tool.name == "publish_seren_agent_template_release")
+            .and_then(|tool| tool.description.as_deref())
+            .expect("publish_seren_agent_template_release has a description");
+        // Core creates a new template active, so callers have nothing to activate.
+        assert!(
+            !description.to_lowercase().contains("activat"),
+            "{description}"
+        );
+        assert!(
+            description.contains("A new template can be hired as soon as it is published."),
+            "{description}"
+        );
+        assert!(
+            description.contains("A suspended template refuses publication."),
+            "{description}"
+        );
     }
 
     #[tokio::test]
