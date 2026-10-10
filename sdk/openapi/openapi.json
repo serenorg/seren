@@ -1456,6 +1456,67 @@
         }
       }
     },
+    "/channels/{channel}/callback": {
+      "get": {
+        "tags": [
+          "OAuth"
+        ],
+        "summary": "Finish adding the Slack or Discord app. The provider sends the browser\nhere; it returns to the setup page with `install` and a one-time `code` to\nconfirm, or with `install_error`.",
+        "operationId": "managed_agent_channel_install_callback",
+        "parameters": [
+          {
+            "name": "channel",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "slack",
+                "discord"
+              ]
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "description": "Authorization code, omitted when the app was not added",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "description": "The install's one-time state",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "description": "Error from the provider",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "Back to the setup page with install and code, or with install_error"
+          },
+          "400": {
+            "description": "The state names no install"
+          },
+          "404": {
+            "description": "Unknown channel"
+          }
+        }
+      }
+    },
     "/checkins/unsubscribe": {
       "get": {
         "tags": [
@@ -3870,6 +3931,50 @@
             "description": "Internal server error"
           }
         }
+      }
+    },
+    "/organizations/{organization_id}/campaigns": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "List the templates the organization publishes with their referral campaigns.",
+        "operationId": "list_organization_referral_campaigns",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the templates",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The organization's templates and their campaigns",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_OrganizationReferralCampaignTemplate"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using an unrestricted credential of the organization"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
     "/organizations/{organization_id}/catalog": {
@@ -6871,7 +6976,7 @@
             "description": "Not authorized"
           },
           "409": {
-            "description": "Publisher slug already exists"
+            "description": "The organization already has a live publisher with this slug, or the slug belongs to another organization (`publisher_slug_unavailable`). A slug stays with the organization that registered it, which may recreate it after deleting its publisher."
           },
           "500": {
             "description": "Internal server error"
@@ -7540,10 +7645,20 @@
             "description": "Invalid request"
           },
           "403": {
-            "description": "Not authorized"
+            "description": "The caller is not the organization's built-in Owner using a user session or an unrestricted user API key of that organization (`publisher_payout_owner_required`), or the Owner must verify their identity before the publisher's cash payouts pass $300 in total or before any payout in a cash asset other than a dollar stablecoin (`identity_verification_required`, with `details.remaining_atomic`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "404": {
             "description": "Publisher not found"
+          },
+          "409": {
+            "description": "The publisher cannot pay out (`SerenOperatedPublisherCannotPayOut`)"
           },
           "500": {
             "description": "Internal server error"
@@ -7993,13 +8108,280 @@
         ]
       }
     },
+    "/organizations/{organization_id}/templates/{slug}/campaign": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Get the template's referral campaign that is not closed.",
+        "operationId": "get_managed_agent_referral_campaign",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The template's referral campaign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentReferralCampaign"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using an unrestricted credential of the organization, or the organization does not publish the template"
+          },
+          "404": {
+            "description": "The template has no referral campaign"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Create the template's referral campaign, or change the reward of the one\nthat is not closed and whether it is active.",
+        "description": "A new campaign starts paused because it has no funds. Activating a campaign\nrequires enough unallocated funding for one reward. A closing\ncampaign cannot change.",
+        "operationId": "put_managed_agent_referral_campaign",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutManagedAgentReferralCampaignRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The template's referral campaign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentReferralCampaign"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The reward is not a positive whole number of cents"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using an unrestricted credential of the organization, or the organization does not publish the template"
+          },
+          "409": {
+            "description": "The campaign is closing, or its unallocated funding does not cover one reward"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/campaign/close": {
+      "post": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Close the template's referral campaign.",
+        "description": "Hires completed after the close earn nothing. Rewards already earned can\nstill be paid. After at least 30 days, once qualifying earned rewards are\nsettled, unused funds return to each funder as paid SerenBucks and the\ncampaign becomes closed. Closing a closing campaign changes nothing.",
+        "operationId": "close_managed_agent_referral_campaign",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The closing campaign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentReferralCampaign"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using an unrestricted credential of the organization, or the organization does not publish the template"
+          },
+          "404": {
+            "description": "The template has no referral campaign"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/campaign/fundings": {
+      "post": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Move the caller's paid SerenBucks into the template's referral campaign.",
+        "description": "Only paid credit funds a campaign; promotional credit is never used.\nRequires an `Idempotency-Key` header. Repeating a key with the same caller,\ntemplate and amount returns the original funding without charging again,\neven after its campaign closes or is replaced. Funds not paid to referrers\nreturn to their funder after at least 30 days following campaign closure,\nonce qualifying earned rewards are settled.",
+        "operationId": "fund_managed_agent_referral_campaign",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Unique key for this funding",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FundManagedAgentReferralCampaignRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The funding and the campaign after it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentReferralCampaignFunding"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The amount is not a positive whole number of cents, or the Idempotency-Key header is missing"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "402": {
+            "description": "The caller's paid SerenBucks balance is too low"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using an unrestricted credential of the organization, or the organization does not publish the template"
+          },
+          "404": {
+            "description": "The template has no referral campaign"
+          },
+          "409": {
+            "description": "The campaign is closing, or the key was used for a different funding"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/organizations/{organization_id}/templates/{slug}/releases": {
       "post": {
         "tags": [
           "managed-agent-templates"
         ],
         "summary": "Publish a release of a managed agent template.",
-        "description": "Creates the template when it does not exist, and otherwise adds the\nrelease as its next revision. A new template can be hired as soon as it is\npublished. Publication cannot create a template at a reserved slug, and a\nsuspended template accepts no release. Publishing the current revision\nagain changes nothing. With `rollout`, the template's current revision is\nthen applied to each existing hire and the response reports each hire's\noutcome. One hire's\nfailure neither fails the release nor undoes the others. Repeating the\ncurrent release retries a partly applied rollout. The rollout names its\napplied revision separately if another release advanced the template. A\nmode mismatch found before the sweep changes no hire; completed hires it\nwould change are reported failed and incomplete hires remain pending.\nRequires a user API key with `managed-agent-template:publish`, granted by\na built-in owner of the publishing organization. Any organization can\npublish, and only the organization that published a template can release\nit again. An issued key remains valid if its creator later loses\nownership, until it expires or is revoked.",
+        "description": "Creates the template when it does not exist, and otherwise adds the\nrelease as its next revision. A new template can be hired as soon as it is\npublished. Publication cannot create a template at a reserved slug, and a\nsuspended template accepts no release. Publishing the current revision\nagain changes nothing. With `rollout`, the template's current revision is\nthen applied to each existing hire and the response reports each hire's\noutcome. One hire's\nfailure neither fails the release nor undoes the others. Repeating the\ncurrent release retries a partly applied rollout. The rollout names its\napplied revision separately if another release advanced the template. A\nmode mismatch found before the sweep changes no hire; completed hires it\nwould change are reported failed and incomplete hires remain pending.\nA release is refused unless a hire can use it with at least one provider,\nand the response lists the providers a hire can select.\nRequires a user API key with `managed-agent-template:publish`, granted by\na built-in owner of the publishing organization. Any organization can\npublish, and only the organization that published a template can release\nit again. An issued key remains valid if its creator later loses\nownership, until it expires or is revoked.",
         "operationId": "publish_managed_agent_template_release",
         "parameters": [
           {
@@ -8044,7 +8426,7 @@
             }
           },
           "400": {
-            "description": "Invalid template release"
+            "description": "Invalid template release or no provider can hire it"
           },
           "401": {
             "description": "Authentication required"
@@ -9677,6 +10059,160 @@
             "description": "Preferences temporarily unavailable"
           }
         }
+      }
+    },
+    "/service/publishers/seren-affiliates/referral-campaigns/{template_slug}/rewards": {
+      "post": {
+        "tags": [
+          "Service Publishers"
+        ],
+        "summary": "Pay a referral campaign reward as spend-only credit of the referrer, from\nthe funds the template's Owner holds in the campaign. Repeating a\nreference with the same values returns the original reward.",
+        "operationId": "service_create_referral_campaign_reward",
+        "parameters": [
+          {
+            "name": "template_slug",
+            "in": "path",
+            "description": "Template whose campaign pays the reward",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferralCampaignRewardRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Referral reward paid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_AffiliateRewardResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid reward"
+          },
+          "401": {
+            "description": "Service authentication required"
+          },
+          "403": {
+            "description": "Publisher is not permitted to pay referral campaign rewards"
+          },
+          "409": {
+            "description": "The reward is refused with a reason code. Eligibility and available funding can change; `hire_hold_not_elapsed` requires waiting for the hold to end. `reference_conflict` means the reference was used for a different reward"
+          },
+          "503": {
+            "description": "Service authentication is unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/service/publishers/seren-affiliates/referral-campaigns/{template_slug}/rewards/{reference_id}": {
+      "get": {
+        "tags": [
+          "Service Publishers"
+        ],
+        "summary": "Retrieve an exactly matching referral reward without issuing a new payment.",
+        "operationId": "service_get_referral_campaign_reward",
+        "parameters": [
+          {
+            "name": "template_slug",
+            "in": "path",
+            "description": "Template whose campaign paid the reward",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reference_id",
+            "in": "path",
+            "description": "Reward reference",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "hire_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "referrer_user_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "amount_atomic",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching reward receipt",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ReferralRewardReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid reward lookup"
+          },
+          "401": {
+            "description": "Service authentication required"
+          },
+          "403": {
+            "description": "Publisher is not permitted to read campaign rewards"
+          },
+          "404": {
+            "description": "No matching reward is recorded; retry later"
+          },
+          "409": {
+            "description": "The reference belongs to a different reward, or the matching unpaid campaign has closed"
+          },
+          "503": {
+            "description": "Service authentication is unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
     "/service/publishers/seren-affiliates/users/{user_id}/affiliate-rewards": {
@@ -11416,6 +11952,110 @@
             "bearer_auth": []
           }
         ]
+      }
+    },
+    "/webhooks/lines/{line_id}": {
+      "get": {
+        "tags": [
+          "Connector Webhooks"
+        ],
+        "operationId": "get_shared_line_webhook",
+        "parameters": [
+          {
+            "name": "line_id",
+            "in": "path",
+            "description": "Channel line ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider verification response"
+          },
+          "202": {
+            "description": "Callback accepted"
+          },
+          "404": {
+            "description": "Channel line not found"
+          },
+          "502": {
+            "description": "Callback rejected or unavailable"
+          },
+          "503": {
+            "description": "Channel unavailable"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Connector Webhooks"
+        ],
+        "operationId": "post_shared_line_webhook",
+        "parameters": [
+          {
+            "name": "line_id",
+            "in": "path",
+            "description": "Channel line ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider callback response"
+          },
+          "202": {
+            "description": "Callback accepted"
+          },
+          "404": {
+            "description": "Channel line not found"
+          },
+          "502": {
+            "description": "Callback rejected or unavailable"
+          },
+          "503": {
+            "description": "Channel unavailable"
+          }
+        }
+      }
+    },
+    "/webhooks/slack": {
+      "post": {
+        "tags": [
+          "Connector Webhooks"
+        ],
+        "summary": "Receive events and URL verification for an installed Slack workspace.",
+        "operationId": "post_shared_slack_webhook",
+        "responses": {
+          "200": {
+            "description": "Provider verification or callback response"
+          },
+          "202": {
+            "description": "Callback accepted"
+          },
+          "400": {
+            "description": "Invalid provider callback"
+          },
+          "404": {
+            "description": "Workspace not connected"
+          },
+          "429": {
+            "description": "Too many callbacks for this workspace"
+          },
+          "502": {
+            "description": "Callback rejected or unavailable"
+          },
+          "503": {
+            "description": "Channel unavailable"
+          }
+        }
       }
     },
     "/webhooks/stripe": {
@@ -16475,6 +17115,152 @@
           }
         }
       },
+      "DataResponse_ManagedAgentReferralCampaign": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "A template's referral campaign.",
+            "required": [
+              "id",
+              "template_slug",
+              "owner_organization_id",
+              "reward_atomic",
+              "reward_usd",
+              "status",
+              "funded_atomic",
+              "paid_atomic",
+              "refunded_atomic",
+              "available_atomic",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "available_atomic": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Funding not yet paid or returned, in atomic USD units."
+              },
+              "closed_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time",
+                "description": "When the campaign stopped accepting hires. Unused funds return after\nat least 30 days, once qualifying earned rewards are settled."
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "funded_atomic": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Total funding received, in atomic USD units."
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "owner_organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "paid_atomic": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Total paid to referrers, in atomic USD units."
+              },
+              "refunded_atomic": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Total returned to funders, in atomic USD units."
+              },
+              "reward_atomic": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Reward for each qualifying referred hire, in atomic USD units; 1 USD\nis 1,000,000 units."
+              },
+              "reward_usd": {
+                "type": "string",
+                "description": "Reward as a decimal dollar string."
+              },
+              "status": {
+                "$ref": "#/components/schemas/ReferralCampaignStatus"
+              },
+              "template_slug": {
+                "type": "string"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentReferralCampaignFunding": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "One funding of a campaign and the campaign after it.",
+            "required": [
+              "id",
+              "amount_atomic",
+              "created_at",
+              "campaign"
+            ],
+            "properties": {
+              "amount_atomic": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "campaign": {
+                "$ref": "#/components/schemas/ManagedAgentReferralCampaign"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedAgentSecretsSetupBinding": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -16651,7 +17437,8 @@
               "revision",
               "created",
               "revision_added",
-              "active"
+              "active",
+              "providers"
             ],
             "properties": {
               "active": {
@@ -16661,6 +17448,13 @@
               "created": {
                 "type": "boolean",
                 "description": "Whether this request created the template."
+              },
+              "providers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentHireProvider"
+                },
+                "description": "Providers whose connected accounts can hire the current revision."
               },
               "revision": {
                 "type": "integer",
@@ -19709,6 +20503,59 @@
           }
         }
       },
+      "DataResponse_ReferralRewardReceipt": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "user_id",
+              "amount_atomic",
+              "campaign_id",
+              "funded_atomic"
+            ],
+            "properties": {
+              "amount_atomic": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "campaign_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "funded_atomic": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Total campaign funding in atomic USD units."
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "user_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ReferralUnsubscription": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -21635,6 +22482,61 @@
                 "updated_at": {
                   "type": "string",
                   "format": "date-time"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_OrganizationReferralCampaignTemplate": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "A template the organization publishes and its referral campaign.",
+              "required": [
+                "template_slug",
+                "display_name",
+                "template_active"
+              ],
+              "properties": {
+                "campaign": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ManagedAgentReferralCampaign",
+                      "description": "The template's campaign that is not closed."
+                    }
+                  ]
+                },
+                "display_name": {
+                  "type": "string"
+                },
+                "template_active": {
+                  "type": "boolean",
+                  "description": "Whether the template can be hired."
+                },
+                "template_slug": {
+                  "type": "string"
                 }
               }
             }
@@ -25068,6 +25970,20 @@
           }
         }
       },
+      "FundManagedAgentReferralCampaignRequest": {
+        "type": "object",
+        "required": [
+          "amount_atomic"
+        ],
+        "properties": {
+          "amount_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Amount of the caller's paid SerenBucks to hold for the campaign, in\natomic USD units. Must be a positive whole number of cents."
+          }
+        },
+        "additionalProperties": false
+      },
       "GenerateInvoicesRequest": {
         "type": "object",
         "required": [
@@ -25523,6 +26439,13 @@
           }
         }
       },
+      "ManagedAgentHireProvider": {
+        "type": "string",
+        "enum": [
+          "google",
+          "microsoft"
+        ]
+      },
       "ManagedAgentModelPolicy": {
         "type": "string",
         "enum": [
@@ -25537,6 +26460,112 @@
           "control_plane",
           "private_session_database"
         ]
+      },
+      "ManagedAgentReferralCampaign": {
+        "type": "object",
+        "description": "A template's referral campaign.",
+        "required": [
+          "id",
+          "template_slug",
+          "owner_organization_id",
+          "reward_atomic",
+          "reward_usd",
+          "status",
+          "funded_atomic",
+          "paid_atomic",
+          "refunded_atomic",
+          "available_atomic",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "available_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Funding not yet paid or returned, in atomic USD units."
+          },
+          "closed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the campaign stopped accepting hires. Unused funds return after\nat least 30 days, once qualifying earned rewards are settled."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "funded_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total funding received, in atomic USD units."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "owner_organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "paid_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total paid to referrers, in atomic USD units."
+          },
+          "refunded_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total returned to funders, in atomic USD units."
+          },
+          "reward_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Reward for each qualifying referred hire, in atomic USD units; 1 USD\nis 1,000,000 units."
+          },
+          "reward_usd": {
+            "type": "string",
+            "description": "Reward as a decimal dollar string."
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReferralCampaignStatus"
+          },
+          "template_slug": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ManagedAgentReferralCampaignFunding": {
+        "type": "object",
+        "description": "One funding of a campaign and the campaign after it.",
+        "required": [
+          "id",
+          "amount_atomic",
+          "created_at",
+          "campaign"
+        ],
+        "properties": {
+          "amount_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "campaign": {
+            "$ref": "#/components/schemas/ManagedAgentReferralCampaign"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
       },
       "ManagedAgentSecretFieldRequirement": {
         "type": "object",
@@ -26138,7 +27167,8 @@
           "revision",
           "created",
           "revision_added",
-          "active"
+          "active",
+          "providers"
         ],
         "properties": {
           "active": {
@@ -26148,6 +27178,13 @@
           "created": {
             "type": "boolean",
             "description": "Whether this request created the template."
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentHireProvider"
+            },
+            "description": "Providers whose connected accounts can hire the current revision."
           },
           "revision": {
             "type": "integer",
@@ -27858,6 +28895,38 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "OrganizationReferralCampaignTemplate": {
+        "type": "object",
+        "description": "A template the organization publishes and its referral campaign.",
+        "required": [
+          "template_slug",
+          "display_name",
+          "template_active"
+        ],
+        "properties": {
+          "campaign": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentReferralCampaign",
+                "description": "The template's campaign that is not closed."
+              }
+            ]
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "template_active": {
+            "type": "boolean",
+            "description": "Whether the template can be hired."
+          },
+          "template_slug": {
+            "type": "string"
           }
         }
       },
@@ -30548,6 +31617,25 @@
           }
         }
       },
+      "PutManagedAgentReferralCampaignRequest": {
+        "type": "object",
+        "required": [
+          "reward_atomic",
+          "active"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "description": "Whether qualifying hires earn the reward. Activating a campaign requires\nenough unallocated funding for one reward."
+          },
+          "reward_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Reward for each qualifying referred hire, in atomic USD units. Must be\na positive whole number of cents."
+          }
+        },
+        "additionalProperties": false
+      },
       "QueryParamDefinition": {
         "type": "object",
         "description": "Query parameter definition for an endpoint",
@@ -30779,6 +31867,80 @@
               "null"
             ],
             "description": "Recovery code (only shown once, save it securely!)\nThis is a 24-character code that can be used to recover your account."
+          }
+        }
+      },
+      "ReferralCampaignRewardRequest": {
+        "type": "object",
+        "description": "A seren-affiliates commission to pay from a template's campaign.",
+        "required": [
+          "reference_id",
+          "hire_id",
+          "referrer_user_id",
+          "amount_atomic"
+        ],
+        "properties": {
+          "amount_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Must equal the reward the hire earned when it completed, in atomic USD units."
+          },
+          "hire_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The referred hire."
+          },
+          "reference_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The commission ID. Repeating it with the same values returns the\noriginal reward; it is also the ID of the referrer's credit."
+          },
+          "referrer_user_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReferralCampaignStatus": {
+        "type": "string",
+        "enum": [
+          "active",
+          "paused",
+          "closing",
+          "closed"
+        ]
+      },
+      "ReferralRewardReceipt": {
+        "type": "object",
+        "required": [
+          "id",
+          "user_id",
+          "amount_atomic",
+          "campaign_id",
+          "funded_atomic"
+        ],
+        "properties": {
+          "amount_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "campaign_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "funded_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total campaign funding in atomic USD units."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },

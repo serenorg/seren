@@ -183,7 +183,8 @@ mod tests {
             assert_eq!(serde_json::to_value(&request).unwrap(), request_wire);
             let mut response_wire = json!({"data": {
                 "slug": "release-test", "revision": 7, "created": false,
-                "revision_added": false, "active": true
+                "revision_added": false, "active": true,
+                "providers": ["google", "microsoft"]
             }});
             if rollout == Some(false) {
                 response_wire["data"]["rollout"] = serde_json::Value::Null;
@@ -215,6 +216,7 @@ mod tests {
                 .into_inner();
             let decoded = serde_json::to_value(response).unwrap();
             assert_eq!(decoded["data"]["revision"], 7);
+            assert_eq!(decoded["data"]["providers"], json!(["google", "microsoft"]));
             if rollout == Some(true) {
                 assert_eq!(decoded["data"]["rollout"]["template_revision"], 8);
                 assert_eq!(
@@ -241,6 +243,32 @@ mod tests {
             } else {
                 assert!(decoded["data"]["rollout"].is_null());
             }
+        }
+    }
+
+    #[test]
+    fn template_release_providers_preserve_the_admitted_contract() {
+        for providers in [json!([]), json!(["google"]), json!(["google", "microsoft"])] {
+            let wire = json!({
+                "slug": "release-test", "revision": 7, "created": false,
+                "revision_added": false, "active": true, "providers": providers
+            });
+            let release: crate::ManagedAgentTemplateRelease =
+                serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(
+                serde_json::to_value(release).unwrap()["providers"],
+                providers
+            );
+        }
+        for providers in [None, Some(json!(["other"]))] {
+            let mut wire = json!({
+                "slug": "release-test", "revision": 7, "created": false,
+                "revision_added": false, "active": true
+            });
+            if let Some(providers) = providers {
+                wire["providers"] = providers;
+            }
+            assert!(serde_json::from_value::<crate::ManagedAgentTemplateRelease>(wire).is_err());
         }
     }
 
@@ -329,6 +357,7 @@ mod tests {
             let response_wire = json!({"data": {
                 "slug": "release-test", "revision": 7, "created": false,
                 "revision_added": false, "active": true,
+                "providers": ["google"],
                 "rollout": {"template_slug": "release-test", "template_revision": 8,
                     "deployments": [{"deployment_id": Uuid::new_v4(), "outcome": outcome, "failure": failure}]
                 }

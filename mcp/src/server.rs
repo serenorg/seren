@@ -16073,7 +16073,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Publish an Employee template release using an uploaded bundle and exact commit hash after user authorization. Requires a user API key of the publishing organization explicitly scoped managed-agent-template:publish; sessions and unrestricted keys cannot publish. A new template can be hired as soon as it is published, only its publishing organization can release it again, and a suspended template refuses releases.",
+        description = "Publish an Employee template release using an uploaded bundle and exact commit hash after user authorization. Requires a user API key of the publishing organization explicitly scoped managed-agent-template:publish; sessions and unrestricted keys cannot publish. A new template can be hired as soon as it is published, only its publishing organization can release it again, and a suspended template refuses releases. A release that no provider can hire is refused; the result lists the providers whose connected accounts can hire the current revision.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -23519,7 +23519,8 @@ mod tests {
             }
             let mut response = serde_json::json!({"data": {
                 "slug": "release-test", "revision": 7, "created": false,
-                "revision_added": false, "active": true
+                "revision_added": false, "active": true,
+                "providers": ["google", "microsoft"]
             }});
             if rollout == Some(true) {
                 response["data"]["rollout"] = serde_json::json!({
@@ -23572,6 +23573,10 @@ mod tests {
             let decoded: Value =
                 serde_json::from_str(content["content"][0]["text"].as_str().unwrap()).unwrap();
             assert_eq!(decoded["data"]["revision"], 7);
+            assert_eq!(
+                decoded["data"]["providers"],
+                serde_json::json!(["google", "microsoft"])
+            );
             if rollout == Some(true) {
                 assert_eq!(decoded["data"]["rollout"]["template_revision"], 8);
                 assert_eq!(

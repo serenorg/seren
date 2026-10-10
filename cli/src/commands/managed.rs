@@ -805,7 +805,8 @@ mod tests {
             }
             let mut response = json!({"data": {
                 "slug": "release-test", "revision": 7, "created": false,
-                "revision_added": false, "active": true
+                "revision_added": false, "active": true,
+                "providers": ["google", "microsoft"]
             }});
             if rollout == Some(true) {
                 response["data"]["rollout"] = json!({
