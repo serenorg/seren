@@ -311,6 +311,8 @@ Create and update are write tools but are not marked destructive because they on
 - `preview_seren_agent_deployment_rollback` previews a rollback diff
 - `rollback_seren_agent_deployment` reverts to a prior revision
 
+To replace a deployment's files with a bundle built from a repository, serialize the `AgentBundle` (set each file's `sha256` so Seren verifies its content), call `register_agent_bundle`, upload the bytes to the returned URL, then call `complete_agent_bundle_upload`. Pass the returned id to `patch_seren_agent_deployment_files` as `patch.deployment_bundle_id`. Its response can still be pending: poll `get_seren_agent_deployment_action` with the returned `request_id` until the action is `applied`, `failed` or `superseded`. Then confirm in `list_seren_agent_deployment_revisions` that the new revision's `deployment_bundle_id` and `code_bundle_hash` match the bundle you uploaded, and check `get_seren_agent_deployment_health`. For how skill scripts reach publishers and how to check a script's own result, see [Managed skill scripts](../cli/README.md#managed-skill-scripts).
+
 ### Cloud Activity Tools
 
 Use these tools when you want an organization-wide operator view before drilling into one deployment.

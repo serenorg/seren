@@ -572,6 +572,58 @@ Managed skill storage is separate: declare it in the skill manifest under `stora
 
 Changing database attachments on an existing code-bundle deployment requires redeploying it. Prompt-based managed agents can replace or clear attachments through the managed-agent update command.
 
+#### Managed skill scripts
+
+A managed employee can run programs that ship in its bundle. This section covers how those programs reach Seren publishers, how to package a bundle you can check, and how to confirm that a deploy did what you meant.
+
+**Where scripts run.** The `run_skill_script` tool runs a program from `scripts/` or `.skills/<name>/scripts/` in the bundle. The file extension picks the interpreter: `.py` runs with `python3`, `.sh` with `sh`, `.js`, `.mjs` and `.cjs` with `node`, and `.ts` with `tsx`. The program runs in a sandbox with no network access. Its only way out is Seren's publisher gateway, which checks the employee's publisher allow-list and approval policy on every call and supplies the employee's credentials, so the program never holds them.
+
+**Which processes can call publishers.** There are two ways in:
+
+- A startup wrapper for a top-level Python program. It reroutes `urllib.request.urlopen` calls to `https://api.serendb.com/publishers/{slug}/{path}` and `https://mcp.serendb.com/mcp`. It exists only inside that one Python process.
+- A local relay that every process in the sandbox can use. Seren sets `SEREN_PUBLISHER_PROXY_URL` for REST calls and `SEREN_MCP_URL` for MCP calls (where only `call_publisher` is available). Any HTTP client, such as `requests`, `httpx` or Node's `fetch`, works when it calls these addresses directly. The relay is not a transparent proxy: a request to any other address doesn't go through it.
+
+| Where the call starts | How to reach a publisher |
+| --- | --- |
+| Top-level `.py` program | `urllib` to `https://api.serendb.com/publishers/{slug}/{path}`, or `$SEREN_PUBLISHER_PROXY_URL/publishers/{slug}/{path}` |
+| Top-level `.js`, `.mjs`, `.cjs`, `.ts` or `.sh` program | `$SEREN_PUBLISHER_PROXY_URL/publishers/{slug}/{path}`, or `$SEREN_MCP_URL` |
+| Any child or grandchild process | The relay addresses only. Its parent must pass the environment through, and it must finish before the top-level program exits, because the relay stops then |
+| Anything aimed at `api.serendb.com` or `mcp.serendb.com`, other than `urllib` in a top-level Python program | Fails: the sandbox has no network, so the request never leaves it |
+
+A Python process started by a Node child is a new interpreter without the startup wrapper, so point it at `$SEREN_PUBLISHER_PROXY_URL`. A top-level Python program also sees `SEREN_API_KEY=seren-managed-publisher-broker`, and processes it starts inherit it. That value is a placeholder, not a credential: an SDK that sees it still tries `api.serendb.com` and fails, so point the SDK at the relay address instead.
+
+The recommended pattern is to keep publisher calls in the top-level program and have child processes exchange data with it over stdin and stdout. If a child must call a publisher itself, have it use the relay address. Don't work around a failed call by adding a personal API key or by widening network access.
+
+Before relying on a script, run a small smoke test: make one fixed, read-only publisher call against a test fixture, once from the top-level program and once from a child process, both through `$SEREN_PUBLISHER_PROXY_URL`. Compare both results with a value you already know.
+
+**Packaging a bundle you can check.** `seren agent managed-files <deployment-id> --path ./employee` packages the folder like this:
+
+- Top-level `SKILL.md`, `IDENTITY.md`, `SOUL.md`, `AGENTS.md`, `TOOLS.md`, `MEMORY.md`, `HEARTBEAT.md`, `USER.md` and `EVAL.md` become instructions. Every other file, at any depth, becomes an asset.
+- Names that start with `.` are skipped at every depth, so `.git` and `.env` never ship.
+- Symlinks are followed when they stay inside the folder and refused when they point outside it.
+- A top-level `requirements.txt` isn't part of the bundle and is left unchanged on the deployment.
+- Limits: 256 files, 1 MiB per instruction, 8 MiB per asset and 16 MiB in total.
+- Every file carries its SHA-256, and Seren rejects a file whose content doesn't match.
+
+Nothing filters `node_modules`, `__pycache__`, build output or secret files whose names don't start with a dot. Build the folder fresh from the files you mean to ship, then review exactly what would be sent:
+
+```bash
+# List every file with its kind, size and SHA-256, plus the bundle's SHA-256. Uploads nothing.
+seren agent managed-files <deployment-id> --path ./employee --dry-run
+seren -o json agent managed-files <deployment-id> --path ./employee --dry-run
+```
+
+The dry run marks files reached through a symlink and needs no network access.
+
+**Confirming a deploy.** An accepted request, or a run that completed, isn't proof that the change works. Check each step:
+
+1. `seren agent managed-files <deployment-id> --path ./employee` waits until the change is applied. It then confirms that the applied revision uses the uploaded bundle and records the same SHA-256, and prints the revision ID, bundle ID, bundle SHA-256 and control generation (a counter that goes up each time the deployment's controls change) to stderr. If it says the revision is staged, the change takes effect at the next start and isn't running yet.
+2. `seren agent managed-deployment-health <deployment-id>` should show the expected status, the new revision as the active revision, and the control generation you recorded.
+3. Start one run with a fixed, bounded input against a test fixture, then read the script's own result from `seren -o json agent cloud run events <run-id> --deployment-id <deployment-id>`. Find the `tool_call` event named `run_skill_script` and the `tool_result` event with the same `id`. Its `content` holds the script's `status` and `exit_code`. A script that exits non-zero still produces `is_error: false`, and the run can still complete, so check `exit_code` rather than the run status. Files a script leaves in its artifacts folder are kept only when it exits 0.
+4. Include one action the employee's policy should refuse, and confirm the refusal appears in the run.
+
+**Run IDs.** The run ID that `seren agent cloud run` commands take is the run record's `id`. Each run also has an `execution_id`. Inside the runtime, any value named `run_id` is the `execution_id`, not the record's `id`. Scripts receive neither as an environment variable.
+
 ### Cloud Activity
 
 ```bash
