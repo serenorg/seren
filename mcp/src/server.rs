@@ -17665,7 +17665,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Apply a targeted instruction or asset file patch to a managed seren-agent deployment. Inline upsert_instructions/upsert_assets suit small edits; for a whole serialized bundle set patch.deployment_bundle_id to an id from register_agent_bundle and complete_agent_bundle_upload.",
+        description = "Apply a targeted instruction or asset file patch to a managed seren-agent deployment. Inline upsert_instructions/upsert_assets suit small edits; for a whole serialized bundle set patch.deployment_bundle_id to an id from register_agent_bundle and complete_agent_bundle_upload. The response may report a pending runtime action: poll get_seren_agent_deployment_action with its reconciliation request_id until the action is applied, failed, or superseded.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -23686,6 +23686,24 @@ mod tests {
             description.contains("A release that no provider can hire is refused"),
             "{description}"
         );
+    }
+
+    #[test]
+    fn managed_file_patch_tool_says_how_to_follow_a_pending_action() {
+        let server = SerenMcpServer::new("test-key", "http://localhost").unwrap();
+        let tools = server.tool_router.list_all();
+        let description = tools
+            .iter()
+            .find(|tool| tool.name == "patch_seren_agent_deployment_files")
+            .and_then(|tool| tool.description.as_deref())
+            .expect("patch_seren_agent_deployment_files has a description");
+        // The tool returns the first response, which can still be pending.
+        assert!(description.contains("pending"), "{description}");
+        assert!(
+            description.contains("get_seren_agent_deployment_action"),
+            "{description}"
+        );
+        assert!(description.contains("request_id"), "{description}");
     }
 
     #[tokio::test]
