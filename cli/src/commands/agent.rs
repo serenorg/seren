@@ -9234,7 +9234,9 @@ pub async fn cloud_conversations(
     let response = client
         .seren_cloud_list_conversations(
             &deployment_id,
+            None,
             cursor.map(str::trim).filter(|value| !value.is_empty()),
+            None,
             Some(limit),
         )
         .await

@@ -1287,6 +1287,25 @@
             }
           },
           {
+            "name": "folder_id",
+            "in": "query",
+            "description": "Only conversations filed in this folder",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "description": "Filter by archive state; omit to include both",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "description": "Max conversations to return (default: 50, max: 100)",
@@ -1319,6 +1338,68 @@
           },
           "404": {
             "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/conversations/{conversation_id}": {
+      "patch": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_update_conversation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloudConversationUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Conversation updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudConversationResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Conversation or folder not found"
+          },
+          "409": {
+            "description": "Folder archived or conversation changed"
           }
         },
         "security": [
@@ -3247,7 +3328,7 @@
             }
           },
           "402": {
-            "description": "Insufficient SerenBucks balance"
+            "description": "Insufficient SerenBucks. A hired Employee's successful-run fee requires purchased credit; promotional credit cannot pay it."
           },
           "404": {
             "description": "Not found"
@@ -3692,11 +3773,14 @@
           "400": {
             "description": "Malformed resume request or runtime rejected the request before execution"
           },
+          "403": {
+            "description": "Caller cannot decide this run's pending approval"
+          },
           "404": {
             "description": "Not found"
           },
           "409": {
-            "description": "Run does not require durable resume"
+            "description": "Run does not require durable resume, or a pending approval no longer matches its current review"
           },
           "503": {
             "description": "Deployment could not be woken for resume"
@@ -4269,6 +4353,9 @@
                 }
               }
             }
+          },
+          "402": {
+            "description": "Insufficient SerenBucks. A hired Employee's successful-run fee requires purchased credit. Retry the same message after purchasing credit."
           },
           "409": {
             "description": "Interactive session is closed or idempotency conflict"
@@ -5525,6 +5612,604 @@
           },
           "404": {
             "description": "Eval case result not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/folders": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_list_folders",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "query",
+            "description": "Non-nil organization ID; omit to use the session organization",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Folder request completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudFolderListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "403": {
+            "description": "Organization access denied"
+          },
+          "404": {
+            "description": "Folder not found"
+          },
+          "409": {
+            "description": "Folder request conflicts with its current state"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_create_folder",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "query",
+            "description": "Non-nil organization ID; omit to use the session organization",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloudFolderCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Folder request completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudFolder"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid folder request or query"
+          },
+          "403": {
+            "description": "Organization access denied"
+          },
+          "404": {
+            "description": "Folder not found"
+          },
+          "409": {
+            "description": "Folder request conflicts with its current state"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/folders/{id}": {
+      "delete": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_delete_folder",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Folder ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "organization_id",
+            "in": "query",
+            "description": "Non-nil organization ID; omit to use the session organization",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Folder request completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudFolderDeleteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "403": {
+            "description": "Organization access denied"
+          },
+          "404": {
+            "description": "Folder not found"
+          },
+          "409": {
+            "description": "Folder request conflicts with its current state"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_update_folder",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Folder ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "organization_id",
+            "in": "query",
+            "description": "Non-nil organization ID; omit to use the session organization",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloudFolderUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Folder request completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudFolder"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid folder request or query"
+          },
+          "403": {
+            "description": "Organization access denied"
+          },
+          "404": {
+            "description": "Folder not found"
+          },
+          "409": {
+            "description": "Folder request conflicts with its current state"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/folders/{id}/conversations": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_list_folder_conversations",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Folder ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "organization_id",
+            "in": "query",
+            "description": "Non-nil organization ID; omit to use the session organization",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "description": "Filter by archive state; omit to include both",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size (default 50, maximum 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Cursor from the previous page",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Folder request completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudConversationListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "403": {
+            "description": "Organization access denied"
+          },
+          "404": {
+            "description": "Folder not found"
+          },
+          "409": {
+            "description": "Folder request conflicts with its current state"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/folders/{id}/files": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_list_folder_files",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Folder ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "organization_id",
+            "in": "query",
+            "description": "Non-nil organization ID; omit to use the session organization",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Folder files",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudFolderFileListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "403": {
+            "description": "Organization access denied"
+          },
+          "404": {
+            "description": "Folder not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_upload_folder_file",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Folder ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "organization_id",
+            "in": "query",
+            "description": "Non-nil organization ID; omit to use the session organization",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "file_name",
+            "in": "query",
+            "description": "File name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "idempotency_key",
+            "in": "query",
+            "description": "Stable key for retrying this upload",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "File content, at most 20 MiB. The Content-Type header selects the file type.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "application/pdf": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "image/gif": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "image/jpeg": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "image/png": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "image/webp": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "text/csv": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "text/markdown": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Upload already recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudFolderFile"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "File uploaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudFolderFile"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid file or query"
+          },
+          "403": {
+            "description": "Organization access denied"
+          },
+          "404": {
+            "description": "Folder not found"
+          },
+          "409": {
+            "description": "Folder archived or idempotency conflict"
+          },
+          "413": {
+            "description": "File too large"
+          },
+          "429": {
+            "description": "Upload limit exceeded"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/folders/{id}/files/{file_id}/content": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_download_folder_file",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Folder ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "file_id",
+            "in": "path",
+            "description": "File ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "organization_id",
+            "in": "query",
+            "description": "Non-nil organization ID; omit to use the session organization",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File bytes",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunFileContent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "403": {
+            "description": "Organization access denied"
+          },
+          "404": {
+            "description": "File not found"
           }
         },
         "security": [
@@ -6804,11 +7489,14 @@
           "400": {
             "description": "Malformed resume request or runtime rejected the request before execution"
           },
+          "403": {
+            "description": "Caller cannot decide this run's pending approval"
+          },
           "404": {
             "description": "Not found"
           },
           "409": {
-            "description": "Run does not require durable resume"
+            "description": "Run does not require durable resume, or a pending approval no longer matches its current review"
           },
           "503": {
             "description": "Deployment could not be woken for resume"
@@ -9049,6 +9737,17 @@
           "decision": {
             "$ref": "#/components/schemas/ApprovalInboxDecisionVerb"
           },
+          "edits": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudRunOwnerEmailEdit",
+                "description": "Subject and plain-text body required for approve_with_edits."
+              }
+            ]
+          },
           "lease": {
             "oneOf": [
               {
@@ -9083,6 +9782,7 @@
         "description": "Decision verb accepted by the inbox decision endpoint.\n\nDistinct from `CloudRunApprovalDecisionValue` (which uses `approve`/`reject`)\nbecause the inbox is the operator surface and `deny` reads better than\n`reject` for non-tool kinds like blocked egress. The mapping into the\nexisting tool-call resume path is internal.",
         "enum": [
           "approve",
+          "approve_with_edits",
           "allow_always",
           "deny"
         ]
@@ -9358,7 +10058,7 @@
               },
               {
                 "$ref": "#/components/schemas/CloudRunScriptPublisherApproval",
-                "description": "The exact publisher request a managed skill script is waiting to send."
+                "description": "The exact publisher request a managed skill script is waiting to send.\nIncludes the exact proposed request and current operation description.\nAn ordinary action served without `request` is not reviewable and\n`allow_always` is false; an email send is reviewed through `message`.\nA message body or request value is untrusted content and must be\ndisplayed as text, never rendered as markup."
               }
             ]
           },
@@ -9834,6 +10534,13 @@
           "updated_at"
         ],
         "properties": {
+          "archived_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "conversation_id": {
             "type": "string"
           },
@@ -9845,6 +10552,13 @@
             "type": "string",
             "format": "uuid"
           },
+          "folder_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "id": {
             "type": "string",
             "format": "uuid"
@@ -9852,6 +10566,12 @@
           "last_activity_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "last_run_status": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "last_source": {
             "type": [
@@ -9882,6 +10602,35 @@
             "format": "uuid"
           }
         }
+      },
+      "CloudConversationUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "archived": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "folder_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Omit to keep the folder; null removes the conversation from its folder."
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Visible title of at most 512 characters, without control characters.",
+            "maxLength": 512,
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
       },
       "CloudDeploymentActionStatusResponse": {
         "type": "object",
@@ -11828,6 +12577,184 @@
           }
         }
       },
+      "CloudFolder": {
+        "type": "object",
+        "required": [
+          "id",
+          "organization_id",
+          "owner_user_id",
+          "name",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "archived_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "owner_user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CloudFolderCreateRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "CloudFolderDeleteResponse": {
+        "type": "object",
+        "required": [
+          "deleted"
+        ],
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CloudFolderFile": {
+        "type": "object",
+        "required": [
+          "id",
+          "folder_id",
+          "origin",
+          "file_name",
+          "revision",
+          "content_type",
+          "byte_length",
+          "sha256",
+          "created_at"
+        ],
+        "properties": {
+          "byte_length": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "file_name": {
+            "type": "string"
+          },
+          "folder_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/CloudFolderFileOrigin"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        }
+      },
+      "CloudFolderFileListResponse": {
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloudFolderFile"
+            }
+          }
+        }
+      },
+      "CloudFolderFileOrigin": {
+        "type": "string",
+        "enum": [
+          "owner_upload",
+          "managed_agent_delivery"
+        ]
+      },
+      "CloudFolderListResponse": {
+        "type": "object",
+        "required": [
+          "folders"
+        ],
+        "properties": {
+          "folders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloudFolder"
+            }
+          }
+        }
+      },
+      "CloudFolderUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "archived": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 120,
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
       "CloudInteractiveSessionActiveRequest": {
         "type": "object",
         "required": [
@@ -12053,8 +12980,17 @@
               "string",
               "null"
             ]
+          },
+          "folder_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Start or reopen the thread in this active folder."
           }
-        }
+        },
+        "additionalProperties": false
       },
       "CloudInteractiveSessionOpenResponse": {
         "type": "object",
@@ -12370,6 +13306,7 @@
           "delivery_contract",
           "conversation_busy",
           "conversation_awaiting_approval",
+          "managed_output_empty",
           "runtime_error",
           "timeout",
           "unknown"
@@ -12552,7 +13489,7 @@
               },
               {
                 "$ref": "#/components/schemas/PublisherOperationPurpose",
-                "description": "Platform-reviewed purpose of the held operation."
+                "description": "Platform-reviewed purpose of the held operation, present while the\ncurrent review confirms it."
               }
             ]
           },
@@ -13250,6 +14187,23 @@
           "unknown"
         ]
       },
+      "CloudRunOwnerEmailEdit": {
+        "type": "object",
+        "description": "The subject and plain-text body approved by the owner.",
+        "required": [
+          "subject",
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "CloudRunPendingApproval": {
         "type": "object",
         "description": "One tool call that is waiting for an approval decision.",
@@ -13639,7 +14593,7 @@
       },
       "CloudRunScriptPublisherApproval": {
         "type": "object",
-        "description": "An approval-gated publisher request that a managed skill script prepared.\nThe runtime derives `message` from the exact request body it would\ndispatch. `payload_digest` covers the deployment, publisher, operation,\noperation binding, that request, `message` and `consequences`, so any\nchange to them requires a new approval.",
+        "description": "An approval-gated publisher request that a managed skill script prepared.\nThe runtime derives `message` from the exact request body it would\ndispatch. `payload_digest` covers the deployment, publisher, operation,\noperation binding, `request`, `message` and `consequences`, so any change\nto them requires a new approval. Missing review evidence cannot authorize\nan ordinary action.",
         "required": [
           "publisher_slug",
           "operation_id",
@@ -13654,6 +14608,13 @@
             },
             "description": "Effects outside the publisher request that the script declared, such as\na document link becoming public. They cannot be derived from the\nrequest."
           },
+          "edit_envelope_digest": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Hex SHA-256 of the request without its editable subject and body.\nPresent only when the owner may replace those two fields; an edited\nresend must reproduce every other part of the request."
+          },
           "message": {
             "oneOf": [
               {
@@ -13662,6 +14623,17 @@
               {
                 "$ref": "#/components/schemas/CloudRunScriptApprovalMessage",
                 "description": "Present only for a full-message email send."
+              }
+            ]
+          },
+          "operation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PublisherApprovalOperation",
+                "description": "The reviewed definition of the operation, present when the current\ncatalog review still matches `operation_binding`."
               }
             ]
           },
@@ -13677,6 +14649,20 @@
           },
           "publisher_slug": {
             "type": "string"
+          },
+          "purpose": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PublisherOperationPurpose",
+                "description": "Platform-reviewed purpose of the held operation, present while the\ncurrent review confirms it. A declared binding carries none."
+              }
+            ]
+          },
+          "request": {
+            "description": "The exact request the approval releases, as it would be dispatched and\nwithout its idempotency key. Present only when it reproduces\n`payload_digest`; an ordinary action served without it is not\nreviewable."
           }
         },
         "additionalProperties": false
@@ -14577,6 +15563,109 @@
                   "string",
                   "null"
                 ]
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudConversationResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "conversation_id",
+              "deployment_id",
+              "organization_id",
+              "user_id",
+              "message_count",
+              "last_activity_at",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "archived_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "conversation_id": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "folder_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "last_activity_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "last_run_status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "last_source": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message_count": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "user_id": {
+                "type": "string",
+                "format": "uuid"
               }
             }
           },
@@ -16131,6 +17220,243 @@
               "updated_at": {
                 "type": "string",
                 "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudFolder": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "organization_id",
+              "owner_user_id",
+              "name",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "archived_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "owner_user_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudFolderDeleteResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "deleted"
+            ],
+            "properties": {
+              "deleted": {
+                "type": "boolean"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudFolderFile": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "folder_id",
+              "origin",
+              "file_name",
+              "revision",
+              "content_type",
+              "byte_length",
+              "sha256",
+              "created_at"
+            ],
+            "properties": {
+              "byte_length": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "content_type": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "file_name": {
+                "type": "string"
+              },
+              "folder_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "origin": {
+                "$ref": "#/components/schemas/CloudFolderFileOrigin"
+              },
+              "revision": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "run_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "sha256": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudFolderFileListResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "files"
+            ],
+            "properties": {
+              "files": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CloudFolderFile"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudFolderListResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "folders"
+            ],
+            "properties": {
+              "folders": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CloudFolder"
+                }
               }
             }
           },
@@ -20563,6 +21889,7 @@
           "status",
           "desired_lifecycle_state",
           "template",
+          "run_fee",
           "created_at",
           "updated_at"
         ],
@@ -20626,6 +21953,16 @@
             "type": "boolean",
             "description": "Always true; distinguishes this view from an ordinary deployment summary."
           },
+          "run_fee": {
+            "$ref": "#/components/schemas/ManagedAgentRunFeeAmount"
+          },
+          "run_fee_changed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "skill_slug": {
             "type": "string"
           },
@@ -20653,6 +21990,23 @@
           "control_plane",
           "private_session_database"
         ]
+      },
+      "ManagedAgentRunFeeAmount": {
+        "type": "object",
+        "description": "The current per-successful-run price, paid from purchased SerenBucks.",
+        "required": [
+          "atomic",
+          "usd"
+        ],
+        "properties": {
+          "atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "usd": {
+            "type": "string"
+          }
+        }
       },
       "ManagedAgentRunFile": {
         "type": "object",

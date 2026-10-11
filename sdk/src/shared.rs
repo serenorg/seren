@@ -2147,7 +2147,8 @@ mod tests {
                         "slug": "platform-template",
                         "display_name": "Platform Template",
                         "revision": 1
-                    }
+                    },
+                    "run_fee": {"atomic": 500000, "usd": "0.50"}
                 }
             }))
             .expect("platform-managed view decodes as the owner-view variant");
@@ -2650,6 +2651,7 @@ mod tests {
                         "display_name": "Platform Template",
                         "revision": 3
                     },
+                    "run_fee": {"atomic": 500000, "usd": "0.50"},
                     "created_at": "2026-09-01T00:00:00Z",
                     "updated_at": "2026-09-01T00:00:00Z"
                 }

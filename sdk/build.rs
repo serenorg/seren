@@ -197,13 +197,17 @@ fn normalize_nullable_parameters(value: &mut serde_json::Value) {
 /// Keep the complete public contract bundled with the SDK while omitting
 /// operations that Progenitor cannot represent in its generated Rust client.
 fn remove_unsupported_operations(value: &mut serde_json::Value) -> anyhow::Result<()> {
-    const AVATAR_PATH: &str = "/users/me/avatar";
+    const MULTIPART_PATHS: &[&str] = &[
+        "/users/me/avatar",
+        "/organizations/{organization_id}/templates/{slug}/avatar",
+    ];
     // Raw uploads whose Content-Type header selects the stored file type.
     // Progenitor sends one fixed media type per operation, so a generated
     // method could not upload the other declared types.
     const MULTIPLE_MEDIA_TYPE_OPERATIONS: &[&str] = &[
         "seren_cloud_runtime_publish_run_artifact",
         "seren_cloud_upload_run_file",
+        "seren_cloud_upload_folder_file",
     ];
     const METHODS: [&str; 8] = [
         "get", "put", "post", "delete", "options", "head", "patch", "trace",
@@ -214,16 +218,20 @@ fn remove_unsupported_operations(value: &mut serde_json::Value) -> anyhow::Resul
         .and_then(serde_json::Value::as_object_mut)
         .context("OpenAPI document is missing paths")?;
 
-    if let Some(path_item) = paths
-        .get_mut(AVATAR_PATH)
-        .and_then(serde_json::Value::as_object_mut)
-    {
-        let is_multipart = path_item
-            .get("post")
-            .and_then(|operation| operation.pointer("/requestBody/content/multipart~1form-data"))
-            .is_some();
-        if is_multipart {
-            path_item.remove("post");
+    for path in MULTIPART_PATHS {
+        if let Some(path_item) = paths
+            .get_mut(*path)
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            let is_multipart = path_item
+                .get("post")
+                .and_then(|operation| {
+                    operation.pointer("/requestBody/content/multipart~1form-data")
+                })
+                .is_some();
+            if is_multipart {
+                path_item.remove("post");
+            }
         }
     }
 

@@ -2988,6 +2988,69 @@
         ]
       }
     },
+    "/organizations/{organization_id}": {
+      "patch": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "PATCH /organizations/{organization_id}\nRename the organization.",
+        "operationId": "rename_organization",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameOrganizationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The renamed organization",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Organization"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The name is empty, longer than 255 characters or contains surrounding whitespace or NUL characters, or the request body is invalid"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using an unrestricted credential of the organization"
+          },
+          "404": {
+            "description": "Organization not found"
+          },
+          "409": {
+            "description": "The name is reserved"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/organizations/{organization_id}/agent-credential-secrets": {
       "get": {
         "tags": [
@@ -8048,6 +8111,50 @@
         ]
       }
     },
+    "/organizations/{organization_id}/templates": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "List the templates published by the direct Owner's organization.",
+        "operationId": "list_organization_managed_agent_templates",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization whose templates are listed",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization templates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_OrganizationManagedAgentTemplate"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Direct organization Owner required"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/organizations/{organization_id}/templates/analytics/{publisher_id}": {
       "get": {
         "tags": [
@@ -8099,6 +8206,138 @@
           },
           "500": {
             "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/avatar": {
+      "post": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Upload one multipart `file`: PNG, JPEG or WebP, at most 2 MiB.\nThe picture is normalized to a square 512-pixel PNG.",
+        "operationId": "upload_managed_agent_template_avatar",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The updated profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateProfile"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The picture is invalid"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, the organization does not publish the template, or the template or its profile is suspended"
+          },
+          "413": {
+            "description": "The picture exceeds 2 MiB"
+          },
+          "503": {
+            "description": "Picture storage is unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Remove a template's picture. Repeated removal succeeds.",
+        "operationId": "delete_managed_agent_template_avatar",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The updated profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateProfile"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, the organization does not publish the template, or the template or its profile is suspended"
           }
         },
         "security": [
@@ -8375,12 +8614,396 @@
         ]
       }
     },
+    "/organizations/{organization_id}/templates/{slug}/fee": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Read the current per-successful-run fee of an Employee this organization publishes.",
+        "operationId": "get_managed_agent_run_fee",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the Employee",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current run fee",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentRunFeeAmount"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "An unrestricted direct Owner credential of the organization is required, the organization does not publish the Employee, or the Employee is suspended"
+          },
+          "404": {
+            "description": "Employee not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Set the fee for future successful runs of every hire. Runs already admitted keep their original fee.",
+        "operationId": "set_managed_agent_run_fee",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the Employee",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetManagedAgentRunFee"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Current run fee",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentRunFeeAmount"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The fee must be nonnegative whole cents"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "An unrestricted direct Owner credential of the organization is required, the organization does not publish the Employee, or the Employee is suspended"
+          },
+          "404": {
+            "description": "Employee not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/profile": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Read the profile of a template the organization publishes.",
+        "operationId": "get_managed_agent_template_profile",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The template's profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateProfile"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, or the organization does not publish the template"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Replace the tagline, plain-text description and ordered capabilities.\nThe picture is managed separately. Suspended templates or profiles refuse edits.",
+        "operationId": "put_managed_agent_template_profile",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutManagedAgentTemplateProfile"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The updated profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateProfile"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The profile is invalid"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, the organization does not publish the template, or the template or its profile is suspended"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/publications": {
+      "post": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Publish a release from an organization's managed deployment. Requires a\nbuilt-in Owner's direct session or unrestricted user API key. New templates\nare immediately hireable. Repeating the current release adds no revision;\nrollout applies the current release to existing hires and reports each outcome.",
+        "operationId": "publish_managed_agent_deployment",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishManagedAgentDeploymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Published template release",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateRelease"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Deployment cannot be published with these settings"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Direct organization Owner required, template published by another organization or suspended, or deployment material unavailable"
+          },
+          "404": {
+            "description": "Deployment not found"
+          },
+          "409": {
+            "description": "Template publication conflict"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/publications/preview": {
+      "post": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Preview publishing an organization's managed deployment. Returns the files,\nsettings and omitted publisher tools without publishing a release.",
+        "operationId": "preview_managed_agent_deployment_publication",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishManagedAgentDeploymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Publication preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentDeploymentPublicationPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Deployment cannot be published with these settings"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Direct organization Owner required, template published by another organization or suspended, or deployment material unavailable"
+          },
+          "404": {
+            "description": "Deployment not found"
+          },
+          "409": {
+            "description": "Template publication conflict"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/organizations/{organization_id}/templates/{slug}/releases": {
       "post": {
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Publish a release of a managed agent template.",
+        "summary": "Publish an uploaded release of a managed agent template.",
         "description": "Creates the template when it does not exist, and otherwise adds the\nrelease as its next revision. A new template can be hired as soon as it is\npublished. Publication cannot create a template at a reserved slug, and a\nsuspended template accepts no release. Publishing the current revision\nagain changes nothing. With `rollout`, the template's current revision is\nthen applied to each existing hire and the response reports each hire's\noutcome. One hire's\nfailure neither fails the release nor undoes the others. Repeating the\ncurrent release retries a partly applied rollout. The rollout names its\napplied revision separately if another release advanced the template. A\nmode mismatch found before the sweep changes no hire; completed hires it\nwould change are reported failed and incomplete hires remain pending.\nA release is refused unless a hire can use it with at least one provider,\nand the response lists the providers a hire can select.\nRequires a user API key with `managed-agent-template:publish`, granted by\na built-in owner of the publishing organization. Any organization can\npublish, and only the organization that published a template can release\nit again. An issued key remains valid if its creator later loses\nownership, until it expires or is revoked.",
         "operationId": "publish_managed_agent_template_release",
         "parameters": [
@@ -13655,6 +14278,11 @@
           "headed"
         ]
       },
+      "CapabilityLabel": {
+        "type": "string",
+        "maxLength": 80,
+        "minLength": 1
+      },
       "ChangePlanRequest": {
         "type": "object",
         "description": "Request to upgrade/downgrade an organization's plan",
@@ -17115,6 +17743,59 @@
           }
         }
       },
+      "DataResponse_ManagedAgentDeploymentPublicationPreview": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "published_files",
+              "removed_files",
+              "deploy_defaults",
+              "omitted_tools"
+            ],
+            "properties": {
+              "deploy_defaults": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateDeployDefaults"
+              },
+              "omitted_tools": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentTemplateOmittedTool"
+                },
+                "description": "Prompt publisher operations outside mail and files. MCP, connector and\nremote-agent tool references never carry over and are not listed."
+              },
+              "published_files": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "removed_files": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedAgentReferralCampaign": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -17245,6 +17926,43 @@
               "id": {
                 "type": "string",
                 "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentRunFeeAmount": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "The current per-successful-run price, paid from purchased SerenBucks.",
+            "required": [
+              "atomic",
+              "usd"
+            ],
+            "properties": {
+              "atomic": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "usd": {
+                "type": "string"
               }
             }
           },
@@ -17406,6 +18124,68 @@
               },
               "status": {
                 "$ref": "#/components/schemas/ManagedAgentSecretsSetupState"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentTemplateProfile": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Public marketing text, rendered as plain text, and an optional picture.",
+            "required": [
+              "capabilities"
+            ],
+            "properties": {
+              "avatar_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "capabilities": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CapabilityLabel"
+                },
+                "maxItems": 8
+              },
+              "description": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Description"
+                  }
+                ]
+              },
+              "tagline": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Tagline"
+                  }
+                ]
               }
             }
           },
@@ -17666,6 +18446,79 @@
                   "string",
                   "null"
                 ]
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Organization": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "slug",
+              "created_by",
+              "is_personal",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "created_by": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "deleted_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "is_personal": {
+                "type": "boolean"
+              },
+              "name": {
+                "type": "string"
+              },
+              "slug": {
+                "$ref": "#/components/schemas/Slug"
+              },
+              "stripe_customer_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Stripe Customer ID for this organization (if billing is enabled)."
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
               }
             }
           },
@@ -22353,6 +23206,60 @@
           }
         }
       },
+      "DataResponse_Vec_OrganizationManagedAgentTemplate": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "slug",
+                "display_name",
+                "active",
+                "current_revision"
+              ],
+              "properties": {
+                "active": {
+                  "type": "boolean"
+                },
+                "current_revision": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "display_name": {
+                  "type": "string"
+                },
+                "slug": {
+                  "type": "string"
+                },
+                "source_deployment_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_Vec_OrganizationMemberWithUser": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -25162,6 +26069,11 @@
           }
         }
       },
+      "Description": {
+        "type": "string",
+        "maxLength": 2000,
+        "minLength": 1
+      },
       "Eip712Domain": {
         "type": "object",
         "description": "EIP-712 domain (matches ethereum.rs Eip712Domain)",
@@ -26439,6 +27351,39 @@
           }
         }
       },
+      "ManagedAgentDeploymentPublicationPreview": {
+        "type": "object",
+        "required": [
+          "published_files",
+          "removed_files",
+          "deploy_defaults",
+          "omitted_tools"
+        ],
+        "properties": {
+          "deploy_defaults": {
+            "$ref": "#/components/schemas/ManagedAgentTemplateDeployDefaults"
+          },
+          "omitted_tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentTemplateOmittedTool"
+            },
+            "description": "Prompt publisher operations outside mail and files. MCP, connector and\nremote-agent tool references never carry over and are not listed."
+          },
+          "published_files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "removed_files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "ManagedAgentHireProvider": {
         "type": "string",
         "enum": [
@@ -26564,6 +27509,23 @@
           "id": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "ManagedAgentRunFeeAmount": {
+        "type": "object",
+        "description": "The current per-successful-run price, paid from purchased SerenBucks.",
+        "required": [
+          "atomic",
+          "usd"
+        ],
+        "properties": {
+          "atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "usd": {
+            "type": "string"
           }
         }
       },
@@ -27158,6 +28120,64 @@
           }
         },
         "additionalProperties": false
+      },
+      "ManagedAgentTemplateOmittedTool": {
+        "type": "object",
+        "description": "A publisher operation that will not be available in hired copies.",
+        "required": [
+          "publisher_slug",
+          "operation_id"
+        ],
+        "properties": {
+          "operation_id": {
+            "type": "string"
+          },
+          "publisher_slug": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentTemplateProfile": {
+        "type": "object",
+        "description": "Public marketing text, rendered as plain text, and an optional picture.",
+        "required": [
+          "capabilities"
+        ],
+        "properties": {
+          "avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CapabilityLabel"
+            },
+            "maxItems": 8
+          },
+          "description": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Description"
+              }
+            ]
+          },
+          "tagline": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Tagline"
+              }
+            ]
+          }
+        }
       },
       "ManagedAgentTemplateRelease": {
         "type": "object",
@@ -28300,6 +29320,37 @@
           },
           "role": {
             "type": "string"
+          }
+        }
+      },
+      "OrganizationManagedAgentTemplate": {
+        "type": "object",
+        "required": [
+          "slug",
+          "display_name",
+          "active",
+          "current_revision"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "current_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "source_deployment_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -30471,6 +31522,51 @@
           }
         }
       },
+      "PublishManagedAgentDeploymentRequest": {
+        "type": "object",
+        "required": [
+          "deployment_id",
+          "display_name"
+        ],
+        "properties": {
+          "browser_max_session_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Required when the source has no browser session limit; refused otherwise.",
+            "minimum": 0
+          },
+          "cron_schedule": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required when the source is not scheduled; refused otherwise."
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "max_runtime_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Required when the source has no runtime limit; refused otherwise.",
+            "minimum": 0
+          },
+          "rollout": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
       "PublishManagedAgentTemplateReleaseRequest": {
         "type": "object",
         "required": [
@@ -31636,6 +32732,43 @@
         },
         "additionalProperties": false
       },
+      "PutManagedAgentTemplateProfile": {
+        "type": "object",
+        "description": "Replaces all profile text. Omitted or null text removes it; an empty list\nremoves all capabilities. The picture is managed separately.",
+        "required": [
+          "capabilities"
+        ],
+        "properties": {
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CapabilityLabel"
+            },
+            "maxItems": 8
+          },
+          "description": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Description"
+              }
+            ]
+          },
+          "tagline": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Tagline"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
       "QueryParamDefinition": {
         "type": "object",
         "description": "Query parameter definition for an endpoint",
@@ -31988,6 +33121,22 @@
           }
         }
       },
+      "RenameOrganizationRequest": {
+        "type": "object",
+        "description": "Request body for renaming an organization.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The organization's new name: 1-255 characters without surrounding whitespace or NUL characters.",
+            "maxLength": 255,
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
       "RequiredConnectorRef": {
         "type": "object",
         "description": "Reference to a connector the catalog item depends on. `kind` is optional\nmetadata for UI grouping or provider-specific platform hints\n(gmail|slack|browser|telegram|...). The connector itself is resolved by\n`name` against the org's connector inventory at apply time. Messaging\nchannel entries remain provider-defined: Seren's deployment contract uses\nconnector tool refs with capability/scopes metadata rather than a closed\nchannel enum.",
@@ -32260,6 +33409,22 @@
           }
         }
       },
+      "SetManagedAgentRunFee": {
+        "type": "object",
+        "required": [
+          "run_fee_atomic"
+        ],
+        "properties": {
+          "run_fee_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Nonnegative USD atomic units, in whole cents (multiples of 10,000).",
+            "multipleOf": 10000,
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
       "SetRecoveryEmailRequest": {
         "type": "object",
         "required": [
@@ -32527,6 +33692,11 @@
             "description": "Signer addresses by network family"
           }
         }
+      },
+      "Tagline": {
+        "type": "string",
+        "maxLength": 120,
+        "minLength": 1
       },
       "TaskType": {
         "type": "string",

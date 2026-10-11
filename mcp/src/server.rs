@@ -18745,7 +18745,9 @@ API endpoint: {endpoint}",
         let response = api_client
             .seren_cloud_list_conversations(
                 &params.deployment_id,
+                None,
                 params.cursor.as_deref(),
+                None,
                 Some(params.limit),
             )
             .into_mcp_result()
@@ -28332,6 +28334,7 @@ mod tests {
                     "display_name": "Platform Template",
                     "revision": 1
                 },
+                "run_fee": {"atomic": 500000, "usd": "0.50"},
                 "created_at": "2026-09-01T00:00:00Z",
                 "updated_at": "2026-09-01T00:00:00Z"
             }

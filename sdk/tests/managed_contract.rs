@@ -53,6 +53,7 @@ async fn allowance_check_preserves_publisher_operation_and_denial() {
     let request = ManagedPublisherAllowanceCheck {
         publisher_slug: "seren-notes".into(),
         operation_id: "create_note".into(),
+        request: None,
     };
     Mock::given(method("POST"))
         .and(path(format!(

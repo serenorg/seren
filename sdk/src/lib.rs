@@ -117,6 +117,49 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
+
+    /// Upload and normalize a managed agent template's profile picture.
+    ///
+    /// This method is implemented manually because Progenitor does not
+    /// currently generate multipart request bodies.
+    #[allow(clippy::result_large_err)]
+    pub async fn upload_managed_agent_template_avatar(
+        &self,
+        organization_id: &uuid::Uuid,
+        slug: &str,
+        file_name: &str,
+        file: Vec<u8>,
+    ) -> Result<ResponseValue<DataResponseManagedAgentTemplateProfile>, Error<()>> {
+        use progenitor_client::{ClientHooks, ClientInfo, OperationInfo};
+
+        let form = reqwest::multipart::Form::new().part(
+            "file",
+            reqwest::multipart::Part::bytes(file).file_name(file_name.to_string()),
+        );
+        let url = format!(
+            "{}/organizations/{organization_id}/templates/{}/avatar",
+            self.baseurl.trim_end_matches('/'),
+            progenitor_client::encode_path(slug),
+        );
+        let mut request = self
+            .client
+            .post(url)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .header("api-version", <Self as ClientInfo<()>>::api_version())
+            .multipart(form)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "upload_managed_agent_template_avatar",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200 => ResponseValue::from_response(response).await,
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
 }
 
 // Re-export commonly used types
@@ -133,6 +176,51 @@ mod tests {
         Mock, MockServer, ResponseTemplate,
         matchers::{body_json, method, path},
     };
+
+    #[test]
+    fn script_approval_preserves_the_exact_reviewed_action() {
+        let wire = json!({
+            "publisher_slug": "slack",
+            "operation_id": "post_messages",
+            "operation_binding": {"kind": "reviewed", "binding_sha256": "a".repeat(64)},
+            "payload_digest": format!("sha256:{}", "b".repeat(64)),
+            "consequences": ["A message is posted"],
+            "purpose": "action",
+            "operation": {"transport": "api", "method": "POST", "path": "/messages", "description": "Post message"},
+            "request": {"publisher": "slack", "operation": "post", "path": "/messages", "connection_id": "approved-account", "body": {"channel": "test-channel", "text": "Exact proposed text"}}
+        });
+        let approval: crate::CloudRunScriptPublisherApproval =
+            serde_json::from_value(wire.clone()).expect("current script action");
+        assert_eq!(serde_json::to_value(approval).unwrap(), wire);
+    }
+
+    #[test]
+    fn script_approval_without_retained_review_evidence_remains_readable() {
+        let wire = json!({
+            "publisher_slug": "slack",
+            "operation_id": "post_messages",
+            "operation_binding": {"kind": "reviewed", "binding_sha256": "a".repeat(64)},
+            "payload_digest": format!("sha256:{}", "b".repeat(64))
+        });
+        let approval: crate::CloudRunScriptPublisherApproval =
+            serde_json::from_value(wire.clone()).expect("retained script hold");
+        assert!(approval.purpose.is_none());
+        assert!(approval.operation.is_none());
+        assert!(approval.request.is_none());
+        assert_eq!(serde_json::to_value(approval).unwrap(), wire);
+    }
+
+    #[test]
+    fn script_approval_rejects_an_unknown_reviewed_purpose() {
+        let wire = json!({
+            "publisher_slug": "slack",
+            "operation_id": "post_messages",
+            "operation_binding": {"kind": "reviewed", "binding_sha256": "a".repeat(64)},
+            "payload_digest": format!("sha256:{}", "b".repeat(64)),
+            "purpose": "unreviewed"
+        });
+        assert!(serde_json::from_value::<crate::CloudRunScriptPublisherApproval>(wire).is_err());
+    }
 
     #[test]
     fn managed_memory_resources_decode_the_current_policy_contract() {
@@ -322,7 +410,9 @@ mod tests {
                 "slug": "release-test",
                 "display_name": "Release test",
                 "publisher": {"organization_id": organization_id, "name": "Acme Studio"},
-                "published_at": "2026-10-07T12:34:56Z"
+                "published_at": "2026-10-07T12:34:56Z",
+                "capabilities": ["Research"],
+                "run_fee": {"atomic": 500000, "usd": "0.50"}
             }]
         });
         Mock::given(method("GET"))
@@ -531,34 +621,45 @@ mod tests {
         }
     }
 
-    /// `build.rs` omits this operation from code generation because Progenitor
-    /// cannot emit multipart request bodies, and
-    /// `upload_current_user_avatar` is hand-written against that omission. If
-    /// the bundled contract stops declaring this operation as multipart, the
-    /// filter and the hand-written method both need to be revisited.
+    /// `build.rs` omits these operations from code generation because
+    /// Progenitor cannot emit multipart request bodies, and the methods of the
+    /// same name are hand-written against that omission. If the bundled
+    /// contract stops declaring an operation as multipart, the filter and the
+    /// hand-written method both need to be revisited.
     #[test]
-    fn bundled_spec_declares_the_hand_written_multipart_avatar_upload() {
+    fn bundled_spec_declares_the_hand_written_multipart_uploads() {
         let spec: serde_json::Value = serde_json::from_str(include_str!("../openapi/openapi.json"))
             .expect("parse bundled OpenAPI document");
-        let operation = &spec["paths"]["/users/me/avatar"]["post"];
 
-        assert_eq!(operation["operationId"], "upload_current_user_avatar");
-        assert!(
-            operation["requestBody"]["content"]
-                .get("multipart/form-data")
-                .is_some(),
-            "POST /users/me/avatar must remain a multipart operation",
-        );
-        assert_eq!(
-            operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
-            "#/components/schemas/DataResponse_AvatarUploaded",
-            "the hand-written method parses DataResponseAvatarUploaded on 200",
-        );
+        for (path, operation_id, response) in [
+            (
+                "/users/me/avatar",
+                "upload_current_user_avatar",
+                "#/components/schemas/DataResponse_AvatarUploaded",
+            ),
+            (
+                "/organizations/{organization_id}/templates/{slug}/avatar",
+                "upload_managed_agent_template_avatar",
+                "#/components/schemas/DataResponse_ManagedAgentTemplateProfile",
+            ),
+        ] {
+            let operation = &spec["paths"][path]["post"];
+            assert_eq!(operation["operationId"], operation_id, "{path}");
+            assert!(
+                operation["requestBody"]["content"]
+                    .get("multipart/form-data")
+                    .is_some(),
+                "POST {path} must remain a multipart operation",
+            );
+            assert_eq!(
+                operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+                response,
+                "the hand-written {operation_id} parses this response on 200",
+            );
+        }
     }
 
-    /// The hand-written upload is the only multipart operation the SDK carries.
-    /// Any new one silently disappears from the generated client, so fail here
-    /// rather than at a missing-method call site.
+    /// Every multipart operation needs a hand-written SDK method.
     #[test]
     fn bundled_spec_has_no_other_multipart_operations() {
         let spec: serde_json::Value = serde_json::from_str(include_str!("../openapi/openapi.json"))
@@ -567,7 +668,13 @@ mod tests {
         let mut unexpected = Vec::new();
         for (path, item) in spec["paths"].as_object().expect("paths object") {
             for (method, operation) in item.as_object().expect("path item object") {
-                if path == "/users/me/avatar" && method == "post" {
+                if method == "post"
+                    && matches!(
+                        path.as_str(),
+                        "/users/me/avatar"
+                            | "/organizations/{organization_id}/templates/{slug}/avatar"
+                    )
+                {
                     continue;
                 }
                 if operation
@@ -583,6 +690,87 @@ mod tests {
             unexpected.is_empty(),
             "unsupported multipart operations need a hand-written SDK method: {unexpected:?}",
         );
+    }
+
+    #[tokio::test]
+    async fn template_avatar_upload_sends_the_file_and_preserves_errors() {
+        use wiremock::matchers::{body_string_contains, header};
+
+        let organization_id = Uuid::from_u128(91);
+        for status in [200, 400, 403, 413, 503] {
+            let server = MockServer::start().await;
+            let payload = json!({
+                "data": {
+                    "avatar_url": "https://example.com/avatar.png",
+                    "capabilities": ["Research"]
+                }
+            });
+            Mock::given(method("POST"))
+                .and(path(format!(
+                    "/organizations/{organization_id}/templates/research/avatar"
+                )))
+                .and(header("authorization", "Bearer seren_test"))
+                .and(body_string_contains(
+                    "name=\"file\"; filename=\"avatar.png\"",
+                ))
+                .and(body_string_contains("image bytes"))
+                .respond_with(ResponseTemplate::new(status).set_body_json(&payload))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let client = Client::from_config(&ClientConfig {
+                base_url: server.uri(),
+                bearer_token: Some("seren_test".to_owned()),
+                ..ClientConfig::default()
+            })
+            .unwrap();
+            let result = client
+                .upload_managed_agent_template_avatar(
+                    &organization_id,
+                    "research",
+                    "avatar.png",
+                    b"image bytes".to_vec(),
+                )
+                .await;
+            if status == 200 {
+                assert_eq!(
+                    serde_json::to_value(result.unwrap().into_inner()).unwrap(),
+                    payload
+                );
+            } else {
+                assert_eq!(result.unwrap_err().status().unwrap().as_u16(), status);
+            }
+            server.verify().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn template_avatar_upload_keeps_the_slug_in_one_path_segment() {
+        let server = MockServer::start().await;
+        let organization_id = Uuid::from_u128(92);
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/templates/team%2Fresearch%3F%23/avatar"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": {"capabilities": []}
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let response = Client::new(&server.uri())
+            .upload_managed_agent_template_avatar(
+                &organization_id,
+                "team/research?#",
+                "avatar.png",
+                b"image bytes".to_vec(),
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(response.data.capabilities.is_empty());
+        server.verify().await;
     }
 
     /// `build.rs` omits these raw uploads from code generation because their
@@ -602,6 +790,7 @@ mod tests {
                 "seren_cloud_runtime_publish_run_artifact",
             ),
             ("/deployments/{id}/files", "seren_cloud_upload_run_file"),
+            ("/folders/{id}/files", "seren_cloud_upload_folder_file"),
         ] {
             let operation = &spec["paths"][path]["post"];
             assert_eq!(operation["operationId"], operation_id, "{path}");
