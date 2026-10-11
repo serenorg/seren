@@ -1,7 +1,7 @@
 // ABOUTME: `seren agent dev <dir>` packages an agent directory into a draft AgentSpec,
 // ABOUTME: deploys it to a profile-scoped dev namespace, streams logs, and deletes on SIGINT.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
@@ -87,6 +87,9 @@ pub struct AgentBundleDraft {
     pub instruction_count: usize,
     pub asset_count: usize,
     pub requirements_txt: Option<String>,
+    /// Bundle-relative paths reached through a symlink, either a linked file
+    /// or a file inside a linked directory.
+    pub symlinked_paths: BTreeSet<String>,
 }
 
 /// Build an `AgentSpec` draft from the contents of a directory.
@@ -98,6 +101,7 @@ pub fn package_agent_directory(options: &DevAgentOptions) -> Result<AgentSpecDra
         instruction_count,
         asset_count,
         requirements_txt,
+        symlinked_paths: _,
     } = package_agent_bundle(dir)?;
     let dir_label = dir
         .file_name()
@@ -214,15 +218,20 @@ pub fn package_agent_bundle(dir: &Path) -> Result<AgentBundleDraft> {
     // Walk the directory in sorted order so the resulting bundle is stable
     // across runs and platforms. The map is keyed by the bundle-relative
     // path so each file's intended target slot is explicit.
-    let mut entries: BTreeMap<String, PathBuf> = BTreeMap::new();
-    collect_files(dir, dir, &root_canonical, &mut entries)?;
+    let mut entries: BTreeMap<String, CollectedFile> = BTreeMap::new();
+    collect_files(dir, dir, &root_canonical, false, &mut entries)?;
 
     let mut instructions: Vec<seren::AgentInstructionFile> = Vec::new();
     let mut assets: Vec<seren::AgentAssetFile> = Vec::new();
     let mut requirements_txt = None;
     let mut total_bytes: usize = 0;
+    let symlinked_paths: BTreeSet<String> = entries
+        .iter()
+        .filter(|(_, file)| file.via_symlink)
+        .map(|(rel_path, _)| rel_path.clone())
+        .collect();
 
-    for (rel_path, path) in &entries {
+    for (rel_path, CollectedFile { path, .. }) in &entries {
         if rel_path == "requirements.txt" {
             let content = std::fs::read_to_string(path).with_context(|| {
                 format!("Could not read requirements file '{}'", path.display())
@@ -266,10 +275,10 @@ pub fn package_agent_bundle(dir: &Path) -> Result<AgentBundleDraft> {
             ensure_total_under_limit(total_bytes, rel_path)?;
             instructions.push(seren::AgentInstructionFile {
                 allowed_tools: None,
+                sha256: Some(sha256_hex(content.as_bytes())),
                 content,
                 kind,
                 path: Some(rel_path.clone()),
-                sha256: None,
                 skill_name: None,
             });
         } else {
@@ -286,11 +295,11 @@ pub fn package_agent_bundle(dir: &Path) -> Result<AgentBundleDraft> {
             total_bytes = total_bytes.saturating_add(bytes.len());
             ensure_total_under_limit(total_bytes, rel_path)?;
             assets.push(seren::AgentAssetFile {
+                sha256: Some(sha256_hex(&bytes)),
                 content_base64: BASE64_STANDARD.encode(bytes),
                 content_type: None,
                 path: rel_path.clone(),
                 purpose: Some(seren::AgentAssetPurpose::Resource),
-                sha256: None,
             });
         }
     }
@@ -319,7 +328,20 @@ pub fn package_agent_bundle(dir: &Path) -> Result<AgentBundleDraft> {
         instruction_count,
         asset_count,
         requirements_txt,
+        symlinked_paths,
     })
+}
+
+/// Lowercase hex SHA-256, the per-file digest format the server verifies.
+fn sha256_hex(bytes: &[u8]) -> String {
+    hex::encode(Sha256::digest(bytes))
+}
+
+/// A regular file found while walking an agent directory.
+struct CollectedFile {
+    path: PathBuf,
+    /// The file is a symlink or sits inside a symlinked directory.
+    via_symlink: bool,
 }
 
 /// Recursively walk `dir`, populating `entries` with bundle-relative paths
@@ -330,7 +352,8 @@ fn collect_files(
     dir: &std::path::Path,
     root: &std::path::Path,
     root_canonical: &std::path::Path,
-    entries: &mut BTreeMap<String, PathBuf>,
+    via_symlink: bool,
+    entries: &mut BTreeMap<String, CollectedFile>,
 ) -> Result<()> {
     for entry in std::fs::read_dir(dir)
         .with_context(|| format!("Could not read directory '{}'", dir.display()))?
@@ -361,7 +384,13 @@ fn collect_files(
         }
 
         if file_type.is_dir() || (file_type.is_symlink() && canonical.is_dir()) {
-            collect_files(&path, root, root_canonical, entries)?;
+            collect_files(
+                &path,
+                root,
+                root_canonical,
+                via_symlink || file_type.is_symlink(),
+                entries,
+            )?;
             continue;
         }
 
@@ -378,7 +407,13 @@ fn collect_files(
             .collect::<Vec<_>>()
             .join("/");
 
-        entries.insert(rel_string, path);
+        entries.insert(
+            rel_string,
+            CollectedFile {
+                path,
+                via_symlink: via_symlink || file_type.is_symlink(),
+            },
+        );
     }
     Ok(())
 }
@@ -1135,6 +1170,42 @@ mod tests {
         .unwrap();
         // Both `real.txt` and `link.txt` become assets.
         assert_eq!(draft.asset_count, 2);
+    }
+
+    #[test]
+    fn packaged_files_carry_their_sha256() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("SKILL.md"), "Call the reader once.").unwrap();
+        std::fs::create_dir(dir.path().join("scripts")).unwrap();
+        std::fs::write(dir.path().join("scripts/agent.py"), b"print('ok')\n").unwrap();
+
+        let draft = package_agent_bundle(dir.path()).unwrap();
+
+        let skill = &draft.bundle.instructions[0];
+        let expected_skill = hex::encode(Sha256::digest(b"Call the reader once."));
+        assert_eq!(skill.sha256.as_deref(), Some(expected_skill.as_str()));
+        let script = &draft.bundle.assets[0];
+        assert_eq!(script.path, "scripts/agent.py");
+        let expected_script = hex::encode(Sha256::digest(b"print('ok')\n"));
+        assert_eq!(script.sha256.as_deref(), Some(expected_script.as_str()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_agent_bundle_records_entries_reached_through_symlinks() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("SKILL.md"), "ok").unwrap();
+        std::fs::write(dir.path().join("real.txt"), b"hello").unwrap();
+        std::os::unix::fs::symlink("real.txt", dir.path().join("link.txt")).unwrap();
+        std::fs::create_dir(dir.path().join("lib")).unwrap();
+        std::fs::write(dir.path().join("lib/helper.py"), b"x = 1\n").unwrap();
+        std::os::unix::fs::symlink("lib", dir.path().join("shared")).unwrap();
+
+        let draft = package_agent_bundle(dir.path()).unwrap();
+
+        let symlinked: Vec<&str> = draft.symlinked_paths.iter().map(String::as_str).collect();
+        assert_eq!(symlinked, ["link.txt", "shared/helper.py"]);
+        assert_eq!(draft.asset_count, 4, "linked entries are still packaged");
     }
 
     /// Stub client capturing every call for assertion in tests.
