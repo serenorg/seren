@@ -3001,6 +3001,7 @@ async fn ensure_cloud_deployment_bundle(
             }
         };
         if completed.id != registration.deployment_bundle_id
+            || completed.sha256 != sha256
             || completed.source_kind != source_kind
             || completed.uploaded_at.is_none()
         {
@@ -11739,6 +11740,152 @@ mod tests {
             1,
             "no bytes may be sent to a presigned URL for other content"
         );
+    }
+
+    #[tokio::test]
+    async fn agent_bundle_upload_rejects_a_completed_bundle_for_other_content() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let bundle_id = Uuid::from_u128(0xab25);
+        let bundle = br#"{"assets":[],"instructions":[]}"#.to_vec();
+        let sha256 = sha256_hex(&bundle);
+
+        Mock::given(method("POST"))
+            .and(path("/publishers/seren-cloud/deployment-bundles"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "deployment_bundle_id": bundle_id,
+                    "sha256": sha256,
+                    "size_bytes": bundle.len(),
+                    "source_kind": "agent_bundle",
+                    "upload_required": true,
+                    "upload_url": format!("{}/upload/agent-bundle", proxy.uri()),
+                    "upload_headers": {},
+                }
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        Mock::given(method("PUT"))
+            .and(path("/upload/agent-bundle"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/publishers/seren-cloud/deployment-bundles/{bundle_id}/complete"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "id": bundle_id,
+                    "organization_id": Uuid::from_u128(0xab21),
+                    "user_id": Uuid::from_u128(0xab22),
+                    "sha256": sha256_hex(b"other content"),
+                    "size_bytes": bundle.len(),
+                    "source_kind": "agent_bundle",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-01T00:00:00Z",
+                    "uploaded_at": "2026-01-01T00:00:00Z",
+                }
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let context = CommandContext::new(
+            Some(proxy.uri()),
+            Some("test-key".to_string()),
+            OutputFormat::Json,
+        );
+        let client = context.client().await.expect("test client");
+        let error = ensure_cloud_deployment_bundle(
+            &client,
+            bundle,
+            seren::CloudDeploymentBundleSourceKind::AgentBundle,
+        )
+        .await
+        .expect_err("a completed bundle for different content must not be applied");
+
+        assert!(error.to_string().contains("did not match"));
+    }
+
+    #[tokio::test]
+    async fn tar_gz_bundle_upload_registers_uploads_and_completes() {
+        use wiremock::matchers::{body_json, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let bundle_id = Uuid::from_u128(0xab26);
+        let bundle = b"\x1f\x8b\x08\x00 skill archive".to_vec();
+        let sha256 = sha256_hex(&bundle);
+        let size_bytes = bundle.len() as i64;
+
+        Mock::given(method("POST"))
+            .and(path("/publishers/seren-cloud/deployment-bundles"))
+            .and(body_json(serde_json::json!({
+                "sha256": sha256,
+                "size_bytes": size_bytes,
+                "source_kind": "tar_gz",
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "deployment_bundle_id": bundle_id,
+                    "sha256": sha256,
+                    "size_bytes": size_bytes,
+                    "source_kind": "tar_gz",
+                    "upload_required": true,
+                    "upload_url": format!("{}/upload/archive", proxy.uri()),
+                    "upload_headers": {},
+                }
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        Mock::given(method("PUT"))
+            .and(path("/upload/archive"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/publishers/seren-cloud/deployment-bundles/{bundle_id}/complete"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "id": bundle_id,
+                    "organization_id": Uuid::from_u128(0xab21),
+                    "user_id": Uuid::from_u128(0xab22),
+                    "sha256": sha256,
+                    "size_bytes": size_bytes,
+                    "source_kind": "tar_gz",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-01T00:00:00Z",
+                    "uploaded_at": "2026-01-01T00:00:00Z",
+                }
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let context = CommandContext::new(
+            Some(proxy.uri()),
+            Some("test-key".to_string()),
+            OutputFormat::Json,
+        );
+        let client = context.client().await.expect("test client");
+        let returned_id = ensure_cloud_deployment_bundle(
+            &client,
+            bundle,
+            seren::CloudDeploymentBundleSourceKind::TarGz,
+        )
+        .await
+        .expect("a skill archive should still upload and complete");
+
+        assert_eq!(returned_id, bundle_id);
     }
 
     #[tokio::test]
