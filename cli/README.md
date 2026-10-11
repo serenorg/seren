@@ -572,6 +572,93 @@ Managed skill storage is separate: declare it in the skill manifest under `stora
 
 Changing database attachments on an existing code-bundle deployment requires redeploying it. Prompt-based managed agents can replace or clear attachments through the managed-agent update command.
 
+#### Managed skill scripts
+
+A managed employee can run programs that ship in its bundle. This section covers how those programs reach Seren publishers, how to package a bundle you can check, and how to confirm that a deploy did what you meant.
+
+**Where scripts run.** The `run_skill_script` tool runs a program from `scripts/` or `.skills/<name>/scripts/` in the bundle. The file extension picks the interpreter: `.py` runs with `python3`, `.sh` with `sh`, `.js`, `.mjs` and `.cjs` with `node`, and `.ts` with `tsx`. Use the managed publisher transport for service requests. The gateway enforces the employee's current permissions and approval policy, and supplies the approved publisher credentials without giving those credentials to the script.
+
+**Which processes can call publishers.** There are two ways in:
+
+- A startup wrapper for a top-level Python program. It reroutes `urllib.request.urlopen` calls to `https://api.serendb.com/publishers/{slug}/{path}` and `https://mcp.serendb.com/mcp`. It exists only inside that one Python process.
+- A local relay that every process in the sandbox can use. Seren sets `SEREN_PUBLISHER_PROXY_URL` for REST calls and `SEREN_MCP_URL` for MCP calls. The MCP address accepts JSON `POST` requests for `call_publisher` and the Seren Passwords read tools `passwords_vaults_list`, `passwords_items_list` and `passwords_item_get`. An HTTP client such as `requests`, `httpx` or Node's `fetch` works when it calls these addresses directly with `GET` or `POST` and sends any body with a `Content-Length` header rather than chunked transfer encoding. Normal transport headers are stripped before forwarding; custom application headers are limited to `Authorization`, `Content-Type`, `Idempotency-Key`, `User-Agent`, `X-Seren-OAuth-Connection-Id`, `X-Seren-Approval-Review`, `X-Seren-Approval-Check`, `X-Seren-Request-Body-File` and `X-Seren-Response-File`. Other methods and custom headers are refused. The relay is not a transparent proxy: a request to any other address doesn't go through it.
+
+| Where the call starts | How to reach a publisher |
+| --- | --- |
+| Top-level `.py` program | `urllib` to `https://api.serendb.com/publishers/{slug}/{path}`, or `$SEREN_PUBLISHER_PROXY_URL/publishers/{slug}/{path}` |
+| Top-level `.js`, `.mjs`, `.cjs`, `.ts` or `.sh` program | `$SEREN_PUBLISHER_PROXY_URL/publishers/{slug}/{path}`, or `$SEREN_MCP_URL` |
+| Any child or grandchild process | The relay addresses only. Its parent must pass the environment through, and it must finish before the top-level program exits, because the relay stops then |
+| Anything aimed at `api.serendb.com` or `mcp.serendb.com`, other than `urllib` in a top-level Python program | Not a managed transport path; use the relay addresses |
+
+A Python process started by a Node child is a new interpreter without the startup wrapper, so point it at `$SEREN_PUBLISHER_PROXY_URL`. A top-level Python program also sees `SEREN_API_KEY=seren-managed-publisher-broker`, and processes it starts inherit it. That value is a placeholder, not a credential. It does not configure an SDK's destination or authorize a public API request; configure the relay address explicitly when the client supports it.
+
+The recommended pattern is to keep publisher calls in the top-level program and have child processes exchange data with it over stdin and stdout. If a child must call a publisher itself, have it use the relay address. Don't work around a failed call by adding a personal API key or by widening network access.
+
+Before relying on a script, run a small smoke test: make one fixed, read-only publisher call against a test fixture, once from the top-level program and once from a child process, both through `$SEREN_PUBLISHER_PROXY_URL`. Compare both results with a value you already know.
+
+For example, package this as `scripts/check_fixture.py` and have the employee call it through `run_skill_script` with `stdin` set to a JSON object. Its `path` is an approved read-only fixture path such as `/publishers/<slug>/<path>`, and its `expected` value is that fixture's independently verified response. Scripts get a controlled environment rather than arbitrary variables, so pass test inputs through `stdin` or `arguments`. Use a fixture with no customer data, and give its operation a `tool_refs` publisher entry whose `execution_surface` is `script` before running the check.
+
+```python
+import json
+import os
+import subprocess
+import sys
+import urllib.request
+
+raw = sys.stdin.read(65_537)
+if len(raw) > 65_536:
+    raise ValueError("Fixture input exceeds the check's limit")
+fixture = json.loads(raw)
+path = fixture["path"]
+if not path.startswith("/publishers/"):
+    raise ValueError("Expected an approved publisher fixture path")
+url = os.environ["SEREN_PUBLISHER_PROXY_URL"].rstrip("/") + path
+with urllib.request.urlopen(url, timeout=10) as response:
+    body = response.read(65_537)
+if len(body) > 65_536:
+    raise ValueError("Fixture response exceeds the check's limit")
+assert json.loads(body) == fixture["expected"]
+if "--child" not in sys.argv:
+    child = subprocess.run(
+        [sys.executable, __file__, "--child"],
+        input=raw, capture_output=True, text=True, timeout=20, check=True,
+    )
+    assert json.loads(child.stdout) == {"fixture_verified": True}
+print(json.dumps({"fixture_verified": True}))
+```
+
+**Packaging a bundle you can check.** `seren agent managed-files <deployment-id> --path ./employee` packages the folder like this:
+
+- Top-level `SKILL.md`, `IDENTITY.md`, `SOUL.md`, `AGENTS.md`, `TOOLS.md`, `MEMORY.md`, `HEARTBEAT.md`, `USER.md` and `EVAL.md` become instructions. Every other file, at any depth, becomes an asset.
+- Names that start with `.` are skipped at every depth, so `.git` and `.env` never ship.
+- Symlinks are followed when they stay inside the folder and refused when they point outside it.
+- A top-level `requirements.txt` isn't part of the bundle and is left unchanged on the deployment.
+- Limits: 256 files, 1 MiB per instruction, 8 MiB per asset and 16 MiB in total.
+- Every file carries its SHA-256, and Seren rejects a file whose content doesn't match.
+
+Nothing filters `node_modules`, `__pycache__`, build output or secret files whose names don't start with a dot. Build the folder fresh from the files you mean to ship, then review exactly what would be sent:
+
+```bash
+# List every file with its kind, size and SHA-256, plus the bundle's SHA-256. Uploads nothing.
+seren agent managed-files <deployment-id> --path ./employee --dry-run
+seren -o json agent managed-files <deployment-id> --path ./employee --dry-run
+```
+
+The dry run marks files reached through a symlink and needs no network access.
+
+**Confirming a deploy.** An accepted request, or a run that completed, isn't proof that the change works. Check each step:
+
+1. `seren agent managed-files <deployment-id> --path ./employee` waits until the change is applied. It then confirms that the applied revision uses the uploaded bundle and records the same SHA-256, and prints the revision ID, bundle ID, bundle SHA-256 and control generation (a counter that goes up each time the deployment's controls change) to stderr. If it says the revision is staged, the change takes effect at the next start and isn't running yet.
+2. `seren agent managed-deployment-health <deployment-id>` should show the expected status, the new revision as the active revision, and the control generation you recorded. A staged revision becomes active only after the next start.
+3. Start one run with a fixed, bounded input against a test fixture, then read the script's own result from `seren -o json agent cloud run events <run-id> --deployment-id <deployment-id>`. Find the `tool_call` event named `run_skill_script` and the `tool_result` event with the same `id`. Its `content` is the script's result serialized as a string, holding `status`, `exit_code`, `stdout` and `stderr`. It is cut to the deployment's `max_tool_output_chars`, so keep the script's output small enough to stay parseable. A script that exits non-zero still produces `is_error: false`, and the run can still complete, so check `exit_code` rather than the run status. A `rejected` status has no `exit_code`: the owner refused the request the script prepared, and the script did not run again. Files a script leaves in its artifacts folder are kept only when it exits 0.
+4. Include one action the employee's policy should refuse, and confirm the refusal appears in the run.
+
+The event command returns 100 events by default. Use `--item-id` or `--kind` to narrow the result, and `--limit` with `--offset` to read additional pages rather than treating a missing result on the first page as a failed script.
+
+**Run IDs.** The run ID that `seren agent cloud run` commands take is the run record's `id`. Each run also has an `execution_id`, which identifies its runtime execution. Compare those fields when correlating script output and runtime events; do not substitute an execution ID for the API's run record ID.
+
+**Full application hosting.** A managed script invocation is not a hosted website or a general-purpose Docker application. Its invocation URL does not provide browser-facing HTTPS, arbitrary outbound HTTPS/WSS, a persistent filesystem, or a persistent database transaction; durable data belongs in the skill's declared `storage.databases` or an attached SerenDB database. Independent publisher requests are separate calls, not one SQL transaction. An existing Next.js or Docker application needs a hosting contract that explicitly supplies those capabilities, restart behavior, and scoped secret binding; this managed-script guide is not such a recipe. For an application with a direct SerenDB connection, `seren branches --project-id <project-id> connection-string <branch-id>` provides the PostgreSQL address; use a PostgreSQL client to establish the transaction boundary.
+
 ### Cloud Activity
 
 ```bash
