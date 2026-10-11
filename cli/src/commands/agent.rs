@@ -1,6 +1,8 @@
 use std::{collections::HashMap, fs, path::Path, str::FromStr};
 
 use anyhow::Result;
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use colored::Colorize;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -4759,7 +4761,100 @@ pub enum ManagedAgentFilesInput<'a> {
         path: &'a Path,
         expected_active_revision_id: Option<Uuid>,
         secret_resolution_result_id: Option<Uuid>,
+        /// Package and list the bundle without uploading or applying it.
+        dry_run: bool,
     },
+}
+
+/// One packaged file in a managed bundle preview.
+#[derive(Debug, serde::Serialize)]
+struct ManagedBundleFile {
+    path: String,
+    kind: &'static str,
+    bytes: usize,
+    sha256: String,
+    via_symlink: bool,
+}
+
+/// What a `managed-files --path` run would upload. `bundle_sha256` covers the
+/// exact serialized bytes the upload sends.
+#[derive(Debug, serde::Serialize)]
+struct ManagedBundlePreview {
+    bundle_sha256: String,
+    bundle_bytes: usize,
+    instruction_count: usize,
+    asset_count: usize,
+    requirements_txt_excluded: bool,
+    files: Vec<ManagedBundleFile>,
+}
+
+/// Serialize a packaged bundle and describe every file it carries.
+fn managed_bundle_upload(
+    draft: &crate::commands::agent_dev::AgentBundleDraft,
+) -> Result<(Vec<u8>, ManagedBundlePreview)> {
+    let serialized = serde_json::to_vec(&draft.bundle)
+        .map_err(|error| anyhow::anyhow!("Failed to serialize agent bundle: {error}"))?;
+    let mut files = Vec::with_capacity(draft.instruction_count + draft.asset_count);
+    for instruction in &draft.bundle.instructions {
+        let path = instruction.path.clone().unwrap_or_default();
+        files.push(ManagedBundleFile {
+            via_symlink: draft.symlinked_paths.contains(&path),
+            path,
+            kind: "instruction",
+            bytes: instruction.content.len(),
+            sha256: sha256_hex(instruction.content.as_bytes()),
+        });
+    }
+    for asset in &draft.bundle.assets {
+        let bytes = BASE64_STANDARD
+            .decode(&asset.content_base64)
+            .map_err(|error| anyhow::anyhow!("Invalid packaged asset '{}': {error}", asset.path))?;
+        files.push(ManagedBundleFile {
+            path: asset.path.clone(),
+            kind: "asset",
+            bytes: bytes.len(),
+            sha256: sha256_hex(&bytes),
+            via_symlink: draft.symlinked_paths.contains(&asset.path),
+        });
+    }
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    let preview = ManagedBundlePreview {
+        bundle_sha256: sha256_hex(&serialized),
+        bundle_bytes: serialized.len(),
+        instruction_count: draft.instruction_count,
+        asset_count: draft.asset_count,
+        requirements_txt_excluded: draft.requirements_txt.is_some(),
+        files,
+    };
+    Ok((serialized, preview))
+}
+
+fn print_managed_bundle_preview(
+    preview: &ManagedBundlePreview,
+    format: OutputFormat,
+) -> Result<()> {
+    if matches!(format, OutputFormat::Json) {
+        return output::print_json(preview);
+    }
+    println!("Dry run: nothing was uploaded or applied.");
+    println!();
+    for file in &preview.files {
+        let symlink = if file.via_symlink {
+            "  (via symlink)"
+        } else {
+            ""
+        };
+        println!(
+            "{}  {:<11}  {:>9} bytes  {}{}",
+            file.sha256, file.kind, file.bytes, file.path, symlink
+        );
+    }
+    println!();
+    println!(
+        "Bundle SHA-256: {} ({} bytes, {} instruction files, {} assets)",
+        preview.bundle_sha256, preview.bundle_bytes, preview.instruction_count, preview.asset_count
+    );
+    Ok(())
 }
 
 /// Apply a targeted file patch or a repository-built bundle to a managed deployment.
@@ -4778,6 +4873,7 @@ pub async fn managed_agent_files(
             path,
             expected_active_revision_id,
             secret_resolution_result_id,
+            dry_run,
         } => {
             let draft = crate::commands::agent_dev::package_agent_bundle(path)?;
             if draft.requirements_txt.is_some() {
@@ -4786,20 +4882,22 @@ pub async fn managed_agent_files(
                     "Warning:".yellow()
                 );
             }
-            let serialized = serde_json::to_vec(&draft.bundle)
-                .map_err(|error| anyhow::anyhow!("Failed to serialize agent bundle: {error}"))?;
+            let (serialized, preview) = managed_bundle_upload(&draft)?;
+            if dry_run {
+                return print_managed_bundle_preview(&preview, ctx.format);
+            }
             (
                 seren::AgentBundlePatch {
                     expected_active_revision_id,
                     secret_resolution_result_id,
                     ..Default::default()
                 },
-                Some((serialized, draft.instruction_count, draft.asset_count)),
+                Some((serialized, preview)),
             )
         }
     };
     let client = ctx.client().await?;
-    if let Some((serialized_bundle, instruction_count, asset_count)) = serialized_bundle {
+    if let Some((serialized_bundle, preview)) = serialized_bundle {
         let deployment_bundle_id = ensure_cloud_deployment_bundle(
             &client,
             serialized_bundle,
@@ -4807,7 +4905,8 @@ pub async fn managed_agent_files(
         )
         .await?;
         eprintln!(
-            "Agent bundle {deployment_bundle_id} is ready ({instruction_count} instruction files, {asset_count} assets)."
+            "Agent bundle {deployment_bundle_id} is ready ({} instruction files, {} assets, SHA-256 {}).",
+            preview.instruction_count, preview.asset_count, preview.bundle_sha256
         );
         patch.deployment_bundle_id = Some(deployment_bundle_id);
     }
@@ -11899,6 +11998,105 @@ mod tests {
         .expect("a skill archive should still upload and complete");
 
         assert_eq!(returned_id, bundle_id);
+    }
+
+    fn employee_directory() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("employee directory");
+        std::fs::write(dir.path().join("SKILL.md"), "Read the fixture once.").unwrap();
+        std::fs::create_dir(dir.path().join("scripts")).unwrap();
+        std::fs::write(dir.path().join("scripts/agent.py"), b"print('ok')\n").unwrap();
+        dir
+    }
+
+    #[test]
+    fn managed_files_dry_run_lists_every_file_and_the_bundle_digest() {
+        let dir = employee_directory();
+        std::fs::write(dir.path().join("requirements.txt"), "httpx==0.28.1\n").unwrap();
+        let draft = crate::commands::agent_dev::package_agent_bundle(dir.path()).unwrap();
+
+        let (serialized, preview) = managed_bundle_upload(&draft).unwrap();
+
+        assert_eq!(serialized, serde_json::to_vec(&draft.bundle).unwrap());
+        assert_eq!(preview.bundle_sha256, sha256_hex(&serialized));
+        assert_eq!(preview.bundle_bytes, serialized.len());
+        assert_eq!(preview.instruction_count, 1);
+        assert_eq!(preview.asset_count, 1);
+        assert!(preview.requirements_txt_excluded);
+        let files: Vec<(&str, &str, usize, &str, bool)> = preview
+            .files
+            .iter()
+            .map(|file| {
+                (
+                    file.path.as_str(),
+                    file.kind,
+                    file.bytes,
+                    file.sha256.as_str(),
+                    file.via_symlink,
+                )
+            })
+            .collect();
+        let skill_sha = sha256_hex(b"Read the fixture once.");
+        let script_sha = sha256_hex(b"print('ok')\n");
+        assert_eq!(
+            files,
+            [
+                ("SKILL.md", "instruction", 22, skill_sha.as_str(), false),
+                ("scripts/agent.py", "asset", 12, script_sha.as_str(), false),
+            ]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn managed_files_dry_run_marks_files_reached_through_symlinks() {
+        let dir = employee_directory();
+        std::os::unix::fs::symlink("scripts/agent.py", dir.path().join("linked.py")).unwrap();
+        let draft = crate::commands::agent_dev::package_agent_bundle(dir.path()).unwrap();
+
+        let (_, preview) = managed_bundle_upload(&draft).unwrap();
+
+        let linked: Vec<&str> = preview
+            .files
+            .iter()
+            .filter(|file| file.via_symlink)
+            .map(|file| file.path.as_str())
+            .collect();
+        assert_eq!(linked, ["linked.py"]);
+    }
+
+    #[tokio::test]
+    async fn managed_files_dry_run_makes_no_network_call() {
+        use wiremock::MockServer;
+
+        let proxy = MockServer::start().await;
+        let dir = employee_directory();
+        let context = CommandContext::new(
+            Some(proxy.uri()),
+            Some("test-key".to_string()),
+            OutputFormat::Json,
+        );
+
+        managed_agent_files(
+            Uuid::from_u128(0x229_0010),
+            ManagedAgentFilesInput::Directory {
+                path: dir.path(),
+                expected_active_revision_id: None,
+                secret_resolution_result_id: None,
+                dry_run: true,
+            },
+            &context,
+        )
+        .await
+        .expect("a dry run only packages and lists the bundle");
+
+        assert!(
+            proxy
+                .received_requests()
+                .await
+                .expect("recorded requests")
+                .is_empty(),
+            "a dry run must not register, upload, or apply anything"
+        );
     }
 
     fn deployment_health_data(deployment_id: Uuid, revision_id: Uuid) -> serde_json::Value {
