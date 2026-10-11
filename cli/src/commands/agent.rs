@@ -12419,6 +12419,55 @@ mod tests {
         assert!(message.contains(&other_bundle_id.to_string()), "{message}");
     }
 
+    #[tokio::test]
+    async fn managed_files_json_patch_applies_without_a_bundle_check() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let deployment_id = Uuid::from_u128(0x229_0090);
+        Mock::given(method("PATCH"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/managed/files"
+            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(applied_files_patch_body(
+                    deployment_id,
+                    Uuid::from_u128(0x229_0091),
+                    "controller",
+                )),
+            )
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/managed/revisions"
+            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({ "data": [] })),
+            )
+            .expect(0)
+            .mount(&proxy)
+            .await;
+        let context = CommandContext::new(
+            Some(proxy.uri()),
+            Some("test-key".to_string()),
+            OutputFormat::Json,
+        );
+
+        managed_agent_files(
+            deployment_id,
+            ManagedAgentFilesInput::PatchJson(r#"{"remove_assets":["notes.md"]}"#),
+            &context,
+        )
+        .await
+        .expect("an inline patch uploads no bundle, so it has none to check");
+
+        let requests = proxy.received_requests().await.expect("recorded requests");
+        assert_eq!(requests.len(), 1, "only the file patch is sent");
+    }
+
     #[test]
     fn applied_bundle_check_reports_the_revision_digest_and_generation() {
         let deployment_id = Uuid::from_u128(0x229_0040);
