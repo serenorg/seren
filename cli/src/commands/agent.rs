@@ -4857,6 +4857,87 @@ fn print_managed_bundle_preview(
     Ok(())
 }
 
+/// The uploaded bundle a managed file patch is expected to apply.
+struct UploadedManagedBundle {
+    id: Uuid,
+    sha256: String,
+}
+
+/// What the applied revision recorded for the uploaded bundle.
+#[derive(Debug)]
+struct AppliedManagedBundle {
+    revision_id: Uuid,
+    deployment_bundle_id: Uuid,
+    bundle_sha256: String,
+    control_generation: i64,
+    staged: bool,
+}
+
+/// Confirm the applied revision uses the uploaded bundle. For a revision built
+/// from an uploaded bundle, Core records that bundle's SHA-256 as its
+/// `code_bundle_hash`.
+fn verify_applied_bundle(
+    action: &seren::ManagedRuntimeReconciliationSummary,
+    revisions: &[seren::ManagedAgentDeploymentRevisionSummary],
+    uploaded: &UploadedManagedBundle,
+) -> Result<AppliedManagedBundle> {
+    let revision = revisions
+        .iter()
+        .find(|revision| revision.revision_id == action.revision_id)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Applied revision {} is not in the deployment's revision history.",
+                action.revision_id
+            )
+        })?;
+    match revision.deployment_bundle_id {
+        Some(bundle_id) if bundle_id == uploaded.id => {}
+        Some(bundle_id) => anyhow::bail!(
+            "Applied revision {} uses bundle {bundle_id}, not the uploaded bundle {}.",
+            revision.revision_id,
+            uploaded.id
+        ),
+        None => anyhow::bail!(
+            "Applied revision {} records no bundle; expected the uploaded bundle {}.",
+            revision.revision_id,
+            uploaded.id
+        ),
+    }
+    if let Some(recorded) = revision.code_bundle_hash.as_deref()
+        && !recorded.eq_ignore_ascii_case(&uploaded.sha256)
+    {
+        anyhow::bail!(
+            "Applied revision {} records bundle SHA-256 {recorded}, not the uploaded bundle's {}.",
+            revision.revision_id,
+            uploaded.sha256
+        );
+    }
+    Ok(AppliedManagedBundle {
+        revision_id: revision.revision_id,
+        deployment_bundle_id: uploaded.id,
+        bundle_sha256: uploaded.sha256.clone(),
+        control_generation: action.control_generation,
+        staged: action.target == seren::ManagedRuntimeReconciliationTarget::NextStart,
+    })
+}
+
+fn applied_bundle_summary_lines(applied: &AppliedManagedBundle) -> Vec<String> {
+    let mut lines = vec![
+        format!(
+            "Applied revision {} uses bundle {} (SHA-256 {}).",
+            applied.revision_id, applied.deployment_bundle_id, applied.bundle_sha256
+        ),
+        format!("Control generation: {}.", applied.control_generation),
+    ];
+    if applied.staged {
+        lines.push(
+            "The revision is staged and takes effect at the next start; it is not running yet."
+                .to_string(),
+        );
+    }
+    lines
+}
+
 /// Apply a targeted file patch or a repository-built bundle to a managed deployment.
 pub async fn managed_agent_files(
     deployment_id: Uuid,
@@ -4897,6 +4978,7 @@ pub async fn managed_agent_files(
         }
     };
     let client = ctx.client().await?;
+    let mut uploaded_bundle = None;
     if let Some((serialized_bundle, preview)) = serialized_bundle {
         let deployment_bundle_id = ensure_cloud_deployment_bundle(
             &client,
@@ -4909,6 +4991,10 @@ pub async fn managed_agent_files(
             preview.instruction_count, preview.asset_count, preview.bundle_sha256
         );
         patch.deployment_bundle_id = Some(deployment_bundle_id);
+        uploaded_bundle = Some(UploadedManagedBundle {
+            id: deployment_bundle_id,
+            sha256: preview.bundle_sha256,
+        });
     }
     let request_id = Uuid::new_v4();
     let response = submit_managed_mutation(
@@ -4920,6 +5006,30 @@ pub async fn managed_agent_files(
     )
     .await?;
     output::print_json(&response)?;
+
+    if let Some(uploaded) = uploaded_bundle {
+        let applied: seren::DataResponseManagedAgentDeploymentMutationResponse =
+            serde_json::from_value(response).map_err(|error| {
+                anyhow::anyhow!("Managed deployment file patch response is unreadable: {error}")
+            })?;
+        let revisions = match client
+            .seren_agent_list_managed_deployment_revisions(&deployment_id)
+            .await
+        {
+            Ok(response) => response.into_inner().data,
+            Err(err) => {
+                return Err(anyhow_from_seren_error(
+                    "Failed to list managed agent deployment revisions",
+                    err,
+                )
+                .await);
+            }
+        };
+        let checked = verify_applied_bundle(&applied.data.reconciliation, &revisions, &uploaded)?;
+        for line in applied_bundle_summary_lines(&checked) {
+            eprintln!("{line}");
+        }
+    }
     Ok(())
 }
 
@@ -12008,6 +12118,80 @@ mod tests {
         dir
     }
 
+    fn applied_files_patch_body(
+        deployment_id: Uuid,
+        revision_id: Uuid,
+        target: &str,
+    ) -> serde_json::Value {
+        let deployment = cloud_deployment_body(deployment_id, Some("seren-agent"))["data"].clone();
+        serde_json::json!({
+            "data": {
+                "deployment": deployment,
+                "reconciliation": {
+                    "accepted_at": "2026-10-11T12:00:00Z",
+                    "attempt_count": 1,
+                    "control_generation": 9,
+                    "deployment_id": deployment_id,
+                    "desired_runtime_fingerprint": "desired-runtime-fingerprint",
+                    "id": Uuid::from_u128(0x229_0001),
+                    "request_id": Uuid::from_u128(0x229_0002),
+                    "revision_id": revision_id,
+                    "state": "applied",
+                    "status_path": format!(
+                        "/publishers/seren-agent/deployments/{deployment_id}/managed/actions/{}",
+                        Uuid::from_u128(0x229_0002)
+                    ),
+                    "target": target,
+                    "updated_at": "2026-10-11T12:00:00Z"
+                }
+            }
+        })
+    }
+
+    fn managed_revision(
+        deployment_id: Uuid,
+        revision_id: Uuid,
+        deployment_bundle_id: Option<Uuid>,
+        code_bundle_hash: Option<&str>,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "revision_id": revision_id,
+            "deployment_id": deployment_id,
+            "version": 3,
+            "change_kind": "update",
+            "created_by_user_id": Uuid::from_u128(0x229_0003),
+            "name": "Fixture Reader",
+            "agent_slug": "fixture-reader",
+            "model_id": "gpt-5",
+            "template": "research_monitor",
+            "approval_policy": "read_only",
+            "model_policy": "balanced",
+            "changed_fields": ["bundle"],
+            "change_summary": [],
+            "created_at": "2026-10-11T12:00:00Z",
+            "deployment_bundle_id": deployment_bundle_id,
+            "code_bundle_hash": code_bundle_hash,
+        })
+    }
+
+    fn applied_action(
+        deployment_id: Uuid,
+        revision_id: Uuid,
+        target: &str,
+    ) -> seren::ManagedRuntimeReconciliationSummary {
+        serde_json::from_value(
+            applied_files_patch_body(deployment_id, revision_id, target)["data"]["reconciliation"]
+                .clone(),
+        )
+        .expect("reconciliation fixture")
+    }
+
+    fn revisions(
+        values: Vec<serde_json::Value>,
+    ) -> Vec<seren::ManagedAgentDeploymentRevisionSummary> {
+        serde_json::from_value(serde_json::Value::Array(values)).expect("revision fixtures")
+    }
+
     #[test]
     fn managed_files_dry_run_lists_every_file_and_the_bundle_digest() {
         let dir = employee_directory();
@@ -12097,6 +12281,258 @@ mod tests {
                 .is_empty(),
             "a dry run must not register, upload, or apply anything"
         );
+    }
+
+    async fn mount_managed_files_flow(
+        proxy: &wiremock::MockServer,
+        deployment_id: Uuid,
+        revision: serde_json::Value,
+        bundle_id: Uuid,
+        bundle_sha256: &str,
+        bundle_bytes: usize,
+    ) {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, ResponseTemplate};
+
+        let revision_id: Uuid = serde_json::from_value(revision["revision_id"].clone()).unwrap();
+        Mock::given(method("POST"))
+            .and(path("/publishers/seren-cloud/deployment-bundles"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "deployment_bundle_id": bundle_id,
+                    "sha256": bundle_sha256,
+                    "size_bytes": bundle_bytes,
+                    "source_kind": "agent_bundle",
+                    "upload_required": false,
+                    "upload_headers": {},
+                }
+            })))
+            .expect(1)
+            .mount(proxy)
+            .await;
+        Mock::given(method("PATCH"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/managed/files"
+            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(applied_files_patch_body(
+                    deployment_id,
+                    revision_id,
+                    "controller",
+                )),
+            )
+            .expect(1)
+            .mount(proxy)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/managed/revisions"
+            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({ "data": [revision] })),
+            )
+            .expect(1)
+            .mount(proxy)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn managed_files_confirms_the_applied_revision_uses_the_uploaded_bundle() {
+        let proxy = wiremock::MockServer::start().await;
+        let deployment_id = Uuid::from_u128(0x229_0020);
+        let revision_id = Uuid::from_u128(0x229_0021);
+        let bundle_id = Uuid::from_u128(0x229_0022);
+        let dir = employee_directory();
+        let draft = crate::commands::agent_dev::package_agent_bundle(dir.path()).unwrap();
+        let serialized = serde_json::to_vec(&draft.bundle).unwrap();
+        let sha256 = sha256_hex(&serialized);
+        mount_managed_files_flow(
+            &proxy,
+            deployment_id,
+            managed_revision(deployment_id, revision_id, Some(bundle_id), Some(&sha256)),
+            bundle_id,
+            &sha256,
+            serialized.len(),
+        )
+        .await;
+        let context = CommandContext::new(
+            Some(proxy.uri()),
+            Some("test-key".to_string()),
+            OutputFormat::Json,
+        );
+
+        managed_agent_files(
+            deployment_id,
+            ManagedAgentFilesInput::Directory {
+                path: dir.path(),
+                expected_active_revision_id: None,
+                secret_resolution_result_id: None,
+                dry_run: false,
+            },
+            &context,
+        )
+        .await
+        .expect("the applied revision uses the uploaded bundle");
+    }
+
+    #[tokio::test]
+    async fn managed_files_fails_when_the_applied_revision_uses_another_bundle() {
+        let proxy = wiremock::MockServer::start().await;
+        let deployment_id = Uuid::from_u128(0x229_0030);
+        let revision_id = Uuid::from_u128(0x229_0031);
+        let bundle_id = Uuid::from_u128(0x229_0032);
+        let other_bundle_id = Uuid::from_u128(0x229_0033);
+        let dir = employee_directory();
+        let draft = crate::commands::agent_dev::package_agent_bundle(dir.path()).unwrap();
+        let serialized = serde_json::to_vec(&draft.bundle).unwrap();
+        let sha256 = sha256_hex(&serialized);
+        mount_managed_files_flow(
+            &proxy,
+            deployment_id,
+            managed_revision(deployment_id, revision_id, Some(other_bundle_id), None),
+            bundle_id,
+            &sha256,
+            serialized.len(),
+        )
+        .await;
+        let context = CommandContext::new(
+            Some(proxy.uri()),
+            Some("test-key".to_string()),
+            OutputFormat::Json,
+        );
+
+        let error = managed_agent_files(
+            deployment_id,
+            ManagedAgentFilesInput::Directory {
+                path: dir.path(),
+                expected_active_revision_id: None,
+                secret_resolution_result_id: None,
+                dry_run: false,
+            },
+            &context,
+        )
+        .await
+        .expect_err("a revision that uses another bundle is not the requested change");
+
+        let message = error.to_string();
+        assert!(message.contains(&bundle_id.to_string()), "{message}");
+        assert!(message.contains(&other_bundle_id.to_string()), "{message}");
+    }
+
+    #[test]
+    fn applied_bundle_check_reports_the_revision_digest_and_generation() {
+        let deployment_id = Uuid::from_u128(0x229_0040);
+        let revision_id = Uuid::from_u128(0x229_0041);
+        let bundle_id = Uuid::from_u128(0x229_0042);
+        let sha256 = sha256_hex(b"bundle");
+        let uploaded = UploadedManagedBundle {
+            id: bundle_id,
+            sha256: sha256.clone(),
+        };
+
+        let applied = verify_applied_bundle(
+            &applied_action(deployment_id, revision_id, "controller"),
+            &revisions(vec![managed_revision(
+                deployment_id,
+                revision_id,
+                Some(bundle_id),
+                Some(&sha256),
+            )]),
+            &uploaded,
+        )
+        .expect("matching revision");
+
+        assert_eq!(applied.revision_id, revision_id);
+        assert_eq!(applied.deployment_bundle_id, bundle_id);
+        assert_eq!(applied.bundle_sha256, sha256);
+        assert_eq!(applied.control_generation, 9);
+        assert!(!applied.staged);
+        let summary = applied_bundle_summary_lines(&applied).join("\n");
+        assert!(summary.contains(&revision_id.to_string()), "{summary}");
+        assert!(summary.contains(&bundle_id.to_string()), "{summary}");
+        assert!(summary.contains(&sha256), "{summary}");
+        assert!(summary.contains("9"), "{summary}");
+        assert!(!summary.contains("staged"), "{summary}");
+    }
+
+    #[test]
+    fn applied_bundle_check_reports_a_next_start_revision_as_staged() {
+        let deployment_id = Uuid::from_u128(0x229_0050);
+        let revision_id = Uuid::from_u128(0x229_0051);
+        let bundle_id = Uuid::from_u128(0x229_0052);
+        let uploaded = UploadedManagedBundle {
+            id: bundle_id,
+            sha256: sha256_hex(b"bundle"),
+        };
+
+        let applied = verify_applied_bundle(
+            &applied_action(deployment_id, revision_id, "next_start"),
+            &revisions(vec![managed_revision(
+                deployment_id,
+                revision_id,
+                Some(bundle_id),
+                None,
+            )]),
+            &uploaded,
+        )
+        .expect("matching revision");
+
+        assert!(applied.staged);
+        let summary = applied_bundle_summary_lines(&applied).join("\n");
+        assert!(summary.contains("staged"), "{summary}");
+        assert!(summary.contains("next start"), "{summary}");
+    }
+
+    #[test]
+    fn applied_bundle_check_refuses_a_missing_revision_or_other_content() {
+        let deployment_id = Uuid::from_u128(0x229_0060);
+        let revision_id = Uuid::from_u128(0x229_0061);
+        let bundle_id = Uuid::from_u128(0x229_0062);
+        let uploaded = UploadedManagedBundle {
+            id: bundle_id,
+            sha256: sha256_hex(b"bundle"),
+        };
+        let action = applied_action(deployment_id, revision_id, "controller");
+
+        let missing = verify_applied_bundle(
+            &action,
+            &revisions(vec![managed_revision(
+                deployment_id,
+                Uuid::from_u128(0x229_0063),
+                Some(bundle_id),
+                None,
+            )]),
+            &uploaded,
+        )
+        .expect_err("the applied revision must be in the history");
+        assert!(missing.to_string().contains(&revision_id.to_string()));
+
+        let unbundled = verify_applied_bundle(
+            &action,
+            &revisions(vec![managed_revision(
+                deployment_id,
+                revision_id,
+                None,
+                None,
+            )]),
+            &uploaded,
+        )
+        .expect_err("a revision without a bundle did not apply the upload");
+        assert!(unbundled.to_string().contains(&bundle_id.to_string()));
+
+        let other_hash = sha256_hex(b"other content");
+        let mismatched = verify_applied_bundle(
+            &action,
+            &revisions(vec![managed_revision(
+                deployment_id,
+                revision_id,
+                Some(bundle_id),
+                Some(&other_hash),
+            )]),
+            &uploaded,
+        )
+        .expect_err("a revision recording other content did not apply the upload");
+        assert!(mismatched.to_string().contains(&other_hash));
     }
 
     fn deployment_health_data(deployment_id: Uuid, revision_id: Uuid) -> serde_json::Value {
