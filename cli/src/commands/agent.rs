@@ -3349,6 +3349,40 @@ fn print_cloud_deployment_list_table(deployments: &[serde_json::Value]) {
 
 fn print_managed_agent_health_table(title: &str, payload: &serde_json::Value) {
     let data = payload.get("data").unwrap_or(payload);
+    let rows = managed_agent_health_rows(data);
+    output::print_key_value_table(Some(title), &rows);
+
+    let findings = data
+        .get("findings")
+        .and_then(|value| value.as_array())
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    if findings.is_empty() {
+        println!();
+        println!("No health findings.");
+        return;
+    }
+
+    println!();
+    println!("Findings:");
+    for finding in findings {
+        let severity = finding
+            .get("severity")
+            .and_then(|value| value.as_str())
+            .unwrap_or("info");
+        let title = finding
+            .get("title")
+            .and_then(|value| value.as_str())
+            .unwrap_or("Finding");
+        let detail = finding
+            .get("detail")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        println!("- [{severity}] {title}: {detail}");
+    }
+}
+
+fn managed_agent_health_rows(data: &serde_json::Value) -> Vec<(&'static str, String)> {
     let summary = data.get("summary").unwrap_or(&serde_json::Value::Null);
     let mut rows = vec![
         ("Status", json_string_field(data, "status")),
@@ -3400,37 +3434,16 @@ fn print_managed_agent_health_table(title: &str, payload: &serde_json::Value) {
         rows.push(("Name", json_string_field(deployment, "name")));
         rows.push(("Agent Slug", json_string_field(deployment, "agent_slug")));
         rows.push(("Deployment Status", json_string_field(deployment, "status")));
+        rows.push((
+            "Active Revision",
+            json_string_field(deployment, "active_revision_id"),
+        ));
+        rows.push((
+            "Control Generation",
+            json_number_field(deployment, "control_generation"),
+        ));
     }
-    output::print_key_value_table(Some(title), &rows);
-
-    let findings = data
-        .get("findings")
-        .and_then(|value| value.as_array())
-        .map(Vec::as_slice)
-        .unwrap_or(&[]);
-    if findings.is_empty() {
-        println!();
-        println!("No health findings.");
-        return;
-    }
-
-    println!();
-    println!("Findings:");
-    for finding in findings {
-        let severity = finding
-            .get("severity")
-            .and_then(|value| value.as_str())
-            .unwrap_or("info");
-        let title = finding
-            .get("title")
-            .and_then(|value| value.as_str())
-            .unwrap_or("Finding");
-        let detail = finding
-            .get("detail")
-            .and_then(|value| value.as_str())
-            .unwrap_or("");
-        println!("- [{severity}] {title}: {detail}");
-    }
+    rows
 }
 
 fn print_managed_agent_resources_table(payload: &serde_json::Value) {
@@ -12618,6 +12631,64 @@ mod tests {
         )
         .expect_err("a revision recording other content did not apply the upload");
         assert!(mismatched.to_string().contains(&other_hash));
+    }
+
+    fn deployment_health_data(deployment_id: Uuid, revision_id: Uuid) -> serde_json::Value {
+        serde_json::json!({
+            "status": "healthy",
+            "summary": {
+                "deployment_count": 1,
+                "running_deployment_count": 1,
+                "failed_deployment_count": 0,
+                "stopped_deployment_count": 0,
+                "critical_count": 0,
+                "warning_count": 0
+            },
+            "deployment": {
+                "deployment_id": deployment_id,
+                "name": "Fixture Reader",
+                "agent_slug": "fixture-reader",
+                "status": "running",
+                "active_revision_id": revision_id,
+                "control_generation": 9
+            },
+            "findings": []
+        })
+    }
+
+    #[test]
+    fn deployment_health_rows_show_active_revision_and_control_generation() {
+        let revision_id = Uuid::from_u128(0x72ab_0071);
+        let data = deployment_health_data(Uuid::from_u128(0x72ab_0070), revision_id);
+
+        let rows = managed_agent_health_rows(&data);
+
+        assert!(rows.contains(&("Active Revision", revision_id.to_string())));
+        assert!(rows.contains(&("Control Generation", "9".to_string())));
+    }
+
+    #[test]
+    fn organization_health_rows_are_unchanged() {
+        let mut data = deployment_health_data(Uuid::from_u128(0x72ab_0080), Uuid::nil());
+        data.as_object_mut().unwrap().remove("deployment");
+
+        let labels: Vec<&str> = managed_agent_health_rows(&data)
+            .into_iter()
+            .map(|(label, _)| label)
+            .collect();
+
+        assert_eq!(
+            labels,
+            [
+                "Status",
+                "Deployments",
+                "Running",
+                "Failed",
+                "Stopped",
+                "Critical Findings",
+                "Warnings"
+            ]
+        );
     }
 
     #[tokio::test]
