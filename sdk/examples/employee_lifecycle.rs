@@ -137,6 +137,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "Deployment accepted: {} ({}) - {}",
                 deployment.name, deployment.id, deployment.status
             );
+            // Acceptance is not proof the employee is running; health shows what is live.
+            let health = client
+                .seren_agent_get_deployment_health(&deployment.id)
+                .await?
+                .into_inner()
+                .data
+                .deployment;
+            let active_revision = health
+                .active_revision_id
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "none yet".to_string());
+            println!(
+                "Health: {} (active revision {active_revision}, control generation {})",
+                health.status, health.control_generation
+            );
         }
     }
 
