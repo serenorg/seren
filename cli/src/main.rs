@@ -1508,6 +1508,9 @@ enum AgentAction {
         /// Fresh Seren Passwords result required by the deployment
         #[arg(long, requires = "path")]
         secret_resolution_result_id: Option<Uuid>,
+        /// List the packaged files, sizes, and SHA-256 digests without uploading anything
+        #[arg(long, requires = "path", conflicts_with = "body")]
+        dry_run: bool,
     },
     /// Start human-authorized Seren Passwords setup for a managed agent
     ManagedPasswordsSetup {
@@ -8272,6 +8275,7 @@ async fn main() -> anyhow::Result<()> {
                 path,
                 expected_active_revision_id,
                 secret_resolution_result_id,
+                dry_run,
             } => {
                 let input = match (body.as_deref(), path.as_deref()) {
                     (Some(body), None) => commands::agent::ManagedAgentFilesInput::PatchJson(body),
@@ -8279,6 +8283,7 @@ async fn main() -> anyhow::Result<()> {
                         path: std::path::Path::new(path),
                         expected_active_revision_id,
                         secret_resolution_result_id,
+                        dry_run,
                     },
                     _ => anyhow::bail!("Provide exactly one of --body or --path."),
                 };
@@ -9284,12 +9289,14 @@ mod tests {
                     path,
                     expected_active_revision_id,
                     secret_resolution_result_id,
+                    dry_run,
                 } => {
                     assert_eq!(parsed_deployment_id.to_string(), deployment_id);
                     assert_eq!(body.as_deref(), Some("{}"));
                     assert!(path.is_none());
                     assert!(expected_active_revision_id.is_none());
                     assert!(secret_resolution_result_id.is_none());
+                    assert!(!dry_run);
                 }
                 _ => panic!("unexpected managed file patch command"),
             },
@@ -9316,6 +9323,7 @@ mod tests {
                     path,
                     expected_active_revision_id,
                     secret_resolution_result_id,
+                    dry_run,
                 } => {
                     assert_eq!(parsed_deployment_id.to_string(), deployment_id);
                     assert!(body.is_none());
@@ -9328,11 +9336,61 @@ mod tests {
                         secret_resolution_result_id.map(|id| id.to_string()),
                         Some(deployment_id.to_string())
                     );
+                    assert!(!dry_run);
                 }
                 _ => panic!("unexpected managed repository bundle command"),
             },
             _ => panic!("unexpected command"),
         }
+    }
+
+    #[test]
+    fn managed_files_dry_run_requires_path_and_refuses_body() {
+        let deployment_id = "550e8400-e29b-41d4-a716-446655440000";
+
+        let preview = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-files",
+            deployment_id,
+            "--path",
+            "./employee",
+            "--dry-run",
+        ]);
+        match preview.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedFiles { path, dry_run, .. } => {
+                    assert_eq!(path.as_deref(), Some("./employee"));
+                    assert!(dry_run);
+                }
+                _ => panic!("unexpected managed repository bundle command"),
+            },
+            _ => panic!("unexpected command"),
+        }
+
+        assert!(
+            try_parse_cli_with_large_stack(vec![
+                "seren",
+                "agent",
+                "managed-files",
+                deployment_id,
+                "--body",
+                "{}",
+                "--dry-run",
+            ])
+            .is_err(),
+            "a JSON patch has no bundle to preview"
+        );
+        assert!(
+            try_parse_cli_with_large_stack(vec![
+                "seren",
+                "agent",
+                "managed-files",
+                deployment_id,
+                "--dry-run",
+            ])
+            .is_err()
+        );
     }
 
     #[test]
