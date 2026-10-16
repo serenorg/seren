@@ -160,6 +160,16 @@
           "400": {
             "description": "Bad request"
           },
+          "403": {
+            "description": "Only the person who hired this Employee can fire, pause or resume them (`managed_agent_hirer_only`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Deployment not found"
           }
@@ -3366,7 +3376,7 @@
             }
           },
           "202": {
-            "description": "Start accepted; managed compute is building until convergence",
+            "description": "Start accepted; deployment readiness is pending",
             "content": {
               "application/json": {
                 "schema": {
@@ -3377,6 +3387,16 @@
           },
           "400": {
             "description": "Bad request"
+          },
+          "403": {
+            "description": "Only the person who hired this Employee can fire, pause or resume them (`managed_agent_hirer_only`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "404": {
             "description": "Deployment not found"
@@ -3597,7 +3617,7 @@
             }
           },
           "202": {
-            "description": "Stop latched; compute is draining",
+            "description": "Stop latched; deployment shutdown is pending",
             "content": {
               "application/json": {
                 "schema": {
@@ -3608,6 +3628,16 @@
           },
           "400": {
             "description": "Bad request"
+          },
+          "403": {
+            "description": "Only the person who hired this Employee can fire, pause or resume them (`managed_agent_hirer_only`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "404": {
             "description": "Deployment not found"
@@ -3857,6 +3887,601 @@
         ]
       }
     },
+    "/deployments/{id}/updates": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "description": "The hire's template updates: the version it runs, the newest version, whether an update waits for the Employer's decision, what the update changes (each access change itemized, and the template files added, changed and removed), the Owner's release note, the update setting in effect and where it comes from, and the last outcome. Access changes always wait for the Employer's approval. Content changes follow the setting: `automatic` applies them between tasks, `ask_first` waits for approval and `stay` keeps the current version.",
+        "operationId": "seren_agent_get_managed_agent_template_update",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The hire's template update state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateUpdate"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the Employer's session or user API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Deployment not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The Employee is still being set up (`template_update_hire_incomplete`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/updates/approve": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "description": "Approves the offered update, including one the Employer put off, for the offered version and the hire version the Employer reviewed. A newer offer or a changed hire version needs a new review. It applies at once, or when the Employee's current task ends.",
+        "operationId": "seren_agent_approve_managed_agent_template_update",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveManagedAgentTemplateUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The hire's template update state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateUpdate"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the Employer's session or user API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Deployment not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No update waits for a decision (`template_update_not_pending`), or the offer or the hire's version changed since the review (`template_update_changed`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/updates/decline": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "description": "Puts the offered update off (\"Not now\"). The hire keeps its version, and the update stays approvable until a newer version replaces it.",
+        "operationId": "seren_agent_decline_managed_agent_template_update",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The hire's template update state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateUpdate"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the Employer's session or user API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Deployment not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No update waits for a decision (`template_update_not_pending`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/updates/rollback": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "description": "Returns the hire to the template version it ran before its last update, at once or when the Employee's current task ends. The hire's setting becomes `stay`, so it does not move forward again until the Employer chooses. The Employer's time zone, connected account and own files are kept.",
+        "operationId": "seren_agent_roll_back_managed_agent_template_update",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The hire's template update state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateUpdate"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the Employer's session or user API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Deployment not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "There is no earlier version to return to (`template_rollback_unavailable`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/updates/setting": {
+      "put": {
+        "tags": [
+          "seren-agent"
+        ],
+        "description": "Sets how this hire takes content updates. Under an organization rule with the lock on, only the rule's setting or a stricter one is accepted (`stay` is strictest, then `ask_first`, then `automatic`).",
+        "operationId": "seren_agent_set_managed_agent_template_update_setting",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetManagedAgentTemplateUpdateSettingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The hire's template update state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateUpdate"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the Employer's session or user API key, or the setting is looser than the organization's locked rule (`template_update_setting_locked`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Deployment not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The Employee is still being set up (`template_update_hire_incomplete`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/webhooks": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "operationId": "seren_agent_list_managed_agent_webhooks",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Webhooks and their credentials. Do not cache this response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_ManagedAgentWebhookView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "operationId": "seren_agent_create_managed_agent_webhook",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateManagedAgentWebhookRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Webhook created. Do not cache this response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentWebhookView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment not found"
+          },
+          "409": {
+            "description": "Remove the current webhook before creating another"
+          },
+          "503": {
+            "description": "Webhooks unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/webhooks/{webhook_id}": {
+      "delete": {
+        "tags": [
+          "seren-agent"
+        ],
+        "operationId": "seren_agent_delete_managed_agent_webhook",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "webhook_id",
+            "in": "path",
+            "description": "Webhook ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Webhook removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_bool"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment or webhook not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/work": {
       "get": {
         "tags": [
@@ -3980,6 +4605,88 @@
           },
           "409": {
             "description": "The Idempotency-Key was used with a different body, or another write revised the item first"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/work/{work_id}/acceptance": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Accept the latest revision of one delivered work item, for the deployment\nowner only. A revision is accepted once and the acceptance cannot be\nwithdrawn; accepting it again returns the same receipt. A rating is not an\nacceptance.",
+        "operationId": "seren_agent_accept_managed_agent_work",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "work_id",
+            "in": "path",
+            "description": "Work item ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Required replay key, 1 to 255 visible ASCII characters",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagedAgentWorkAcceptanceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The acceptance receipt. The response must not be cached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentWorkAcceptance"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid work ID or body, or a missing or invalid Idempotency-Key"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The credential is not the owner's session or user API key"
+          },
+          "404": {
+            "description": "Deployment not found, including another user's deployment, or `managed_agent_work_not_found` when the work item is not this deployment's"
+          },
+          "409": {
+            "description": "`managed_agent_work_not_acceptable` with `details.current_revision` when the revision is not the latest or the work is not delivered; `managed_agent_work_acceptance_unavailable` when the deployment was not hired; or the Idempotency-Key was used with a different body"
           }
         },
         "security": [
@@ -4244,7 +4951,7 @@
         "tags": [
           "seren-agent"
         ],
-        "summary": "Get referral eligibility, a canonical homepage link, and the currently available reward.",
+        "summary": "Get referral eligibility, a canonical homepage link, the currently available\nreward, the referral offer in force, and progress under it: the caller's own\nwhen they were referred, and that of the people they referred. Progress is\nreturned only to the user's own session or user API key.",
         "operationId": "seren_agent_get_my_referral",
         "responses": {
           "200": {
@@ -4450,6 +5157,39 @@
         ]
       }
     },
+    "/referral-offer": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Get the referral offer in force. `status` is `none`, with no other field,\nwhen no offer is in force.",
+        "operationId": "seren_agent_get_referral_offer",
+        "responses": {
+          "200": {
+            "description": "The referral offer in force, or `none`",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "public, max-age=60"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentReferralOffer"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Referral details are temporarily unavailable"
+          }
+        },
+        "security": []
+      }
+    },
     "/templates": {
       "get": {
         "tags": [
@@ -4535,6 +5275,225 @@
           },
           "404": {
             "description": "The template has no public picture"
+          }
+        },
+        "security": []
+      }
+    },
+    "/templates/{slug}/intro-video": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Return the template's intro video. Answers a single byte range. Suspended\nprofiles and templates return 404.",
+        "operationId": "get_managed_agent_template_intro_video_file",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "object_id",
+            "in": "query",
+            "description": "Video identifier from the template list; a replaced video returns 404",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Range",
+            "in": "header",
+            "description": "A single byte range",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The template's intro video",
+            "headers": {
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "bytes"
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "public, max-age=300"
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "nosniff"
+              }
+            },
+            "content": {
+              "video/mp4": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntroVideoFile"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "The requested byte range",
+            "headers": {
+              "Content-Range": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "The range sent and the video's size"
+              }
+            },
+            "content": {
+              "video/mp4": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntroVideoFile"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The template has no public intro video"
+          },
+          "416": {
+            "description": "The byte range cannot be met"
+          }
+        },
+        "security": []
+      }
+    },
+    "/templates/{slug}/intro-video/captions": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Return the captions of the template's intro video as WebVTT.",
+        "operationId": "get_managed_agent_template_intro_video_captions",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "object_id",
+            "in": "query",
+            "description": "Video identifier from the template list; a replaced video returns 404",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The intro video's captions",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "public, max-age=300"
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "nosniff"
+              }
+            },
+            "content": {
+              "text/vtt": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The template has no public intro video"
+          }
+        },
+        "security": []
+      }
+    },
+    "/templates/{slug}/intro-video/poster": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Return the still shown before the template's intro video plays.",
+        "operationId": "get_managed_agent_template_intro_video_poster",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "object_id",
+            "in": "query",
+            "description": "Video identifier from the template list; a replaced video returns 404",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The intro video's still",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "public, max-age=300"
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "nosniff"
+              }
+            },
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntroVideoFile"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The template has no public intro video"
           }
         },
         "security": []
@@ -4715,7 +5674,7 @@
             }
           },
           "409": {
-            "description": "A hire is in progress, the account must be reconnected, the template's setup is unavailable (`template_artifact_unavailable`), its setup does not match the published revision (`template_artifact_mismatch`), or a service the Employee uses has changed (`managed_agent_template_unavailable`)",
+            "description": "A hire is in progress, the account must be reconnected, the template's setup is unavailable (`template_artifact_unavailable`), its setup does not match the published revision (`template_artifact_mismatch`), a service the Employee uses has changed (`managed_agent_template_unavailable`), or the Employee's fee is below its minimum (`run_fee_below_minimum`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7202,6 +8161,27 @@
         ],
         "description": "Typed tool reference attached to an agent. Lives alongside the coarser\n`tool_presets` field; future managed-agent flows resolve from typed refs and\npresets together. Each non-preset variant carries an optional\n`permitted_actions` collection of `ActionLease`s — the per-action gate\nborrowed from OpenFang/IronClaw that lets the spec say \"this Connector may\nperform `read` but not `send`\" without inventing a separate ACL surface."
       },
+      "ApproveManagedAgentTemplateUpdateRequest": {
+        "type": "object",
+        "description": "The update the Employer reviewed and approves.",
+        "required": [
+          "revision",
+          "current_revision"
+        ],
+        "properties": {
+          "current_revision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The template version the hire ran when the Employer reviewed the update."
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The offered template version, as the update showed it."
+          }
+        },
+        "additionalProperties": false
+      },
       "ArchiveOrganizationInstructionRequest": {
         "type": "object",
         "required": [
@@ -7860,6 +8840,10 @@
             "type": "string"
           }
         },
+        "additionalProperties": false
+      },
+      "CreateManagedAgentWebhookRequest": {
+        "type": "object",
         "additionalProperties": false
       },
       "CreateOrganizationInstructionRequest": {
@@ -9465,9 +10449,22 @@
           "data": {
             "type": "object",
             "required": [
-              "has_hired"
+              "has_hired",
+              "offer",
+              "referrals"
             ],
             "properties": {
+              "as_referred": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentReferredProgress",
+                    "description": "The caller's own progress when they were referred and have hired, under\nthe offer in force; otherwise null."
+                  }
+                ]
+              },
               "has_hired": {
                 "type": "boolean"
               },
@@ -9478,11 +10475,22 @@
                 ],
                 "description": "Canonical homepage referral link, or null when no code is available."
               },
+              "offer": {
+                "$ref": "#/components/schemas/ManagedAgentReferralOffer",
+                "description": "The referral offer in force, or `none`."
+              },
               "referral_code": {
                 "type": [
                   "string",
                   "null"
                 ]
+              },
+              "referrals": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentReferralProgress"
+                },
+                "description": "The people the caller referred who have hired, under the offer in force."
               },
               "reward_atomic": {
                 "type": [
@@ -9498,6 +10506,94 @@
                 ]
               }
             }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentReferralOffer": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "policy_id",
+                  "referrer_reward_atomic",
+                  "referred_reward_atomic",
+                  "paid_use_threshold_atomic",
+                  "qualification_window_days",
+                  "hold_days",
+                  "reward_expiry_days",
+                  "status"
+                ],
+                "properties": {
+                  "hold_days": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "paid_use_threshold_atomic": {
+                    "type": "string",
+                    "description": "Atomic USD as a decimal string."
+                  },
+                  "policy_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "qualification_window_days": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "referred_reward_atomic": {
+                    "type": "string",
+                    "description": "Atomic USD as a decimal string."
+                  },
+                  "referrer_reward_atomic": {
+                    "type": "string",
+                    "description": "Atomic USD as a decimal string: 1,000,000 equals one dollar."
+                  },
+                  "reward_expiry_days": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "active"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "none"
+                    ]
+                  }
+                }
+              }
+            ],
+            "description": "The referral offer in force, or `none`. A proposed policy is never shown."
           },
           "pagination": {
             "oneOf": [
@@ -9988,6 +11084,149 @@
           }
         }
       },
+      "DataResponse_ManagedAgentTemplateUpdate": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "The Employer's view of a hire's template updates.",
+            "required": [
+              "template_slug",
+              "current_revision",
+              "newest_revision",
+              "state",
+              "decision_needed",
+              "setting",
+              "setting_source"
+            ],
+            "properties": {
+              "applying": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateUpdateApplying",
+                    "description": "A recorded move that applies when the current task ends."
+                  }
+                ]
+              },
+              "current_revision": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Template version the hire runs."
+              },
+              "decision_needed": {
+                "type": "boolean",
+                "description": "Whether the Employer's decision is needed: an update is pending or was put off."
+              },
+              "held_reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/TemplateUpdateHeldReason"
+                  }
+                ]
+              },
+              "hire_setting": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/TemplateUpdateSetting",
+                    "description": "The Employer's own choice for this hire, if any."
+                  }
+                ]
+              },
+              "last_automatic_update": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateAutomaticUpdate"
+                  }
+                ]
+              },
+              "last_outcome": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateUpdateLastOutcome"
+                  }
+                ]
+              },
+              "newest_revision": {
+                "type": "integer",
+                "format": "int64",
+                "description": "The template's newest version."
+              },
+              "offered": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateUpdateOffer",
+                    "description": "The offered version and what changed, when an update is offered."
+                  }
+                ]
+              },
+              "organization_rule": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/OrganizationTemplateUpdateRule"
+                  }
+                ]
+              },
+              "rollback_revision": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "The version a rollback returns to."
+              },
+              "setting": {
+                "$ref": "#/components/schemas/TemplateUpdateSetting",
+                "description": "The setting in effect for this hire."
+              },
+              "setting_source": {
+                "$ref": "#/components/schemas/TemplateUpdateSettingSource"
+              },
+              "state": {
+                "$ref": "#/components/schemas/TemplateUpdateState"
+              },
+              "template_slug": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedAgentToolCatalogEntry": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -10160,6 +11399,103 @@
                   "$ref": "#/components/schemas/ManagedAgentToolGroupEntry"
                 },
                 "description": "Resolved display/read model for the deployment's named tool groups.\nToday these are derived from `tool_presets`; future custom groups use\nthe same shape with `preset` omitted."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentWebhookView": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "url",
+              "header",
+              "token",
+              "created_at"
+            ],
+            "properties": {
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "header": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "token": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentWorkAcceptance": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "The receipt of the owner's acceptance of one work item revision.",
+            "required": [
+              "receipt_id",
+              "work_id",
+              "work_revision",
+              "accepted_at"
+            ],
+            "properties": {
+              "accepted_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "receipt_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "work_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "work_revision": {
+                "type": "integer",
+                "format": "int64"
               }
             }
           },
@@ -11339,6 +12675,17 @@
                 "display_name": {
                   "type": "string"
                 },
+                "intro_video": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ManagedAgentTemplateIntroVideoListing",
+                      "description": "The intro video; null when unset or while the profile is suspended."
+                    }
+                  ]
+                },
                 "published_at": {
                   "type": "string",
                   "format": "date-time",
@@ -11369,6 +12716,58 @@
                       "$ref": "#/components/schemas/Tagline"
                     }
                   ]
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_ManagedAgentWebhookView": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "url",
+                "header",
+                "token",
+                "created_at"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "header": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "token": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
                 }
               }
             }
@@ -11599,6 +12998,29 @@
                 }
               }
             }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_bool": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "boolean"
           },
           "pagination": {
             "oneOf": [
@@ -11918,6 +13340,17 @@
         ],
         "description": "Capability granted by an `ActionLease`. `All` grants every sub-action of\nthe named action; `Specific` enumerates a closed set."
       },
+      "HttpMethod": {
+        "type": "string",
+        "description": "HTTP method for endpoint definitions",
+        "enum": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE",
+          "PATCH"
+        ]
+      },
       "InitiateManagedAgentSecretsSetupResponse": {
         "type": "object",
         "required": [
@@ -11947,6 +13380,10 @@
             "description": "State of the setup this launch link continues. A new or relaunched\nsetup is unconsumed; an approval already in progress keeps its state."
           }
         }
+      },
+      "IntroVideoFile": {
+        "type": "string",
+        "format": "binary"
       },
       "InviteSkipReason": {
         "type": "string",
@@ -13628,43 +15065,66 @@
         "oneOf": [
           {
             "type": "object",
-            "description": "Use the organization's private-model routing through seren-private-models.",
+            "description": "Run on a Seren Private Model. Without a `model_id` the organization's private-model routing chooses the model.",
             "required": [
               "provider"
             ],
             "properties": {
+              "fallback_models": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Models tried in order when `model_id` is unavailable. Requires `model_id`."
+              },
+              "model_id": {
+                "type": "string",
+                "description": "Model from the private models catalog. Omit to use the organization default."
+              },
               "provider": {
                 "type": "string",
                 "enum": [
                   "seren_private_models"
                 ]
               }
-            }
+            },
+            "additionalProperties": false
           },
           {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/ManagedCodexConnection",
-                "description": "Run the Employee on the deployment owner's own OpenAI Codex access."
-              },
-              {
-                "type": "object",
-                "required": [
-                  "provider"
-                ],
-                "properties": {
-                  "provider": {
-                    "type": "string",
-                    "enum": [
-                      "codex"
-                    ]
-                  }
-                }
-              }
+            "type": "object",
+            "description": "Run on the Owner's own OpenAI Codex access, trying each credential in order and then the fallback Seren Private Model.\n\nCodex credentials in failover order. Multiple credentials require an explicit\nmodel and Seren Private Model fallback; a single credential may omit both.",
+            "required": [
+              "credentials",
+              "provider"
             ],
-            "description": "Run the Employee on the deployment owner's own OpenAI Codex access."
+            "properties": {
+              "credentials": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedCodexAuth"
+                },
+                "description": "Codex credentials in failover order. At least one.",
+                "minItems": 1
+              },
+              "fallback": {
+                "$ref": "#/components/schemas/ManagedCodexFallback",
+                "description": "Seren Private Model used when no credential can serve. Required with multiple credentials."
+              },
+              "model_id": {
+                "type": "string",
+                "description": "Codex model the credentials run. Required with multiple credentials."
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "codex"
+                ]
+              }
+            },
+            "additionalProperties": false
           }
-        ]
+        ],
+        "description": "The model an Employee runs, chosen by its Owner."
       },
       "ManagedAgentMailProvider": {
         "type": "string",
@@ -14237,9 +15697,22 @@
       "ManagedAgentReferral": {
         "type": "object",
         "required": [
-          "has_hired"
+          "has_hired",
+          "offer",
+          "referrals"
         ],
         "properties": {
+          "as_referred": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentReferredProgress",
+                "description": "The caller's own progress when they were referred and have hired, under\nthe offer in force; otherwise null."
+              }
+            ]
+          },
           "has_hired": {
             "type": "boolean"
           },
@@ -14250,11 +15723,22 @@
             ],
             "description": "Canonical homepage referral link, or null when no code is available."
           },
+          "offer": {
+            "$ref": "#/components/schemas/ManagedAgentReferralOffer",
+            "description": "The referral offer in force, or `none`."
+          },
           "referral_code": {
             "type": [
               "string",
               "null"
             ]
+          },
+          "referrals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentReferralProgress"
+            },
+            "description": "The people the caller referred who have hired, under the offer in force."
           },
           "reward_atomic": {
             "type": [
@@ -14268,6 +15752,163 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "ManagedAgentReferralOffer": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "policy_id",
+              "referrer_reward_atomic",
+              "referred_reward_atomic",
+              "paid_use_threshold_atomic",
+              "qualification_window_days",
+              "hold_days",
+              "reward_expiry_days",
+              "status"
+            ],
+            "properties": {
+              "hold_days": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "paid_use_threshold_atomic": {
+                "type": "string",
+                "description": "Atomic USD as a decimal string."
+              },
+              "policy_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "qualification_window_days": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "referred_reward_atomic": {
+                "type": "string",
+                "description": "Atomic USD as a decimal string."
+              },
+              "referrer_reward_atomic": {
+                "type": "string",
+                "description": "Atomic USD as a decimal string: 1,000,000 equals one dollar."
+              },
+              "reward_expiry_days": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "active"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "none"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "The referral offer in force, or `none`. A proposed policy is never shown."
+      },
+      "ManagedAgentReferralProgress": {
+        "type": "object",
+        "description": "One person the caller referred. It names neither the person nor their work.",
+        "required": [
+          "referral_id",
+          "state",
+          "my_reward_atomic"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "hold_until": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "my_reward_atomic": {
+            "type": "string",
+            "description": "Atomic USD as a decimal string."
+          },
+          "referral_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ManagedAgentReferralState"
+          }
+        }
+      },
+      "ManagedAgentReferralState": {
+        "type": "string",
+        "description": "Where one referral stands, for the referred customer and the referrer alike.",
+        "enum": [
+          "in_progress",
+          "ineligible",
+          "expired",
+          "qualified",
+          "held",
+          "issued",
+          "reversed"
+        ]
+      },
+      "ManagedAgentReferredProgress": {
+        "type": "object",
+        "description": "The caller's own progress toward the referred-customer reward.",
+        "required": [
+          "policy_id",
+          "window_ends_at",
+          "own_funded_atomic",
+          "threshold_atomic",
+          "state"
+        ],
+        "properties": {
+          "accepted_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the caller first accepted completed work, or null."
+          },
+          "own_funded_atomic": {
+            "type": "string",
+            "description": "Atomic USD of the caller's own purchases spent on their hires, net of\nrefunds and disputes, as a decimal string."
+          },
+          "policy_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ManagedAgentReferralState"
+          },
+          "threshold_atomic": {
+            "type": "string",
+            "description": "Atomic USD as a decimal string."
+          },
+          "window_ends_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -14457,7 +16098,7 @@
       },
       "ManagedAgentRunFeeAmount": {
         "type": "object",
-        "description": "The current per-successful-run price, paid from purchased SerenBucks.",
+        "description": "The current per-run price. Promotional credit may pay its cost part.",
         "required": [
           "atomic",
           "usd"
@@ -15403,6 +17044,63 @@
           "workflow_agent"
         ]
       },
+      "ManagedAgentTemplateAutomaticUpdate": {
+        "type": "object",
+        "required": [
+          "revision",
+          "at"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ManagedAgentTemplateBrowserDefaults": {
+        "type": "object",
+        "required": [
+          "display",
+          "max_session_seconds"
+        ],
+        "properties": {
+          "display": {
+            "$ref": "#/components/schemas/BrowserDisplay"
+          },
+          "max_session_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentTemplateEgressRule": {
+        "type": "object",
+        "required": [
+          "host",
+          "port",
+          "protocol"
+        ],
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "protocol": {
+            "$ref": "#/components/schemas/AgentNetworkProtocol"
+          }
+        },
+        "additionalProperties": false
+      },
       "ManagedAgentTemplateHireBonus": {
         "type": "object",
         "required": [
@@ -15424,6 +17122,41 @@
             "type": "boolean"
           },
           "expires_days": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "ManagedAgentTemplateIntroVideoListing": {
+        "type": "object",
+        "description": "The public intro video of a template available for hire.",
+        "required": [
+          "url",
+          "poster_url",
+          "captions_url",
+          "width",
+          "height",
+          "duration_ms"
+        ],
+        "properties": {
+          "captions_url": {
+            "type": "string"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "height": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "poster_url": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "width": {
             "type": "integer",
             "format": "int32"
           }
@@ -15466,6 +17199,17 @@
           "display_name": {
             "type": "string"
           },
+          "intro_video": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplateIntroVideoListing",
+                "description": "The intro video; null when unset or while the profile is suspended."
+              }
+            ]
+          },
           "published_at": {
             "type": "string",
             "format": "date-time",
@@ -15498,6 +17242,60 @@
             ]
           }
         }
+      },
+      "ManagedAgentTemplateLlmConnection": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "provider"
+            ],
+            "properties": {
+              "fallback_models": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Models tried in order when `model_id` is unavailable. Requires `model_id`."
+              },
+              "model_id": {
+                "type": "string",
+                "description": "Model from the private models catalog. Omit to use the organization default."
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "seren_private_models"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "model_id",
+              "fallback",
+              "provider"
+            ],
+            "properties": {
+              "fallback": {
+                "$ref": "#/components/schemas/ManagedCodexFallback"
+              },
+              "model_id": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "codex"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        ],
+        "description": "Credential-free model choices shared by a template's hired copies."
       },
       "ManagedAgentTemplatePublisher": {
         "type": "object",
@@ -15542,6 +17340,37 @@
             "description": "Reward as a decimal dollar string. Present only while active."
           }
         }
+      },
+      "ManagedAgentTemplateRuntimeClass": {
+        "type": "string",
+        "enum": [
+          "gvisor",
+          "kata"
+        ]
+      },
+      "ManagedAgentTemplateScriptPublisherGrant": {
+        "type": "object",
+        "required": [
+          "publisher_slug",
+          "method",
+          "path",
+          "require_approval"
+        ],
+        "properties": {
+          "method": {
+            "$ref": "#/components/schemas/HttpMethod"
+          },
+          "path": {
+            "type": "string"
+          },
+          "publisher_slug": {
+            "$ref": "#/components/schemas/Slug"
+          },
+          "require_approval": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
       },
       "ManagedAgentTemplateSkillUsage": {
         "type": "object",
@@ -15607,6 +17436,217 @@
             "type": "string",
             "format": "date-time",
             "description": "Time these statistics were computed."
+          }
+        }
+      },
+      "ManagedAgentTemplateUpdate": {
+        "type": "object",
+        "description": "The Employer's view of a hire's template updates.",
+        "required": [
+          "template_slug",
+          "current_revision",
+          "newest_revision",
+          "state",
+          "decision_needed",
+          "setting",
+          "setting_source"
+        ],
+        "properties": {
+          "applying": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplateUpdateApplying",
+                "description": "A recorded move that applies when the current task ends."
+              }
+            ]
+          },
+          "current_revision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Template version the hire runs."
+          },
+          "decision_needed": {
+            "type": "boolean",
+            "description": "Whether the Employer's decision is needed: an update is pending or was put off."
+          },
+          "held_reason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TemplateUpdateHeldReason"
+              }
+            ]
+          },
+          "hire_setting": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TemplateUpdateSetting",
+                "description": "The Employer's own choice for this hire, if any."
+              }
+            ]
+          },
+          "last_automatic_update": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplateAutomaticUpdate"
+              }
+            ]
+          },
+          "last_outcome": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplateUpdateLastOutcome"
+              }
+            ]
+          },
+          "newest_revision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The template's newest version."
+          },
+          "offered": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplateUpdateOffer",
+                "description": "The offered version and what changed, when an update is offered."
+              }
+            ]
+          },
+          "organization_rule": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrganizationTemplateUpdateRule"
+              }
+            ]
+          },
+          "rollback_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The version a rollback returns to."
+          },
+          "setting": {
+            "$ref": "#/components/schemas/TemplateUpdateSetting",
+            "description": "The setting in effect for this hire."
+          },
+          "setting_source": {
+            "$ref": "#/components/schemas/TemplateUpdateSettingSource"
+          },
+          "state": {
+            "$ref": "#/components/schemas/TemplateUpdateState"
+          },
+          "template_slug": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentTemplateUpdateApplying": {
+        "type": "object",
+        "required": [
+          "origin",
+          "revision",
+          "waiting_for_task"
+        ],
+        "properties": {
+          "origin": {
+            "$ref": "#/components/schemas/TemplateUpdateApplyOrigin"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "waiting_for_task": {
+            "type": "boolean",
+            "description": "Whether the move waits for the Employee's current task to end."
+          }
+        }
+      },
+      "ManagedAgentTemplateUpdateLastOutcome": {
+        "type": "object",
+        "required": [
+          "outcome",
+          "revision",
+          "at"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "failure": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TemplateRevisionFailure"
+              }
+            ]
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/TemplateUpdateLastOutcome"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ManagedAgentTemplateUpdateOffer": {
+        "type": "object",
+        "required": [
+          "revision",
+          "kind",
+          "access_changes",
+          "content_changes"
+        ],
+        "properties": {
+          "access_changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateAccessChange"
+            },
+            "description": "Every access change, itemized."
+          },
+          "content_changes": {
+            "$ref": "#/components/schemas/TemplateContentChanges",
+            "description": "Template files added, changed and removed. The Employer's own files are never listed."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TemplateUpdateKind"
+          },
+          "release_note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Owner's release note, in the Owner's words."
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -15948,6 +17988,78 @@
           "custom"
         ]
       },
+      "ManagedAgentWebhookView": {
+        "type": "object",
+        "required": [
+          "id",
+          "url",
+          "header",
+          "token",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "header": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "token": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentWorkAcceptance": {
+        "type": "object",
+        "description": "The receipt of the owner's acceptance of one work item revision.",
+        "required": [
+          "receipt_id",
+          "work_id",
+          "work_revision",
+          "accepted_at"
+        ],
+        "properties": {
+          "accepted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "receipt_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "work_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "work_revision": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ManagedAgentWorkAcceptanceRequest": {
+        "type": "object",
+        "description": "The owner's acceptance of the work item revision they reviewed.",
+        "required": [
+          "work_revision"
+        ],
+        "properties": {
+          "work_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
       "ManagedAgentWorkFeedback": {
         "type": "object",
         "required": [
@@ -16002,6 +18114,21 @@
           "feedback"
         ],
         "properties": {
+          "accepted_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "accepted_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The latest revision the owner accepted, or null when none is accepted."
+          },
           "artifact_ref": {
             "type": [
               "string",
@@ -16251,6 +18378,10 @@
                   "api_key"
                 ]
               },
+              "name": {
+                "type": "string",
+                "description": "Name the credential keeps while it stays in `credentials`. Assigned\nby the service; omit it to keep the names already assigned."
+              },
               "secret_ref": {
                 "type": "string",
                 "description": "`seren-secrets://{vault_id}/{item_id}/{field}` reference whose field\nvalue is the OpenAI API key. Resolved at invocation time."
@@ -16271,6 +18402,10 @@
                   "chatgpt_subscription"
                 ]
               },
+              "name": {
+                "type": "string",
+                "description": "Name the credential keeps while it stays in `credentials`. Assigned\nby the service; omit it to keep the names already assigned."
+              },
               "secret_ref": {
                 "type": "string",
                 "description": "`seren-secrets://{vault_id}/{item_id}/{field}` reference whose field\nvalue is the Codex credential cache (`auth.json` contents). Resolved\nat invocation time into an invocation-scoped Codex home."
@@ -16280,17 +18415,33 @@
         ],
         "description": "Codex authentication for a managed deployment. The credential is always a\nreference to a Seren Secrets field that the deployment is already granted;\nplaintext credentials are never accepted, stored, or returned."
       },
-      "ManagedCodexConnection": {
+      "ManagedCodexFallback": {
         "type": "object",
+        "description": "The Seren Private Model a Codex connection runs on when no credential can serve.",
         "required": [
-          "auth"
+          "model_id",
+          "provider"
         ],
         "properties": {
-          "auth": {
-            "$ref": "#/components/schemas/ManagedCodexAuth",
-            "description": "How the Codex runtime authenticates for this deployment."
+          "fallback_models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Models tried in order when `model_id` is unavailable."
+          },
+          "model_id": {
+            "type": "string",
+            "description": "Model from the private models catalog."
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "seren_private_models"
+            ]
           }
-        }
+        },
+        "additionalProperties": false
       },
       "ManagedConnectorBindingMigrationState": {
         "type": "string",
@@ -16595,6 +18746,9 @@
           "operation_id"
         ],
         "properties": {
+          "arguments": {
+            "description": "The exact tool arguments of a share or outside-send call. Standing\napproval covers such a call only when every grantee or recipient is a\nmember of the deployment owner's organization."
+          },
           "operation_id": {
             "type": "string"
           },
@@ -16843,6 +18997,23 @@
           "archived"
         ]
       },
+      "OrganizationTemplateUpdateRule": {
+        "type": "object",
+        "description": "An organization's rule for its hires' updates.",
+        "required": [
+          "setting",
+          "locked"
+        ],
+        "properties": {
+          "locked": {
+            "type": "boolean",
+            "description": "With the lock, members can choose a stricter setting for a hire, never a looser one."
+          },
+          "setting": {
+            "$ref": "#/components/schemas/TemplateUpdateSetting"
+          }
+        }
+      },
       "OwnerPublisherAccessListResponse": {
         "type": "object",
         "required": [
@@ -16947,9 +19118,14 @@
         "required": [
           "model_id",
           "label",
-          "recommended"
+          "recommended",
+          "image_input"
         ],
         "properties": {
+          "image_input": {
+            "type": "boolean",
+            "description": "Whether the catalog confirms that the model accepts images."
+          },
           "label": {
             "type": "string"
           },
@@ -17608,6 +19784,18 @@
         },
         "additionalProperties": false
       },
+      "SetManagedAgentTemplateUpdateSettingRequest": {
+        "type": "object",
+        "required": [
+          "setting"
+        ],
+        "properties": {
+          "setting": {
+            "$ref": "#/components/schemas/TemplateUpdateSetting"
+          }
+        },
+        "additionalProperties": false
+      },
       "SettleBrowserHandoffRequest": {
         "type": "object",
         "description": "The runtime's report of how its window ended.",
@@ -17690,10 +19878,497 @@
           }
         }
       },
+      "Slug": {
+        "type": "string",
+        "description": "A validated URL-safe slug.\n\nSlugs must be:\n- 2-64 characters long\n- Lowercase alphanumeric with hyphens\n- Cannot start or end with a hyphen\n- Cannot have consecutive hyphens\n\n# Examples\n\n```\nuse seren_core::models::Slug;\n\nlet slug = Slug::new(\"my-project\").unwrap();\nassert!(Slug::new(\"My Project\").is_err()); // spaces not allowed\nassert!(Slug::new(\"-invalid\").is_err()); // can't start with hyphen\n```",
+        "example": "my-project"
+      },
       "Tagline": {
         "type": "string",
         "maxLength": 120,
         "minLength": 1
+      },
+      "TemplateAccessChange": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "grant",
+              "change"
+            ],
+            "properties": {
+              "change": {
+                "type": "string",
+                "enum": [
+                  "publisher_grant_added"
+                ]
+              },
+              "grant": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateScriptPublisherGrant"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "grant",
+              "change"
+            ],
+            "properties": {
+              "change": {
+                "type": "string",
+                "enum": [
+                  "publisher_grant_removed"
+                ]
+              },
+              "grant": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateScriptPublisherGrant"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The same publisher operation with a different approval requirement.",
+            "required": [
+              "before",
+              "after",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateScriptPublisherGrant"
+              },
+              "before": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateScriptPublisherGrant"
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "publisher_grant_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "rule",
+              "change"
+            ],
+            "properties": {
+              "change": {
+                "type": "string",
+                "enum": [
+                  "network_host_added"
+                ]
+              },
+              "rule": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateEgressRule"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "rule",
+              "change"
+            ],
+            "properties": {
+              "change": {
+                "type": "string",
+                "enum": [
+                  "network_host_removed"
+                ]
+              },
+              "rule": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateEgressRule"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Python package lines added to and removed from the requirements.",
+            "required": [
+              "added",
+              "removed",
+              "change"
+            ],
+            "properties": {
+              "added": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "packages_changed"
+                ]
+              },
+              "removed": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "before",
+              "after",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "$ref": "#/components/schemas/CloudDeploymentMode"
+              },
+              "before": {
+                "$ref": "#/components/schemas/CloudDeploymentMode"
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "mode_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "before",
+              "after",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "$ref": "#/components/schemas/ManagedAgentModelPolicy"
+              },
+              "before": {
+                "$ref": "#/components/schemas/ManagedAgentModelPolicy"
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "model_policy_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateLlmConnection"
+                  }
+                ]
+              },
+              "before": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateLlmConnection"
+                  }
+                ]
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "model_connection_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "before",
+              "after",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateBrowserDefaults"
+              },
+              "before": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateBrowserDefaults"
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "browser_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateRuntimeClass"
+                  }
+                ]
+              },
+              "before": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateRuntimeClass"
+                  }
+                ]
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "runtime_class_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "before_seconds",
+              "after_seconds",
+              "change"
+            ],
+            "properties": {
+              "after_seconds": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "before_seconds": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "max_runtime_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "before",
+              "after",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "type": "string"
+              },
+              "before": {
+                "type": "string"
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "cron_schedule_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A skill specification, which declares the skill's publishers and storage.",
+            "required": [
+              "path",
+              "file_change",
+              "change"
+            ],
+            "properties": {
+              "change": {
+                "type": "string",
+                "enum": [
+                  "skill_specification_changed"
+                ]
+              },
+              "file_change": {
+                "$ref": "#/components/schemas/TemplateFileChange"
+              },
+              "path": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The tool list a skill's metadata allows.",
+            "required": [
+              "path",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "before": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "skill_tools_changed"
+                ]
+              },
+              "path": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "description": "One itemized access change."
+      },
+      "TemplateContentChanges": {
+        "type": "object",
+        "description": "Paths of template files added, changed and removed. Never file contents.",
+        "required": [
+          "added",
+          "changed",
+          "removed"
+        ],
+        "properties": {
+          "added": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "changed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "removed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "TemplateFileChange": {
+        "type": "string",
+        "description": "How a file differs between two revisions.",
+        "enum": [
+          "added",
+          "changed",
+          "removed"
+        ]
+      },
+      "TemplateRevisionFailure": {
+        "type": "string",
+        "enum": [
+          "revision_conflict",
+          "superseded",
+          "deployment_unavailable",
+          "invalid_material",
+          "template_suspended",
+          "internal"
+        ]
+      },
+      "TemplateUpdateApplyOrigin": {
+        "type": "string",
+        "description": "Why a recorded move is being applied.",
+        "enum": [
+          "automatic",
+          "approved",
+          "rollback"
+        ]
+      },
+      "TemplateUpdateHeldReason": {
+        "type": "string",
+        "description": "Why an update is held.",
+        "enum": [
+          "mode_change_unsupported"
+        ]
+      },
+      "TemplateUpdateKind": {
+        "type": "string",
+        "description": "How a newer revision differs from a hire's revision. Any access change\nmakes the whole revision an access change.",
+        "enum": [
+          "access",
+          "content"
+        ]
+      },
+      "TemplateUpdateLastOutcome": {
+        "type": "string",
+        "description": "The last move this hire's update state recorded.",
+        "enum": [
+          "updated",
+          "rolled_back",
+          "failed"
+        ]
+      },
+      "TemplateUpdateSetting": {
+        "type": "string",
+        "description": "How a hire takes content updates, from strictest to loosest. Access\nchanges always need the Employer's approval.",
+        "enum": [
+          "stay",
+          "ask_first",
+          "automatic"
+        ]
+      },
+      "TemplateUpdateSettingSource": {
+        "type": "string",
+        "description": "Where a hire's effective setting comes from.",
+        "enum": [
+          "hire",
+          "organization",
+          "default"
+        ]
+      },
+      "TemplateUpdateState": {
+        "type": "string",
+        "description": "A hire's update state.",
+        "enum": [
+          "none",
+          "pending",
+          "declined",
+          "held",
+          "applying"
+        ]
       },
       "TestSerenAgentDraftRunRequest": {
         "type": "object",

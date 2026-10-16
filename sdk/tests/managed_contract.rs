@@ -47,33 +47,38 @@ async fn standing_approval_preserves_exact_lease_and_entry_identity() {
 }
 
 #[tokio::test]
-async fn allowance_check_preserves_publisher_operation_and_denial() {
-    let server = MockServer::start().await;
-    let deployment_id = Uuid::new_v4();
-    let request = ManagedPublisherAllowanceCheck {
-        publisher_slug: "seren-notes".into(),
-        operation_id: "create_note".into(),
-        request: None,
-    };
-    Mock::given(method("POST"))
-        .and(path(format!(
-            "/publishers/seren-agent/deployments/{deployment_id}/allowances/check"
-        )))
-        .and(body_json(
-            json!({"publisher_slug": "seren-notes", "operation_id": "create_note"}),
-        ))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {"allowed": false}})))
-        .expect(1)
-        .mount(&server)
-        .await;
+async fn allowance_check_preserves_publisher_operation_arguments_and_denial() {
+    for wire in [
+        json!({"publisher_slug": "seren-notes", "operation_id": "create_note"}),
+        json!({
+            "publisher_slug": "google-drive",
+            "operation_id": "post_files_permissions",
+            "arguments": {"emailAddress": "colleague@example.com", "role": "reader"}
+        }),
+    ] {
+        let server = MockServer::start().await;
+        let deployment_id = Uuid::new_v4();
+        let request: ManagedPublisherAllowanceCheck = serde_json::from_value(wire.clone()).unwrap();
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/allowances/check"
+            )))
+            .and(body_json(wire))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({"data": {"allowed": false}})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
 
-    let response = Client::new(&server.uri())
-        .seren_agent_check_managed_publisher_allowance(&deployment_id, &request)
-        .await
-        .unwrap()
-        .into_inner();
-    assert!(!response.data.allowed);
-    server.verify().await;
+        let response = Client::new(&server.uri())
+            .seren_agent_check_managed_publisher_allowance(&deployment_id, &request)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(!response.data.allowed);
+        server.verify().await;
+    }
 }
 
 #[tokio::test]

@@ -265,6 +265,9 @@ mod tests {
             if let Some(rollout) = rollout {
                 request_wire["rollout"] = json!(rollout);
             }
+            if rollout == Some(true) {
+                request_wire["release_note"] = json!("Use the updated design guidance.");
+            }
             let request: crate::PublishManagedAgentTemplateReleaseRequest =
                 serde_json::from_value(request_wire.clone()).unwrap();
             assert_eq!(request.rollout, rollout);
@@ -283,6 +286,11 @@ mod tests {
                         {"deployment_id": Uuid::new_v4(), "outcome": "updated", "revision_id": Uuid::new_v4()},
                         {"deployment_id": Uuid::new_v4(), "outcome": "already_current", "revision_id": Uuid::new_v4()},
                         {"deployment_id": Uuid::new_v4(), "outcome": "hire_incomplete", "revision_id": null, "failure": null},
+                        {"deployment_id": Uuid::new_v4(), "outcome": "pending_approval"},
+                        {"deployment_id": Uuid::new_v4(), "outcome": "declined"},
+                        {"deployment_id": Uuid::new_v4(), "outcome": "staying"},
+                        {"deployment_id": Uuid::new_v4(), "outcome": "held"},
+                        {"deployment_id": Uuid::new_v4(), "outcome": "waiting_for_task"},
                         {"deployment_id": Uuid::new_v4(), "outcome": "failed", "failure": "revision_conflict"}
                     ]
                 });
@@ -312,7 +320,7 @@ mod tests {
                         .as_array()
                         .unwrap()
                         .len(),
-                    4
+                    9
                 );
                 for (decoded, wire) in decoded["data"]["rollout"]["deployments"]
                     .as_array()
@@ -362,7 +370,17 @@ mod tests {
 
     #[test]
     fn template_rollout_rejects_unknown_outcomes_and_failures() {
-        for outcome in ["updated", "already_current", "hire_incomplete", "failed"] {
+        for outcome in [
+            "updated",
+            "already_current",
+            "hire_incomplete",
+            "pending_approval",
+            "declined",
+            "staying",
+            "held",
+            "waiting_for_task",
+            "failed",
+        ] {
             let decoded: crate::TemplateRevisionOutcome =
                 serde_json::from_value(json!(outcome)).unwrap();
             assert_eq!(serde_json::to_value(decoded).unwrap(), json!(outcome));

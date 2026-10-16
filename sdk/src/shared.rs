@@ -1367,6 +1367,8 @@ pub fn model_credential_proposal_applied_revision(
         || applied.model_id != reviewed.model_id
         || applied.auth_method != reviewed.auth_method
         || applied.operation != reviewed.operation
+        || applied.credential_name != reviewed.credential_name
+        || applied.credential_order != reviewed.credential_order
         || applied.proposal_fingerprint != reviewed.proposal_fingerprint
         || applied.requirements_fingerprint != reviewed.requirements_fingerprint
         || applied.expected_active_revision_id != reviewed.expected_active_revision_id
@@ -4320,6 +4322,54 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn model_credential_applied_revision_matches_the_reviewed_credential_change() {
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let result_id = uuid::Uuid::new_v4();
+        let applied_revision_id = uuid::Uuid::new_v4();
+        let mut wire = serde_json::to_value(model_proposal(
+            deployment_id,
+            revision_id,
+            "awaiting_review",
+            "api_key",
+            true,
+        ))
+        .unwrap();
+        wire["operation"] = serde_json::json!("reorder_credentials");
+        wire["credential_order"] = serde_json::json!(["seren-llm-codex-2", "seren-llm-codex"]);
+        let reviewed: crate::ManagedModelCredentialProposal =
+            serde_json::from_value(wire.clone()).unwrap();
+        let request: crate::ApplyModelCredentialProposalRequest =
+            serde_json::from_value(serde_json::json!({"secret_resolution_result_id": result_id}))
+                .unwrap();
+        wire["state"] = serde_json::json!("applied");
+        wire["result_id"] = serde_json::json!(result_id);
+        wire["applied_revision_id"] = serde_json::json!(applied_revision_id);
+        let applied: crate::ManagedModelCredentialProposal =
+            serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(
+            model_credential_proposal_applied_revision(&reviewed, &request, &applied).unwrap(),
+            applied_revision_id
+        );
+        for (field, value) in [
+            (
+                "credential_order",
+                serde_json::json!(["seren-llm-codex", "seren-llm-codex-2"]),
+            ),
+            ("credential_name", serde_json::json!("seren-llm-codex-3")),
+        ] {
+            let mut changed = wire.clone();
+            changed[field] = value;
+            let changed: crate::ManagedModelCredentialProposal =
+                serde_json::from_value(changed).unwrap();
+            assert!(
+                model_credential_proposal_applied_revision(&reviewed, &request, &changed).is_err(),
+                "{field}"
+            );
+        }
     }
 
     #[test]

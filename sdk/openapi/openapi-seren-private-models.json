@@ -49,18 +49,31 @@
           "401": {
             "description": "Authentication required"
           },
+          "402": {
+            "description": "Insufficient SerenBucks, or the run named in `X-Seren-Run-Id` has reached its run fee"
+          },
           "403": {
-            "description": "Private models are not configured for this organization"
+            "description": "Private models are not configured for this organization, a hired Employee's deployment key named no run in `X-Seren-Run-Id` (`run_required`), named a run of another deployment (`run_not_in_deployment`), or named a run with no model-call funding (`run_funding_required`)"
+          },
+          "409": {
+            "description": "The run named in `X-Seren-Run-Id` has ended or is being cancelled (`run_not_active`)"
           },
           "500": {
             "description": "Internal server error"
+          },
+          "502": {
+            "description": "The model provider failed or its outcome is unknown"
+          },
+          "503": {
+            "description": "An earlier model request of the run awaits usage reconciliation"
           }
         },
         "security": [
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-seren-operation-kind": "read"
       }
     },
     "/models": {
@@ -473,7 +486,8 @@
           "id",
           "object",
           "created",
-          "owned_by"
+          "owned_by",
+          "image_input"
         ],
         "properties": {
           "created": {
@@ -488,6 +502,10 @@
           },
           "id": {
             "type": "string"
+          },
+          "image_input": {
+            "type": "boolean",
+            "description": "Whether the catalog confirms that this model accepts image input."
           },
           "object": {
             "type": "string"

@@ -683,6 +683,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden. Only the person who hired an Employee can fire, pause or resume it (`managed_agent_hirer_only`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not found"
           }
@@ -1486,6 +1496,345 @@
           },
           "404": {
             "description": "Conversation not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/conversations/{conversation_id}/tasks": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_list_conversation_tasks",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after_sequence",
+            "in": "query",
+            "description": "Continue after this sequence",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, between 1 and 200",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conversation tasks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudConversationTaskPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid page"
+          },
+          "403": {
+            "description": "Conversation access denied"
+          },
+          "404": {
+            "description": "Conversation not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/conversations/{conversation_id}/tasks/{task_id}": {
+      "delete": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_remove_conversation_task",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Waiting task removed"
+          },
+          "403": {
+            "description": "Access denied"
+          },
+          "404": {
+            "description": "Task not found"
+          },
+          "409": {
+            "description": "Task cannot be changed"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_update_conversation_task",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloudConversationTaskUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Waiting task updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudConversationTask"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid update"
+          },
+          "403": {
+            "description": "Access denied"
+          },
+          "404": {
+            "description": "Task not found"
+          },
+          "409": {
+            "description": "Task cannot be changed"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/conversations/{conversation_id}/tasks/{task_id}/move": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_move_conversation_task",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Waiting task moved to a new conversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudConversationTaskMoveResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied"
+          },
+          "404": {
+            "description": "Task not found"
+          },
+          "409": {
+            "description": "Task cannot be moved"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/conversations/{conversation_id}/tasks/{task_id}/retry": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_retry_conversation_task",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Waiting task released for retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudConversationTask"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied"
+          },
+          "404": {
+            "description": "Task not found"
+          },
+          "409": {
+            "description": "Task is not awaiting a retry"
           }
         },
         "security": [
@@ -2469,6 +2818,64 @@
         ]
       }
     },
+    "/deployments/{id}/executions/{execution_id}/settlement": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_deployment_execution_settlement",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "execution_id",
+            "in": "path",
+            "description": "Execution ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Execution settlement",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ExecutionSettlementResponseSchema"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid execution ID"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Deployment access denied"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/files": {
       "post": {
         "tags": [
@@ -3328,7 +3735,7 @@
             }
           },
           "402": {
-            "description": "Insufficient SerenBucks. A hired Employee's successful-run fee requires purchased credit; promotional credit cannot pay it."
+            "description": "Insufficient SerenBucks. Promotional credit can pay a hired Employee's run fee only up to its minimum; the rest requires purchased credit."
           },
           "404": {
             "description": "Not found"
@@ -3468,7 +3875,7 @@
         "tags": [
           "seren-cloud"
         ],
-        "summary": "Cancel a queued/running deployment run.",
+        "summary": "Request cancellation of an active deployment run.",
         "operationId": "seren_cloud_deployment_run_cancel",
         "parameters": [
           {
@@ -3494,7 +3901,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Run cancellation requested",
+            "description": "Run is terminal",
             "content": {
               "application/json": {
                 "schema": {
@@ -3503,8 +3910,24 @@
               }
             }
           },
+          "202": {
+            "description": "Cancellation requested; the run remains active until cancellation is confirmed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentRunEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Cancellation is not supported for this execution provider"
+          },
           "404": {
             "description": "Not found"
+          },
+          "503": {
+            "description": "Cancellation could not be finalized; retry the request"
           }
         },
         "security": [
@@ -4355,7 +4778,7 @@
             }
           },
           "402": {
-            "description": "Insufficient SerenBucks. A hired Employee's successful-run fee requires purchased credit. Retry the same message after purchasing credit."
+            "description": "Insufficient SerenBucks for a message that starts immediately. Promotional credit can pay a hired Employee's run fee up to its minimum; the rest requires purchased credit. Queued messages wait until credit covers the run fee."
           },
           "409": {
             "description": "Interactive session is closed or idempotency conflict"
@@ -4529,6 +4952,16 @@
           },
           "402": {
             "description": "Insufficient SerenBucks balance"
+          },
+          "403": {
+            "description": "Forbidden. Only the person who hired an Employee can fire, pause or resume it (`managed_agent_hirer_only`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -4580,6 +5013,16 @@
           },
           "400": {
             "description": "Bad request (not always_on)"
+          },
+          "403": {
+            "description": "Forbidden. Only the person who hired an Employee can fire, pause or resume it (`managed_agent_hirer_only`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -7183,7 +7626,7 @@
         "tags": [
           "seren-cloud"
         ],
-        "summary": "Cancel a queued/running run by ID.",
+        "summary": "Request cancellation of an active run by ID.",
         "operationId": "seren_cloud_run_cancel",
         "parameters": [
           {
@@ -7199,7 +7642,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Run cancellation requested",
+            "description": "Run is terminal",
             "content": {
               "application/json": {
                 "schema": {
@@ -7208,8 +7651,24 @@
               }
             }
           },
+          "202": {
+            "description": "Cancellation requested; the run remains active until cancellation is confirmed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentRunEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Cancellation is not supported for this execution provider"
+          },
           "404": {
             "description": "Not found"
+          },
+          "503": {
+            "description": "Cancellation could not be finalized; retry the request"
           }
         },
         "security": [
@@ -9615,7 +10074,7 @@
             "items": {
               "$ref": "#/components/schemas/ManagedModelCredentialEffectiveMapping"
             },
-            "description": "Exact effective mapping returned by the proposal-bound Passwords approval."
+            "description": "Exact effective mapping returned by the proposal-bound Passwords approval.\nOmit it together with the result."
           },
           "secret_resolution_result_id": {
             "type": [
@@ -9623,7 +10082,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "Approved narrowed mapping. Omit only when removing the final Seren Secrets reference."
+            "description": "Approved result for the proposal. Omit only when the proposal reports\n`requires_secret_resolution_result` as false."
           }
         },
         "additionalProperties": false
@@ -10025,6 +10484,17 @@
             "type": "boolean",
             "description": "Whether the caller may choose standing approval for this pending request.\nEach email send requires an individual approval. Decisions recheck availability."
           },
+          "always_ask": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PublisherAlwaysAskNotice",
+                "description": "Present when this request deletes or bulk-changes data, shares it\npublicly or outside the organization, or sends outside the\norganization. Such a request is approved one time only; `allow_always`\nis false."
+              }
+            ]
+          },
           "function_call_id": {
             "type": [
               "string",
@@ -10308,6 +10778,33 @@
           }
         }
       },
+      "CloudConversationMessageFile": {
+        "type": "object",
+        "description": "A file a conversation message cited.",
+        "required": [
+          "file_id",
+          "name",
+          "content_type",
+          "size_bytes"
+        ],
+        "properties": {
+          "content_type": {
+            "type": "string"
+          },
+          "file_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "File reference. Pass it back to cite or download the file."
+          },
+          "name": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "CloudConversationMessageResponse": {
         "type": "object",
         "required": [
@@ -10320,6 +10817,7 @@
           "source",
           "collaboration_target",
           "content",
+          "files",
           "events",
           "created_at",
           "updated_at"
@@ -10368,6 +10866,13 @@
               "$ref": "#/components/schemas/CloudRunOutputEventEnvelope"
             }
           },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloudConversationMessageFile"
+            },
+            "description": "Files the message cited; empty when it cited none."
+          },
           "message_id": {
             "type": "string",
             "format": "uuid"
@@ -10408,6 +10913,16 @@
           },
           "source": {
             "type": "string"
+          },
+          "task": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudConversationTask"
+              }
+            ]
           },
           "unavailable": {
             "oneOf": [
@@ -10529,6 +11044,7 @@
           "organization_id",
           "user_id",
           "message_count",
+          "waiting_count",
           "last_activity_at",
           "created_at",
           "updated_at"
@@ -10600,8 +11116,143 @@
           "user_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "waiting_count": {
+            "type": "integer",
+            "format": "int64"
           }
         }
+      },
+      "CloudConversationTask": {
+        "type": "object",
+        "required": [
+          "task_id",
+          "conversation_id",
+          "state",
+          "files",
+          "created_at"
+        ],
+        "properties": {
+          "conversation_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloudConversationMessageFile"
+            }
+          },
+          "hold_reason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudConversationTaskHoldReason"
+              }
+            ]
+          },
+          "position": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "state": {
+            "$ref": "#/components/schemas/CloudConversationTaskState"
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "CloudConversationTaskHoldReason": {
+        "type": "string",
+        "enum": [
+          "approval_pending",
+          "credits",
+          "startup_failed",
+          "stopped",
+          "authority"
+        ]
+      },
+      "CloudConversationTaskMoveResponse": {
+        "type": "object",
+        "required": [
+          "conversation_id",
+          "task"
+        ],
+        "properties": {
+          "conversation_id": {
+            "type": "string"
+          },
+          "task": {
+            "$ref": "#/components/schemas/CloudConversationTask"
+          }
+        }
+      },
+      "CloudConversationTaskPage": {
+        "type": "object",
+        "required": [
+          "tasks",
+          "has_more"
+        ],
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_sequence": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloudConversationTask"
+            }
+          }
+        }
+      },
+      "CloudConversationTaskState": {
+        "type": "string",
+        "enum": [
+          "waiting",
+          "preparing",
+          "running",
+          "finished",
+          "removed"
+        ]
+      },
+      "CloudConversationTaskUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "file_ids": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "additionalProperties": false
       },
       "CloudConversationUpdateRequest": {
         "type": "object",
@@ -12790,7 +13441,8 @@
         "enum": [
           "queued",
           "running",
-          "awaiting_approval"
+          "awaiting_approval",
+          "blocked"
         ]
       },
       "CloudInteractiveSessionActiveRequests": {
@@ -12800,15 +13452,29 @@
           "session_id",
           "conversation_id",
           "cursor",
-          "runs"
+          "runs",
+          "task_revision",
+          "tasks",
+          "tasks_has_more",
+          "control_generation",
+          "desired_lifecycle_state"
         ],
         "properties": {
+          "control_generation": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Marker that changes whenever the Employee is stopped or started."
+          },
           "conversation_id": {
             "type": "string"
           },
           "cursor": {
             "type": "string",
             "description": "Continuation position for this snapshot, `run-<nanoseconds>`, or `run-0` before the conversation has a run. It equals the SSE event's `id` on a new connection; a resumed connection preserves its last delivered position as the event's `id` until pending run updates arrive."
+          },
+          "desired_lifecycle_state": {
+            "$ref": "#/components/schemas/DesiredLifecycleState",
+            "description": "Whether the Employee is currently set to run or to stay stopped."
           },
           "runs": {
             "type": "array",
@@ -12819,6 +13485,27 @@
           "session_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "task_revision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Monotonic marker that changes whenever the conversation's tasks change, independent of the run cursor."
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloudConversationTask"
+            }
+          },
+          "tasks_has_more": {
+            "type": "boolean"
+          },
+          "tasks_next_sequence": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           }
         }
       },
@@ -12886,6 +13573,16 @@
           },
           "session_id": {
             "type": "string"
+          },
+          "task": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudConversationTask"
+              }
+            ]
           },
           "updated_at": {
             "type": "string",
@@ -12963,6 +13660,16 @@
           },
           "stream_url": {
             "type": "string"
+          },
+          "task": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudConversationTask"
+              }
+            ]
           }
         }
       },
@@ -15595,6 +16302,7 @@
               "organization_id",
               "user_id",
               "message_count",
+              "waiting_count",
               "last_activity_at",
               "created_at",
               "updated_at"
@@ -15666,6 +16374,159 @@
               "user_id": {
                 "type": "string",
                 "format": "uuid"
+              },
+              "waiting_count": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudConversationTask": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "task_id",
+              "conversation_id",
+              "state",
+              "files",
+              "created_at"
+            ],
+            "properties": {
+              "conversation_id": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CloudConversationMessageFile"
+                }
+              },
+              "hold_reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudConversationTaskHoldReason"
+                  }
+                ]
+              },
+              "position": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64"
+              },
+              "state": {
+                "$ref": "#/components/schemas/CloudConversationTaskState"
+              },
+              "task_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudConversationTaskMoveResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "conversation_id",
+              "task"
+            ],
+            "properties": {
+              "conversation_id": {
+                "type": "string"
+              },
+              "task": {
+                "$ref": "#/components/schemas/CloudConversationTask"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudConversationTaskPage": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "tasks",
+              "has_more"
+            ],
+            "properties": {
+              "has_more": {
+                "type": "boolean"
+              },
+              "next_sequence": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64"
+              },
+              "tasks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CloudConversationTask"
+                }
               }
             }
           },
@@ -17564,6 +18425,16 @@
               },
               "stream_url": {
                 "type": "string"
+              },
+              "task": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudConversationTask"
+                  }
+                ]
               }
             }
           },
@@ -18163,6 +19034,141 @@
           }
         }
       },
+      "DataResponse_ExecutionSettlementResponseSchema": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "deployment_id",
+                  "execution_id",
+                  "state"
+                ],
+                "properties": {
+                  "deployment_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "execution_id": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "pending"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "deployment_id",
+                  "execution_id",
+                  "binding_ref",
+                  "conversation_id",
+                  "conversation_ref",
+                  "acceptance_order",
+                  "state"
+                ],
+                "properties": {
+                  "acceptance_order": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "binding_ref": {
+                    "type": "string"
+                  },
+                  "conversation_id": {
+                    "type": "string"
+                  },
+                  "conversation_ref": {
+                    "type": "string"
+                  },
+                  "deployment_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "execution_id": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "removed"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "deployment_id",
+                  "execution_id",
+                  "run_event_id",
+                  "conversation_id",
+                  "conversation_ref",
+                  "acceptance_order",
+                  "state"
+                ],
+                "properties": {
+                  "acceptance_order": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "conversation_id": {
+                    "type": "string"
+                  },
+                  "conversation_ref": {
+                    "type": "string"
+                  },
+                  "deployment_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "deployment_revision_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uuid"
+                  },
+                  "execution_id": {
+                    "type": "string"
+                  },
+                  "run_event_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "proven"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ExecutionStatusResponseSchema": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -18707,6 +19713,23 @@
                   }
                 ]
               },
+              "credential_name": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Name an added credential takes, or the credential a removal drops."
+              },
+              "credential_order": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "description": "Failover order a reorder sets, by credential name."
+              },
               "deployment_id": {
                 "type": "string",
                 "format": "uuid"
@@ -19121,6 +20144,23 @@
                     "$ref": "#/components/schemas/ManagedModelCredentialAuthMethod"
                   }
                 ]
+              },
+              "credential_name": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Name an added credential takes, or the credential a removal drops."
+              },
+              "credential_order": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "description": "Failover order a reorder sets, by credential name."
               },
               "deployment_id": {
                 "type": "string",
@@ -20973,6 +22013,22 @@
           "allowlist"
         ]
       },
+      "ErrorResponse": {
+        "type": "object",
+        "required": [
+          "error",
+          "message"
+        ],
+        "properties": {
+          "details": {},
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
       "EvalGate": {
         "type": "object",
         "description": "Eval gate configuration that must pass with a fresh verdict before runs proceed.\n\n`block_on_failure` controls what happens at update or rollback apply time:\nwhen `Some(true)`, the control plane rejects the apply if the latest eval\nverdict has failed or has expired beyond `max_age_seconds`. The default\n(`None`/`false`) preserves the original freshness-only behavior for\nback-compat.\n\n`schedule` is an operator-supplied cron expression that asks the control\nplane to run the gated eval set on a fixed cadence so freshness stays\ncurrent without manual triggering. The actual scheduling-loop dispatch is\nowned by the eval-set scheduler today (see `CloudEvalSetSchedule`); this\nfield records the operator intent on the deployment side.\n\n`drift_baseline` is captured by the apply path when an update or rollback\ncommits with a passing gate. Subsequent eval runs compare against the\nbaseline so operators see regressions explicitly.",
@@ -21076,6 +22132,121 @@
           }
         },
         "additionalProperties": false
+      },
+      "ExecutionSettlementResponseSchema": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "deployment_id",
+              "execution_id",
+              "state"
+            ],
+            "properties": {
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "execution_id": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "pending"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "deployment_id",
+              "execution_id",
+              "binding_ref",
+              "conversation_id",
+              "conversation_ref",
+              "acceptance_order",
+              "state"
+            ],
+            "properties": {
+              "acceptance_order": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "binding_ref": {
+                "type": "string"
+              },
+              "conversation_id": {
+                "type": "string"
+              },
+              "conversation_ref": {
+                "type": "string"
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "execution_id": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "removed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "deployment_id",
+              "execution_id",
+              "run_event_id",
+              "conversation_id",
+              "conversation_ref",
+              "acceptance_order",
+              "state"
+            ],
+            "properties": {
+              "acceptance_order": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "conversation_id": {
+                "type": "string"
+              },
+              "conversation_ref": {
+                "type": "string"
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "deployment_revision_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "execution_id": {
+                "type": "string"
+              },
+              "run_event_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "proven"
+                ]
+              }
+            }
+          }
+        ]
       },
       "ExecutionStatusResponseSchema": {
         "type": "object",
@@ -21319,43 +22490,66 @@
         "oneOf": [
           {
             "type": "object",
-            "description": "Use the organization's private-model routing through seren-private-models.",
+            "description": "Run on a Seren Private Model. Without a `model_id` the organization's private-model routing chooses the model.",
             "required": [
               "provider"
             ],
             "properties": {
+              "fallback_models": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Models tried in order when `model_id` is unavailable. Requires `model_id`."
+              },
+              "model_id": {
+                "type": "string",
+                "description": "Model from the private models catalog. Omit to use the organization default."
+              },
               "provider": {
                 "type": "string",
                 "enum": [
                   "seren_private_models"
                 ]
               }
-            }
+            },
+            "additionalProperties": false
           },
           {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/ManagedCodexConnection",
-                "description": "Run the Employee on the deployment owner's own OpenAI Codex access."
-              },
-              {
-                "type": "object",
-                "required": [
-                  "provider"
-                ],
-                "properties": {
-                  "provider": {
-                    "type": "string",
-                    "enum": [
-                      "codex"
-                    ]
-                  }
-                }
-              }
+            "type": "object",
+            "description": "Run on the Owner's own OpenAI Codex access, trying each credential in order and then the fallback Seren Private Model.\n\nCodex credentials in failover order. Multiple credentials require an explicit\nmodel and Seren Private Model fallback; a single credential may omit both.",
+            "required": [
+              "credentials",
+              "provider"
             ],
-            "description": "Run the Employee on the deployment owner's own OpenAI Codex access."
+            "properties": {
+              "credentials": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedCodexAuth"
+                },
+                "description": "Codex credentials in failover order. At least one.",
+                "minItems": 1
+              },
+              "fallback": {
+                "$ref": "#/components/schemas/ManagedCodexFallback",
+                "description": "Seren Private Model used when no credential can serve. Required with multiple credentials."
+              },
+              "model_id": {
+                "type": "string",
+                "description": "Codex model the credentials run. Required with multiple credentials."
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "codex"
+                ]
+              }
+            },
+            "additionalProperties": false
           }
-        ]
+        ],
+        "description": "The model an Employee runs, chosen by its Owner."
       },
       "ManagedAgentModelPolicy": {
         "type": "string",
@@ -21993,7 +23187,7 @@
       },
       "ManagedAgentRunFeeAmount": {
         "type": "object",
-        "description": "The current per-successful-run price, paid from purchased SerenBucks.",
+        "description": "The current per-run price. Promotional credit may pay its cost part.",
         "required": [
           "atomic",
           "usd"
@@ -22336,6 +23530,10 @@
                   "api_key"
                 ]
               },
+              "name": {
+                "type": "string",
+                "description": "Name the credential keeps while it stays in `credentials`. Assigned\nby the service; omit it to keep the names already assigned."
+              },
               "secret_ref": {
                 "type": "string",
                 "description": "`seren-secrets://{vault_id}/{item_id}/{field}` reference whose field\nvalue is the OpenAI API key. Resolved at invocation time."
@@ -22356,6 +23554,10 @@
                   "chatgpt_subscription"
                 ]
               },
+              "name": {
+                "type": "string",
+                "description": "Name the credential keeps while it stays in `credentials`. Assigned\nby the service; omit it to keep the names already assigned."
+              },
               "secret_ref": {
                 "type": "string",
                 "description": "`seren-secrets://{vault_id}/{item_id}/{field}` reference whose field\nvalue is the Codex credential cache (`auth.json` contents). Resolved\nat invocation time into an invocation-scoped Codex home."
@@ -22365,17 +23567,33 @@
         ],
         "description": "Codex authentication for a managed deployment. The credential is always a\nreference to a Seren Secrets field that the deployment is already granted;\nplaintext credentials are never accepted, stored, or returned."
       },
-      "ManagedCodexConnection": {
+      "ManagedCodexFallback": {
         "type": "object",
+        "description": "The Seren Private Model a Codex connection runs on when no credential can serve.",
         "required": [
-          "auth"
+          "model_id",
+          "provider"
         ],
         "properties": {
-          "auth": {
-            "$ref": "#/components/schemas/ManagedCodexAuth",
-            "description": "How the Codex runtime authenticates for this deployment."
+          "fallback_models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Models tried in order when `model_id` is unavailable."
+          },
+          "model_id": {
+            "type": "string",
+            "description": "Model from the private models catalog."
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "seren_private_models"
+            ]
           }
-        }
+        },
+        "additionalProperties": false
       },
       "ManagedConnectorBindingMigrationState": {
         "type": "string",
@@ -22676,6 +23894,23 @@
               }
             ]
           },
+          "credential_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name an added credential takes, or the credential a removal drops."
+          },
+          "credential_order": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Failover order a reorder sets, by credential name."
+          },
           "deployment_id": {
             "type": "string",
             "format": "uuid"
@@ -22735,7 +23970,10 @@
         "type": "string",
         "enum": [
           "configure",
-          "remove"
+          "remove",
+          "add_credential",
+          "remove_credential",
+          "reorder_credentials"
         ]
       },
       "ManagedModelCredentialProposalState": {
@@ -23358,6 +24596,23 @@
               }
             ]
           },
+          "credential_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name an added credential takes, or the credential a removal drops."
+          },
+          "credential_order": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Failover order a reorder sets, by credential name."
+          },
           "deployment_id": {
             "type": "string",
             "format": "uuid"
@@ -23403,9 +24658,26 @@
               },
               {
                 "$ref": "#/components/schemas/ManagedModelCredentialAuthMethod",
-                "description": "Reviewed Codex authentication method. Required for `configure`."
+                "description": "Reviewed Codex authentication method. Required for `configure` and `add_credential`."
               }
             ]
+          },
+          "credential": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name of the credential to drop. Required for `remove_credential`."
+          },
+          "credential_order": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Every listed credential name in the new failover order. Required for `reorder_credentials`."
           },
           "expected_active_revision_id": {
             "type": "string",
@@ -23416,7 +24688,7 @@
               "string",
               "null"
             ],
-            "description": "Desired model identifier for the resulting connection."
+            "description": "Desired model identifier for the resulting connection. Required for `configure`\nand `remove`; the other operations keep the connection's model."
           },
           "operation": {
             "$ref": "#/components/schemas/ManagedModelCredentialProposalOperation"
@@ -23600,6 +24872,31 @@
           }
         }
       },
+      "PublisherAlwaysAskNotice": {
+        "type": "object",
+        "description": "What a request that always asks will do, derived from the reviewed\noperation and the exact request. Its text names untrusted values and must\nbe displayed as text, never rendered as markup.",
+        "required": [
+          "purpose",
+          "summary",
+          "outside"
+        ],
+        "properties": {
+          "outside": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Who outside the organization gets access or receives the data, such as\nan email address, `everyone at <domain>`, or `anyone with the link`.\nEmpty when no one outside is named."
+          },
+          "purpose": {
+            "$ref": "#/components/schemas/PublisherOperationPurpose"
+          },
+          "summary": {
+            "type": "string",
+            "description": "One plain sentence naming what will be deleted, changed, shared, or\nsent, and to whom."
+          }
+        }
+      },
       "PublisherApprovalBinding": {
         "oneOf": [
           {
@@ -23770,7 +25067,11 @@
         "description": "Purpose is assigned by Seren, not by publisher-authored endpoint metadata.",
         "enum": [
           "action",
-          "email_send"
+          "email_send",
+          "data_delete",
+          "bulk_change",
+          "share",
+          "outside_send"
         ]
       },
       "ReferenceEnvCredentialProposalPreview": {

@@ -8619,7 +8619,7 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Read the current per-successful-run fee of an Employee this organization publishes.",
+        "summary": "Read the current run fee of an Employee this organization publishes, with the minimum it may be set to.",
         "operationId": "get_managed_agent_run_fee",
         "parameters": [
           {
@@ -8644,11 +8644,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Current run fee",
+            "description": "Current run fee and its minimum",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DataResponse_ManagedAgentRunFeeAmount"
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentRunFeeView"
                 }
               }
             }
@@ -8673,7 +8673,7 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Set the fee for future successful runs of every hire. Runs already admitted keep their original fee.",
+        "summary": "Set the fee for future runs of every hire. Runs already admitted keep their original fee.",
         "operationId": "set_managed_agent_run_fee",
         "parameters": [
           {
@@ -8728,6 +8728,723 @@
           },
           "404": {
             "description": "Employee not found"
+          },
+          "409": {
+            "description": "The fee is below the Employee's minimum (`run_fee_below_minimum`); the error details carry the minimum"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/intro-video": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Read the live intro video and the draft, including processing progress and refusals.",
+        "operationId": "get_managed_agent_template_intro_video",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The live intro video and the draft",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateIntroVideo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, or the organization does not publish the template"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Remove the live intro video. Repeated removal succeeds.",
+        "operationId": "delete_managed_agent_template_intro_video",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The remaining state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateIntroVideo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, the organization does not publish the template, or the template or its profile is suspended"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/intro-video/draft": {
+      "delete": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Discard the draft. Repeated discarding succeeds.",
+        "operationId": "delete_managed_agent_template_intro_video_draft",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The remaining state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateIntroVideo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, the organization does not publish the template, or the template or its profile is suspended"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/intro-video/draft/captions": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Preview the draft's captions as WebVTT.",
+        "operationId": "get_managed_agent_template_intro_video_draft_captions",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The draft's captions",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "private, no-store"
+              }
+            },
+            "content": {
+              "text/vtt": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, or the organization does not publish the template"
+          },
+          "404": {
+            "description": "The draft has no captions"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Replace the draft's captions with corrected or uploaded WebVTT.",
+        "operationId": "put_managed_agent_template_intro_video_draft_captions",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutIntroVideoCaptions"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The updated state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateIntroVideo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The captions are not WebVTT with plain cue text: `intro_video_captions_invalid`"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, the organization does not publish the template, or the template or its profile is suspended"
+          },
+          "409": {
+            "description": "There is no processed draft: `intro_video_draft_not_ready`"
+          },
+          "503": {
+            "description": "Video storage is unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/intro-video/draft/poster": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Preview the draft's still.",
+        "operationId": "get_managed_agent_template_intro_video_draft_poster",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The draft's still",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "private, no-store"
+              }
+            },
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntroVideoFile"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, or the organization does not publish the template"
+          },
+          "404": {
+            "description": "There is no processed draft"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Choose the frame shown before playback. The still is prepared in the background.",
+        "operationId": "put_managed_agent_template_intro_video_draft_poster",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutIntroVideoPoster"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The updated state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateIntroVideo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The position is outside the video: `intro_video_poster_time_invalid`"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, the organization does not publish the template, or the template or its profile is suspended"
+          },
+          "409": {
+            "description": "There is no processed draft: `intro_video_draft_not_ready`"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/intro-video/draft/publish": {
+      "post": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Publish the processed draft with its captions and still. It replaces the live\nintro video.",
+        "operationId": "publish_managed_agent_template_intro_video_draft",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The published state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateIntroVideo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, the organization does not publish the template, or the template or its profile is suspended"
+          },
+          "409": {
+            "description": "There is no processed draft (`intro_video_draft_not_ready`) or it has no captions (`intro_video_captions_required`)"
+          },
+          "503": {
+            "description": "Video storage is unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/intro-video/draft/video": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Preview the draft's video. Answers a single byte range.",
+        "operationId": "get_managed_agent_template_intro_video_draft_video",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Range",
+            "in": "header",
+            "description": "A single byte range",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The draft's video",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "private, no-store"
+              }
+            },
+            "content": {
+              "video/mp4": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntroVideoFile"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "The requested byte range",
+            "content": {
+              "video/mp4": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntroVideoFile"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, or the organization does not publish the template"
+          },
+          "404": {
+            "description": "There is no processed draft"
+          },
+          "416": {
+            "description": "The byte range cannot be met"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/intro-video/uploads": {
+      "post": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Start an upload of one file: MP4 or MOV (H.264 or HEVC) or WebM (VP9) with a sound\ntrack, portrait 2:3, 480 to 2160 pixels wide, 10 to 60 seconds, at most 250 MB.\nSend the file to the returned address, then complete the upload. A new upload\nreplaces the draft.",
+        "operationId": "create_managed_agent_template_intro_video_upload",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateIntroVideoUpload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Where to send the file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_IntroVideoUpload"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The file is refused: `intro_video_format_unsupported` or `intro_video_too_large`"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, the organization does not publish the template, or the template or its profile is suspended"
+          },
+          "503": {
+            "description": "Video storage is unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/intro-video/uploads/{upload_id}/complete": {
+      "post": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Tell Core the file is stored. Core checks it and prepares the draft in the\nbackground; read the intro video to follow progress. Repeating the call for the\nsame upload returns the current state.",
+        "operationId": "complete_managed_agent_template_intro_video_upload",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "upload_id",
+            "in": "path",
+            "description": "Upload identifier",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Processing has started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateIntroVideo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The stored file's size differs from the declared size: `intro_video_upload_size_mismatch`"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, the organization does not publish the template, or the template or its profile is suspended"
+          },
+          "404": {
+            "description": "The upload is not the template's draft"
+          },
+          "409": {
+            "description": "The file has not been stored yet: `intro_video_upload_missing`"
+          },
+          "503": {
+            "description": "Video storage is unavailable"
           }
         },
         "security": [
@@ -8859,7 +9576,7 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Publish a release from an organization's managed deployment. Requires a\nbuilt-in Owner's direct session or unrestricted user API key. New templates\nare immediately hireable. Repeating the current release adds no revision;\nrollout applies the current release to existing hires and reports each outcome.",
+        "summary": "Publish a release from an organization's managed deployment. Requires a\nbuilt-in Owner's direct session or unrestricted user API key. New templates\nare immediately hireable. Repeating the current release adds no revision;\nexisting hires receive the release by their Employers' update settings, and\n`rollout` offers it to them now and reports each outcome.",
         "operationId": "publish_managed_agent_deployment",
         "parameters": [
           {
@@ -9004,7 +9721,7 @@
           "managed-agent-templates"
         ],
         "summary": "Publish an uploaded release of a managed agent template.",
-        "description": "Creates the template when it does not exist, and otherwise adds the\nrelease as its next revision. A new template can be hired as soon as it is\npublished. Publication cannot create a template at a reserved slug, and a\nsuspended template accepts no release. Publishing the current revision\nagain changes nothing. With `rollout`, the template's current revision is\nthen applied to each existing hire and the response reports each hire's\noutcome. One hire's\nfailure neither fails the release nor undoes the others. Repeating the\ncurrent release retries a partly applied rollout. The rollout names its\napplied revision separately if another release advanced the template. A\nmode mismatch found before the sweep changes no hire; completed hires it\nwould change are reported failed and incomplete hires remain pending.\nA release is refused unless a hire can use it with at least one provider,\nand the response lists the providers a hire can select.\nRequires a user API key with `managed-agent-template:publish`, granted by\na built-in owner of the publishing organization. Any organization can\npublish, and only the organization that published a template can release\nit again. An issued key remains valid if its creator later loses\nownership, until it expires or is revoked.",
+        "description": "Creates the template when it does not exist, and otherwise adds the\nrelease as its next revision. A new template can be hired as soon as it is\npublished. Publication cannot create a template at a reserved slug, and a\nsuspended template accepts no release. Publishing the current revision\nagain changes nothing. Existing hires receive a release by their\nEmployers' update settings: a content change applies by itself between\ntasks under `automatic`, an access change or any change under `ask_first`\nwaits for the Employer's approval, and `stay` changes nothing. With\n`rollout`, the template's current revision is offered to each existing hire\nnow and the response reports each hire's outcome; otherwise the update job\noffers it on its next pass. `rollout` never applies anything past an\nEmployer's setting or approval. One hire's failure neither fails the\nrelease nor undoes the others. Repeating the current release retries a\npartly applied rollout. The rollout names its offered revision separately\nif another release advanced the template. A hire whose mode differs from\nthe release's is held, and incomplete hires are offered the release once\nthey complete. An optional `release_note` is shown to Employers as the\nOwner's words.\nA release is refused unless a hire can use it with at least one provider,\nand the response lists the providers a hire can select.\nRequires a user API key with `managed-agent-template:publish`, granted by\na built-in owner of the publishing organization. Any organization can\npublish, and only the organization that published a template can release\nit again. An issued key remains valid if its creator later loses\nownership, until it expires or is revoked.",
         "operationId": "publish_managed_agent_template_release",
         "parameters": [
           {
@@ -9058,7 +9775,99 @@
             "description": "The credential or organization may not publish this template, or the template is suspended (`managed_agent_template_suspended`)"
           },
           "409": {
-            "description": "The slug is reserved and no template exists there (`managed_agent_template_slug_reserved`), the display name differs from the template's, the release conflicts with the template or its bundle, or the rollout of a published release could not start because the current revision is unavailable or the template is suspended"
+            "description": "The slug is reserved and no template exists there (`managed_agent_template_slug_reserved`), the display name differs from the template's, the release conflicts with the template or its bundle, the rollout of a published release could not start because the current revision is unavailable or the template is suspended, or the template's fee is below its minimum (`run_fee_below_minimum`)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/updates": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "operationId": "get_managed_agent_update_policy",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID or 'default' for the authenticated user's default organization",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The organization's rule for how its Employees take template updates, and how many hires it decides",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OrganizationManagedAgentUpdatePolicy"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "User is not a member of the organization"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Sets or removes the organization's rule. The rule is every hire's default;\nwith the lock on, members can choose a stricter setting for a hire but not\na looser one. Access changes always wait for the Employer's approval.",
+        "operationId": "update_managed_agent_update_policy",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID or 'default' for the authenticated user's default organization",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOrganizationManagedAgentUpdatePolicyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The organization's updated rule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OrganizationManagedAgentUpdatePolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid rule"
+          },
+          "403": {
+            "description": "Only a signed-in organization owner or administrator can update the rule"
           }
         },
         "security": [
@@ -10684,6 +11493,198 @@
         }
       }
     },
+    "/service/publishers/seren-affiliates/qualifications/{qualification_id}/grants": {
+      "post": {
+        "tags": [
+          "Service Publishers"
+        ],
+        "summary": "Grant one beneficiary's reward for a qualified referral as spend-only\ncredit that expires. The recipient, amount and expiry are those recorded\nwhen the referral qualified. Repeating a request returns the original grant.",
+        "operationId": "service_create_employee_referral_grant",
+        "parameters": [
+          {
+            "name": "qualification_id",
+            "in": "path",
+            "description": "Qualified referral",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmployeeReferralGrantRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Referral reward granted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_EmployeeReferralGrantResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid qualification or reference"
+          },
+          "401": {
+            "description": "Service authentication required"
+          },
+          "403": {
+            "description": "Publisher is not permitted to grant referral rewards"
+          },
+          "404": {
+            "description": "Qualified referral not found"
+          },
+          "409": {
+            "description": "The reference does not belong to this beneficiary of the qualified referral, the beneficiary cannot receive the reward, or the reward was cancelled or reversed"
+          },
+          "422": {
+            "description": "Invalid grant request"
+          },
+          "503": {
+            "description": "Referral reward service is temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/service/publishers/seren-affiliates/qualifications/{qualification_id}/reversals": {
+      "post": {
+        "tags": [
+          "Service Publishers"
+        ],
+        "summary": "Reverse the reward granted to one beneficiary of a qualified referral. Only\nthe unspent balance is recovered; spent credit is written off and is never\ncollected. Repeating a request returns the original receipt.",
+        "operationId": "service_create_employee_referral_reversal",
+        "parameters": [
+          {
+            "name": "qualification_id",
+            "in": "path",
+            "description": "Qualified referral",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagedAgentReferralReversalBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Referral reward reversed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentReferralRewardReversal"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid reversal"
+          },
+          "401": {
+            "description": "Service authentication required"
+          },
+          "403": {
+            "description": "Publisher is not permitted to reverse referral rewards"
+          },
+          "404": {
+            "description": "Qualified referral not found"
+          },
+          "409": {
+            "description": "The grant or user is not this beneficiary of the qualified referral, no reward was granted, the reward was already cancelled or reversed, or the key was used for a different reversal"
+          },
+          "422": {
+            "description": "Invalid reversal request"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/service/publishers/seren-affiliates/qualifications/{qualification_id}/reversals/{idempotency_key}": {
+      "get": {
+        "tags": [
+          "Service Publishers"
+        ],
+        "summary": "Read the receipt of a reversal by the key its request carried.",
+        "operationId": "service_get_employee_referral_reversal",
+        "parameters": [
+          {
+            "name": "qualification_id",
+            "in": "path",
+            "description": "Qualified referral",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency_key",
+            "in": "path",
+            "description": "Key of the reversal request",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Referral reward reversal",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentReferralRewardReversal"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Service authentication required"
+          },
+          "403": {
+            "description": "Publisher is not permitted to read referral reward reversals"
+          },
+          "404": {
+            "description": "No reversal was recorded for this key"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/service/publishers/seren-affiliates/referral-campaigns/{template_slug}/rewards": {
       "post": {
         "tags": [
@@ -10843,7 +11844,7 @@
         "tags": [
           "Service Publishers"
         ],
-        "summary": "Grant spend-only referral credit. Repeating a reference with the same\nrecipient, amount, and description returns the original grant.",
+        "summary": "Grant spend-only referral credit. Repeating a reference with the same\nrecipient, amount, description, program, and hire attribution returns the original grant.",
         "operationId": "service_create_affiliate_reward",
         "parameters": [
           {
@@ -10895,6 +11896,72 @@
           },
           "422": {
             "description": "Invalid reward request"
+          },
+          "503": {
+            "description": "Referral reward service is temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/service/publishers/seren-affiliates/users/{user_id}/affiliate-rewards/{reference_id}": {
+      "get": {
+        "tags": [
+          "Service Publishers"
+        ],
+        "summary": "Retrieve a recorded referral reward and its original attribution without issuing credit.",
+        "operationId": "service_get_affiliate_reward",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "Non-nil reward recipient",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "reference_id",
+            "in": "path",
+            "description": "Non-nil reward reference",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Original reward receipt",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_AffiliateRewardReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid reward reference or recipient"
+          },
+          "401": {
+            "description": "Service authentication required"
+          },
+          "403": {
+            "description": "Publisher is not permitted to read referral rewards"
+          },
+          "404": {
+            "description": "No reward is recorded for the reference; the error code is `reward_not_recorded`"
+          },
+          "409": {
+            "description": "Reference belongs to a different reward"
           },
           "503": {
             "description": "Referral reward service is temporarily unavailable"
@@ -11398,6 +12465,51 @@
           },
           "403": {
             "description": "User session required"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/users/me/attributions": {
+      "post": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Record a tagged visit by the signed-in user.",
+        "operationId": "record_current_user_campaign_touch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordCampaignTouchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Touch outcome; repeating a request does not add a second touch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CampaignTouchRecorded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Direct user session required"
+          },
+          "429": {
+            "description": "Too many touches reported today"
           }
         },
         "security": [
@@ -12701,6 +13813,99 @@
         }
       }
     },
+    "/webhooks/triggers/{route_id}": {
+      "post": {
+        "tags": [
+          "Connector Webhooks"
+        ],
+        "summary": "Submit one event using the credential supplied when the webhook was created.",
+        "operationId": "submit_managed_agent_webhook",
+        "parameters": [
+          {
+            "name": "route_id",
+            "in": "path",
+            "description": "Webhook ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Seren-Webhook-Token",
+            "in": "header",
+            "description": "Webhook credential",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Stable event key, at most 128 visible ASCII characters",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "UTF-8 event content, at most 64 KiB. JSON content is also accepted. Resending the same key requires identical content.",
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Event already accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentWebhookReceipt"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Event accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentWebhookReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid event"
+          },
+          "401": {
+            "description": "Webhook credential required"
+          },
+          "404": {
+            "description": "Webhook unavailable"
+          },
+          "409": {
+            "description": "Event key already used with different content"
+          },
+          "413": {
+            "description": "Event too large"
+          },
+          "429": {
+            "description": "Webhook queue or rate limit reached"
+          },
+          "503": {
+            "description": "Webhook temporarily unavailable"
+          }
+        }
+      }
+    },
     "/webhooks/{route_id}": {
       "get": {
         "tags": [
@@ -12867,6 +14072,39 @@
           }
         }
       },
+      "ActiveIntroVideo": {
+        "type": "object",
+        "description": "The live intro video.",
+        "required": [
+          "object_id",
+          "width",
+          "height",
+          "duration_ms",
+          "published_at"
+        ],
+        "properties": {
+          "duration_ms": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "height": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "object_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "published_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "width": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "AddPaymentMethodRequest": {
         "type": "object",
         "required": [
@@ -13026,6 +14264,49 @@
           }
         }
       },
+      "AffiliateRewardReceipt": {
+        "type": "object",
+        "required": [
+          "id",
+          "user_id",
+          "amount_atomic"
+        ],
+        "properties": {
+          "amount_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hire_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Originating hire. Absent when unknown, or null when certified no hire."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "program_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "AffiliateRewardRequest": {
         "type": "object",
         "required": [
@@ -13044,6 +14325,22 @@
             "type": "string",
             "maxLength": 256,
             "minLength": 1
+          },
+          "hire_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Originating hire. Omit when unknown, or use null to certify no hire."
+          },
+          "program_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Non-nil referral program that earned the reward. A reward sent without one stays\nunassigned."
           },
           "reference_id": {
             "type": "string",
@@ -13421,6 +14718,7 @@
           "daily_claim",
           "referral_reward",
           "affiliate_reward",
+          "employee_referral_reward",
           "admin_grant",
           "promo_code",
           "tier_bonus",
@@ -14278,6 +15576,36 @@
           "headed"
         ]
       },
+      "CampaignParameter": {
+        "type": "string",
+        "enum": [
+          "utm_source",
+          "utm_medium",
+          "utm_campaign",
+          "utm_content",
+          "touched_at"
+        ]
+      },
+      "CampaignTouchRecorded": {
+        "type": "object",
+        "required": [
+          "stored",
+          "dropped_parameters"
+        ],
+        "properties": {
+          "dropped_parameters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CampaignParameter"
+            },
+            "description": "Parameters that were not accepted. A touch without a valid tag and time is not stored."
+          },
+          "stored": {
+            "type": "boolean",
+            "description": "Whether this touch is on record, including when an earlier request stored it."
+          }
+        }
+      },
       "CapabilityLabel": {
         "type": "string",
         "maxLength": 80,
@@ -14590,6 +15918,33 @@
             "format": "uuid"
           }
         }
+      },
+      "CreateIntroVideoUpload": {
+        "type": "object",
+        "description": "Describes the file about to be uploaded.",
+        "required": [
+          "file_name",
+          "content_type",
+          "size_bytes"
+        ],
+        "properties": {
+          "content_type": {
+            "type": "string",
+            "description": "`video/mp4`, `video/quicktime` or `video/webm`.",
+            "example": "video/mp4"
+          },
+          "file_name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Exact size of the file, at most 250 MB."
+          }
+        },
+        "additionalProperties": false
       },
       "CreateOAuthProviderRequest": {
         "type": "object",
@@ -15760,6 +17115,69 @@
           }
         }
       },
+      "DataResponse_AffiliateRewardReceipt": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "user_id",
+              "amount_atomic"
+            ],
+            "properties": {
+              "amount_atomic": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hire_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "Originating hire. Absent when unknown, or null when certified no hire."
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "program_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "user_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_AffiliateRewardResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -16757,6 +18175,46 @@
           }
         }
       },
+      "DataResponse_CampaignTouchRecorded": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "stored",
+              "dropped_parameters"
+            ],
+            "properties": {
+              "dropped_parameters": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CampaignParameter"
+                },
+                "description": "Parameters that were not accepted. A touch without a valid tag and time is not stored."
+              },
+              "stored": {
+                "type": "boolean",
+                "description": "Whether this touch is on record, including when an earlier request stored it."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_CommunityPriorResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -17040,6 +18498,55 @@
               },
               "total_usd": {
                 "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_EmployeeReferralGrantResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "grant_id",
+              "user_id",
+              "amount_atomic",
+              "expires_at"
+            ],
+            "properties": {
+              "amount_atomic": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Reward in atomic USD units; 1 USD is 1,000,000 units."
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "grant_id": {
+                "type": "string",
+                "format": "uuid",
+                "description": "Equal to the request's `reference_id`."
+              },
+              "user_id": {
+                "type": "string",
+                "format": "uuid"
               }
             }
           },
@@ -17437,6 +18944,63 @@
               "status": {
                 "$ref": "#/components/schemas/ManagedAgentSecretsSetupState",
                 "description": "State of the setup this launch link continues. A new or relaunched\nsetup is unconsumed; an approval already in progress keeps its state."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_IntroVideoUpload": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Where and how to send the file. Send exactly the declared bytes with these headers.",
+            "required": [
+              "upload_id",
+              "upload_url",
+              "method",
+              "headers",
+              "expires_at"
+            ],
+            "properties": {
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "headers": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                }
+              },
+              "method": {
+                "type": "string",
+                "example": "PUT"
+              },
+              "upload_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "upload_url": {
+                "type": "string"
               }
             }
           },
@@ -17942,6 +19506,95 @@
           }
         }
       },
+      "DataResponse_ManagedAgentReferralRewardReversal": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "The receipt of one reversed reward. Amounts are atomic USD: 1,000,000\nequals one dollar.",
+            "required": [
+              "reversal_id",
+              "grant_id",
+              "qualification_id",
+              "role",
+              "user_id",
+              "original_atomic",
+              "recovered_atomic",
+              "written_off_atomic",
+              "expired_atomic",
+              "state",
+              "reason",
+              "reversed_at"
+            ],
+            "properties": {
+              "expired_atomic": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Unspent credit that had already expired."
+              },
+              "grant_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "original_atomic": {
+                "type": "integer",
+                "format": "int64",
+                "description": "The reward as granted."
+              },
+              "qualification_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "reason": {
+                "$ref": "#/components/schemas/ManagedAgentReferralReversalReason"
+              },
+              "recovered_atomic": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Unspent credit taken back."
+              },
+              "reversal_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "reversed_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "role": {
+                "$ref": "#/components/schemas/ManagedAgentReferralBeneficiaryRole"
+              },
+              "state": {
+                "$ref": "#/components/schemas/ManagedAgentReferralReversalState"
+              },
+              "user_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "written_off_atomic": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Credit already spent, which is not collected."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedAgentRunFeeAmount": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -17951,7 +19604,7 @@
         "properties": {
           "data": {
             "type": "object",
-            "description": "The current per-successful-run price, paid from purchased SerenBucks.",
+            "description": "The current per-run price. Promotional credit may pay its cost part.",
             "required": [
               "atomic",
               "usd"
@@ -17960,6 +19613,47 @@
               "atomic": {
                 "type": "integer",
                 "format": "int64"
+              },
+              "usd": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentRunFeeView": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "An Employee's current fee with the minimum it may not be priced below.",
+            "required": [
+              "atomic",
+              "usd",
+              "minimum"
+            ],
+            "properties": {
+              "atomic": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "minimum": {
+                "$ref": "#/components/schemas/ManagedAgentRunMinimum"
               },
               "usd": {
                 "type": "string"
@@ -18140,6 +19834,52 @@
           }
         }
       },
+      "DataResponse_ManagedAgentTemplateIntroVideo": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "A template's live intro video and its draft.",
+            "properties": {
+              "active": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ActiveIntroVideo"
+                  }
+                ]
+              },
+              "draft": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DraftIntroVideo"
+                  }
+                ]
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedAgentTemplateProfile": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -18252,12 +19992,48 @@
                   },
                   {
                     "$ref": "#/components/schemas/AdminTemplateRevisionApplication",
-                    "description": "The applied template revision and each existing hire's outcome. Present\nonly when the request asked for a rollout. Its revision can differ from\nthe published revision if another release advanced the template."
+                    "description": "The offered template revision and each existing hire's outcome under its\nEmployer's update setting. Present only when the request asked for a\nrollout. Its revision can differ from the published revision if another\nrelease advanced the template."
                   }
                 ]
               },
               "slug": {
                 "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentWebhookReceipt": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "message_id",
+              "duplicate"
+            ],
+            "properties": {
+              "duplicate": {
+                "type": "boolean"
+              },
+              "message_id": {
+                "type": "string",
+                "format": "uuid"
               }
             }
           },
@@ -19087,6 +20863,51 @@
               },
               "role": {
                 "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_OrganizationManagedAgentUpdatePolicy": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "An organization's update rule and how many of its hires the rule decides.",
+            "required": [
+              "covered_hires"
+            ],
+            "properties": {
+              "covered_hires": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Hires whose setting comes from the rule."
+              },
+              "rule": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/OrganizationTemplateUpdateRule",
+                    "description": "The rule for the organization's hires; none leaves each hire on its template's default."
+                  }
+                ]
               }
             }
           },
@@ -21388,6 +23209,13 @@
               },
               "id": {
                 "type": "string",
+                "format": "uuid"
+              },
+              "program_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "format": "uuid"
               },
               "user_id": {
@@ -26074,6 +27902,70 @@
         "maxLength": 2000,
         "minLength": 1
       },
+      "DraftIntroVideo": {
+        "type": "object",
+        "description": "The uploaded video awaiting publication.",
+        "required": [
+          "upload_id",
+          "state",
+          "progress_percent",
+          "poster_at_ms",
+          "captions"
+        ],
+        "properties": {
+          "captions": {
+            "$ref": "#/components/schemas/IntroVideoDraftCaptions"
+          },
+          "duration_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "poster_at_ms": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "progress_percent": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 100,
+            "minimum": 0
+          },
+          "refusal": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/IntroVideoRefusalNotice"
+              }
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/IntroVideoDraftState"
+          },
+          "upload_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "width": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "Eip712Domain": {
         "type": "object",
         "description": "EIP-712 domain (matches ethereum.rs Eip712Domain)",
@@ -26182,6 +28074,53 @@
         "type": "string",
         "description": "A validated email address.\n\nThis type ensures email addresses are validated at construction time.\nStored as TEXT in the database via SQLx's transparent encoding.\n\n# Examples\n\n```\nuse seren_core::models::Email;\n\nlet email = Email::new(\"user@example.com\").unwrap();\nassert!(Email::new(\"invalid\").is_err());\n```",
         "example": "user@example.com"
+      },
+      "EmployeeReferralGrantRequest": {
+        "type": "object",
+        "required": [
+          "role",
+          "reference_id"
+        ],
+        "properties": {
+          "reference_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The reference issued for this beneficiary when the referral qualified."
+          },
+          "role": {
+            "$ref": "#/components/schemas/ManagedAgentReferralBeneficiaryRole"
+          }
+        },
+        "additionalProperties": false
+      },
+      "EmployeeReferralGrantResponse": {
+        "type": "object",
+        "required": [
+          "grant_id",
+          "user_id",
+          "amount_atomic",
+          "expires_at"
+        ],
+        "properties": {
+          "amount_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Reward in atomic USD units; 1 USD is 1,000,000 units."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "grant_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Equal to the request's `reference_id`."
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
       },
       "EndpointAccess": {
         "type": "string",
@@ -27036,6 +28975,108 @@
           "mcp"
         ]
       },
+      "IntroVideoCaptionsState": {
+        "type": "string",
+        "enum": [
+          "drafting",
+          "drafted",
+          "failed",
+          "owner"
+        ]
+      },
+      "IntroVideoDraftCaptions": {
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "failure": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the caption draft failed. Supply WebVTT captions to continue."
+          },
+          "state": {
+            "$ref": "#/components/schemas/IntroVideoCaptionsState"
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "WebVTT text, once drafted or supplied."
+          }
+        }
+      },
+      "IntroVideoDraftState": {
+        "type": "string",
+        "enum": [
+          "uploading",
+          "processing",
+          "ready",
+          "refused"
+        ]
+      },
+      "IntroVideoFile": {
+        "type": "string",
+        "format": "binary"
+      },
+      "IntroVideoRefusalNotice": {
+        "type": "object",
+        "description": "Why an uploaded file cannot be used, with the measured value and the rule.",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "intro_video_shape"
+          },
+          "message": {
+            "type": "string",
+            "example": "This video is 1080 × 1920 (9:16). Employee videos are 2:3, for example 1080 × 1620."
+          }
+        }
+      },
+      "IntroVideoUpload": {
+        "type": "object",
+        "description": "Where and how to send the file. Send exactly the declared bytes with these headers.",
+        "required": [
+          "upload_id",
+          "upload_url",
+          "method",
+          "headers",
+          "expires_at"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "method": {
+            "type": "string",
+            "example": "PUT"
+          },
+          "upload_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "upload_url": {
+            "type": "string"
+          }
+        }
+      },
       "InvocationCostBreakdown": {
         "type": "object",
         "description": "Cost breakdown for template invocation response",
@@ -27406,6 +29447,14 @@
           "private_session_database"
         ]
       },
+      "ManagedAgentReferralBeneficiaryRole": {
+        "type": "string",
+        "description": "The two people a qualified referral rewards.",
+        "enum": [
+          "referrer",
+          "referred"
+        ]
+      },
       "ManagedAgentReferralCampaign": {
         "type": "object",
         "description": "A template's referral campaign.",
@@ -27512,9 +29561,125 @@
           }
         }
       },
+      "ManagedAgentReferralReversalBody": {
+        "type": "object",
+        "required": [
+          "role",
+          "grant_id",
+          "user_id",
+          "idempotency_key"
+        ],
+        "properties": {
+          "grant_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The grant issued to this beneficiary for the qualified referral."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Identifies this reversal. Repeating it returns the original receipt."
+          },
+          "role": {
+            "$ref": "#/components/schemas/ManagedAgentReferralBeneficiaryRole"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The beneficiary who holds the grant."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentReferralReversalReason": {
+        "type": "string",
+        "description": "Why a beneficiary's reward was cancelled or taken back.",
+        "enum": [
+          "usage_below_threshold",
+          "admin_clawback"
+        ]
+      },
+      "ManagedAgentReferralReversalState": {
+        "type": "string",
+        "description": "What reversing a granted reward recovered.",
+        "enum": [
+          "reversed",
+          "partially_recovered",
+          "nothing_to_recover"
+        ]
+      },
+      "ManagedAgentReferralRewardReversal": {
+        "type": "object",
+        "description": "The receipt of one reversed reward. Amounts are atomic USD: 1,000,000\nequals one dollar.",
+        "required": [
+          "reversal_id",
+          "grant_id",
+          "qualification_id",
+          "role",
+          "user_id",
+          "original_atomic",
+          "recovered_atomic",
+          "written_off_atomic",
+          "expired_atomic",
+          "state",
+          "reason",
+          "reversed_at"
+        ],
+        "properties": {
+          "expired_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unspent credit that had already expired."
+          },
+          "grant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "original_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The reward as granted."
+          },
+          "qualification_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/ManagedAgentReferralReversalReason"
+          },
+          "recovered_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unspent credit taken back."
+          },
+          "reversal_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reversed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ManagedAgentReferralBeneficiaryRole"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ManagedAgentReferralReversalState"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "written_off_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Credit already spent, which is not collected."
+          }
+        }
+      },
       "ManagedAgentRunFeeAmount": {
         "type": "object",
-        "description": "The current per-successful-run price, paid from purchased SerenBucks.",
+        "description": "The current per-run price. Promotional credit may pay its cost part.",
         "required": [
           "atomic",
           "usd"
@@ -27526,6 +29691,73 @@
           },
           "usd": {
             "type": "string"
+          }
+        }
+      },
+      "ManagedAgentRunFeeView": {
+        "type": "object",
+        "description": "An Employee's current fee with the minimum it may not be priced below.",
+        "required": [
+          "atomic",
+          "usd",
+          "minimum"
+        ],
+        "properties": {
+          "atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "minimum": {
+            "$ref": "#/components/schemas/ManagedAgentRunMinimum"
+          },
+          "usd": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentRunMinimum": {
+        "type": "object",
+        "description": "The lowest fee an Employee's run may be priced at: what a typical long run\ncosts to serve, plus one cold start, rounded up to the cent.",
+        "required": [
+          "atomic",
+          "usd",
+          "compute_atomic",
+          "model_atomic",
+          "wake_atomic",
+          "price_list_version",
+          "computed_at"
+        ],
+        "properties": {
+          "atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "compute_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Compute for a typical long run."
+          },
+          "computed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "model_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Model usage for a typical long run."
+          },
+          "price_list_version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The version of the prices the minimum was computed from."
+          },
+          "usd": {
+            "type": "string"
+          },
+          "wake_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "One cold start."
           }
         }
       },
@@ -28055,6 +30287,17 @@
           "cron_schedule": {
             "type": "string"
           },
+          "llm_connection": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplateLlmConnection",
+                "description": "Model every hired copy runs, chosen by the template's Owner. Omit to\nuse the default Seren Private Model."
+              }
+            ]
+          },
           "max_runtime_seconds": {
             "type": "integer",
             "format": "int32",
@@ -28120,6 +30363,86 @@
           }
         },
         "additionalProperties": false
+      },
+      "ManagedAgentTemplateIntroVideo": {
+        "type": "object",
+        "description": "A template's live intro video and its draft.",
+        "properties": {
+          "active": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ActiveIntroVideo"
+              }
+            ]
+          },
+          "draft": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DraftIntroVideo"
+              }
+            ]
+          }
+        }
+      },
+      "ManagedAgentTemplateLlmConnection": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "provider"
+            ],
+            "properties": {
+              "fallback_models": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Models tried in order when `model_id` is unavailable. Requires `model_id`."
+              },
+              "model_id": {
+                "type": "string",
+                "description": "Model from the private models catalog. Omit to use the organization default."
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "seren_private_models"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "model_id",
+              "fallback",
+              "provider"
+            ],
+            "properties": {
+              "fallback": {
+                "$ref": "#/components/schemas/ManagedCodexFallback"
+              },
+              "model_id": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "codex"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        ],
+        "description": "Credential-free model choices shared by a template's hired copies."
       },
       "ManagedAgentTemplateOmittedTool": {
         "type": "object",
@@ -28222,7 +30545,7 @@
               },
               {
                 "$ref": "#/components/schemas/AdminTemplateRevisionApplication",
-                "description": "The applied template revision and each existing hire's outcome. Present\nonly when the request asked for a rollout. Its revision can differ from\nthe published revision if another release advanced the template."
+                "description": "The offered template revision and each existing hire's outcome under its\nEmployer's update setting. Present only when the request asked for a\nrollout. Its revision can differ from the published revision if another\nrelease advanced the template."
               }
             ]
           },
@@ -28258,6 +30581,50 @@
           },
           "require_approval": {
             "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentWebhookReceipt": {
+        "type": "object",
+        "required": [
+          "message_id",
+          "duplicate"
+        ],
+        "properties": {
+          "duplicate": {
+            "type": "boolean"
+          },
+          "message_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ManagedCodexFallback": {
+        "type": "object",
+        "description": "The Seren Private Model a Codex connection runs on when no credential can serve.",
+        "required": [
+          "model_id",
+          "provider"
+        ],
+        "properties": {
+          "fallback_models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Models tried in order when `model_id` is unavailable."
+          },
+          "model_id": {
+            "type": "string",
+            "description": "Model from the private models catalog."
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "seren_private_models"
+            ]
           }
         },
         "additionalProperties": false
@@ -29354,6 +31721,31 @@
           }
         }
       },
+      "OrganizationManagedAgentUpdatePolicy": {
+        "type": "object",
+        "description": "An organization's update rule and how many of its hires the rule decides.",
+        "required": [
+          "covered_hires"
+        ],
+        "properties": {
+          "covered_hires": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Hires whose setting comes from the rule."
+          },
+          "rule": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrganizationTemplateUpdateRule",
+                "description": "The rule for the organization's hires; none leaves each hire on its template's default."
+              }
+            ]
+          }
+        }
+      },
       "OrganizationMemberWithUser": {
         "type": "object",
         "description": "Organization member with denormalized user fields for API responses.",
@@ -29978,6 +32370,23 @@
           },
           "template_slug": {
             "type": "string"
+          }
+        }
+      },
+      "OrganizationTemplateUpdateRule": {
+        "type": "object",
+        "description": "An organization's rule for its hires' updates.",
+        "required": [
+          "setting",
+          "locked"
+        ],
+        "properties": {
+          "locked": {
+            "type": "boolean",
+            "description": "With the lock, members can choose a stricter setting for a hire, never a looser one."
+          },
+          "setting": {
+            "$ref": "#/components/schemas/TemplateUpdateSetting"
           }
         }
       },
@@ -31561,8 +33970,18 @@
             "description": "Required when the source has no runtime limit; refused otherwise.",
             "minimum": 0
           },
+          "release_note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Plain-text note shown to Employers as the Owner's words about this\nrelease. Recorded when the release adds a revision.",
+            "maxLength": 2000,
+            "minLength": 1
+          },
           "rollout": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether to offer the current release to existing hires now. Each hire\nfollows its Employer's update setting either way."
           }
         },
         "additionalProperties": false
@@ -31583,9 +34002,18 @@
             "type": "string",
             "description": "Name of the template. It must equal the name of an existing template."
           },
+          "release_note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Plain-text note shown to Employers as the Owner's words about this\nrelease. Recorded when the release adds a revision.",
+            "maxLength": 2000,
+            "minLength": 1
+          },
           "rollout": {
             "type": "boolean",
-            "description": "Whether to apply the template's current revision to its existing hires\nafter the release is published."
+            "description": "Whether to offer the template's current revision to its existing hires\nnow, after the release is published. Each hire follows its Employer's\nupdate setting either way; without `rollout` the update job offers the\nrelease on its next pass."
           },
           "source_bundle_id": {
             "type": "string",
@@ -32054,7 +34482,11 @@
         "description": "Purpose is assigned by Seren, not by publisher-authored endpoint metadata.",
         "enum": [
           "action",
-          "email_send"
+          "email_send",
+          "data_delete",
+          "bulk_change",
+          "share",
+          "outside_send"
         ]
       },
       "PublisherPayoutInfo": {
@@ -32713,6 +35145,36 @@
           }
         }
       },
+      "PutIntroVideoCaptions": {
+        "type": "object",
+        "description": "Replaces the draft's captions.",
+        "required": [
+          "vtt"
+        ],
+        "properties": {
+          "vtt": {
+            "type": "string",
+            "description": "WebVTT with plain cue text, at most 100 KB."
+          }
+        },
+        "additionalProperties": false
+      },
+      "PutIntroVideoPoster": {
+        "type": "object",
+        "description": "Chooses the frame shown before playback.",
+        "required": [
+          "at_ms"
+        ],
+        "properties": {
+          "at_ms": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Position in the video, in milliseconds.",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
       "PutManagedAgentReferralCampaignRequest": {
         "type": "object",
         "required": [
@@ -32962,6 +35424,47 @@
           }
         }
       },
+      "RecordCampaignTouchRequest": {
+        "type": "object",
+        "required": [
+          "touched_at"
+        ],
+        "properties": {
+          "touched_at": {
+            "type": "string",
+            "description": "When the tagged visit happened, RFC 3339, within the last 30 days."
+          },
+          "utm_campaign": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "1 to 64 lowercase letters, digits, underscores, hyphens or periods."
+          },
+          "utm_content": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "1 to 64 lowercase letters, digits, underscores, hyphens or periods."
+          },
+          "utm_medium": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "1 to 64 lowercase letters, digits, underscores, hyphens or periods."
+          },
+          "utm_source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "1 to 64 lowercase letters, digits, underscores, hyphens or periods."
+          }
+        },
+        "additionalProperties": false
+      },
       "RecoveryEmailUpdated": {
         "type": "object",
         "required": [
@@ -33023,6 +35526,14 @@
             "format": "uuid",
             "description": "The referred hire."
           },
+          "program_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The referral program that earned the reward, when recorded by its producer."
+          },
           "reference_id": {
             "type": "string",
             "format": "uuid",
@@ -33069,6 +35580,13 @@
           },
           "id": {
             "type": "string",
+            "format": "uuid"
+          },
+          "program_id": {
+            "type": [
+              "string",
+              "null"
+            ],
             "format": "uuid"
           },
           "user_id": {
@@ -33418,7 +35936,7 @@
           "run_fee_atomic": {
             "type": "integer",
             "format": "int64",
-            "description": "Nonnegative USD atomic units, in whole cents (multiples of 10,000).",
+            "description": "USD atomic units, in whole cents (multiples of 10,000), at or above the Employee's minimum.",
             "multipleOf": 10000,
             "minimum": 0
           }
@@ -33795,6 +36313,11 @@
           "updated",
           "already_current",
           "hire_incomplete",
+          "pending_approval",
+          "declined",
+          "staying",
+          "held",
+          "waiting_for_task",
           "failed"
         ]
       },
@@ -33881,6 +36404,15 @@
           "price_desc",
           "newest",
           "oldest"
+        ]
+      },
+      "TemplateUpdateSetting": {
+        "type": "string",
+        "description": "How a hire takes content updates, from strictest to loosest. Access\nchanges always need the Employer's approval.",
+        "enum": [
+          "stay",
+          "ask_first",
+          "automatic"
         ]
       },
       "TokenCount": {
@@ -34351,6 +36883,23 @@
           },
           "organization_skill_use": {
             "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "UpdateOrganizationManagedAgentUpdatePolicyRequest": {
+        "type": "object",
+        "properties": {
+          "rule": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrganizationTemplateUpdateRule",
+                "description": "The rule to set; null removes it."
+              }
+            ]
           }
         },
         "additionalProperties": false
