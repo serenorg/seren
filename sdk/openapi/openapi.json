@@ -5121,6 +5121,512 @@
         ]
       }
     },
+    "/organizations/{organization_id}/earnings": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Read what the organization has earned from the managed agents it publishes.",
+        "description": "Amounts are in millionths of a dollar. `identity` describes the caller's\nstanding against the governing cash payout limit.",
+        "operationId": "get_managed_agent_earnings",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the managed agents",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Earnings by template, totals, and the caller's identity status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentEarnings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner or Admin of the organization using a session or an unrestricted user API key of that organization (`managed_agent_earnings_reader_required`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Some earnings were settled in an asset that cannot be valued in dollars (`managed_agent_earnings_unvalued`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/earnings/charges": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "List the charges settled for the organization's managed agents, newest first.",
+        "description": "Each charge names the template and an opaque run identifier. It carries no\nrun content and does not identify the hirer.",
+        "operationId": "list_managed_agent_earnings_charges",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the managed agents",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Charges to return, from 1 to 100. Defaults to 50.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Charges to skip, newest first. Defaults to 0.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of charges",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentEarningsCharges"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`limit` or `offset` is out of range"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner or Admin of the organization using a session or an unrestricted user API key of that organization (`managed_agent_earnings_reader_required`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Some earnings were settled in an asset that cannot be valued in dollars (`managed_agent_earnings_unvalued`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/earnings/credits": {
+      "post": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Move part of the organization's available earnings into the calling Owner's wallet as credit.",
+        "description": "The credit can be spent like purchased credit but can never be withdrawn as\ncash, and it does not count toward the cash payout limit. Requires an\n`Idempotency-Key` header. Repeating a key with the same caller,\norganization and amount returns the original payout without granting again.",
+        "operationId": "create_managed_agent_earnings_credit",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the managed agents",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Unique key for this payout",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagedAgentEarningsPayoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The payout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentEarningsPayout"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The amount is not a canonical base-10 string, is not positive, or exceeds the available earnings (`insufficient_available_earnings`), or the Idempotency-Key header is missing"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not the built-in Owner using an unrestricted credential of the organization (`managed_agent_earnings_owner_required`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The key was used for a different payout (`idempotency_key_reused`), some earnings were settled in an asset that cannot be valued in dollars (`managed_agent_earnings_unvalued`), or another change to the organization's earnings is in progress and the request can be retried (`managed_agent_earnings_busy`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/earnings/identity": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Read the calling Owner's identity verification status.",
+        "operationId": "get_managed_agent_earnings_identity_verification",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the managed agents",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The verification status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentEarningsIdentityVerification"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not the built-in Owner using an unrestricted credential of the organization (`managed_agent_earnings_owner_required`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Start verifying the calling Owner's identity.",
+        "description": "Returns the address where the Owner completes the verification. Starting\nagain replaces a verification that has not completed. A verified Owner\nstarts nothing and receives no address.",
+        "operationId": "start_managed_agent_earnings_identity_verification",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the managed agents",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The verification and where to complete it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentEarningsIdentityVerification"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not the built-in Owner using an unrestricted credential of the organization (`managed_agent_earnings_owner_required`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The verification could not be started"
+          },
+          "503": {
+            "description": "Identity verification is not available (`identity_verification_not_configured`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/earnings/payouts": {
+      "post": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Send part of the organization's available earnings to its payout wallet as USDC.",
+        "description": "Requires an `Idempotency-Key` header. Repeating a key with the same caller,\norganization and amount returns the original payout without paying again.\nThe amount leaves `available` at once and returns if the transfer fails.",
+        "operationId": "create_managed_agent_earnings_payout",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the managed agents",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Unique key for this payout",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagedAgentEarningsPayoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The payout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentEarningsPayout"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The amount is not a canonical base-10 string, is not positive, or exceeds the available earnings (`insufficient_available_earnings`), or the Idempotency-Key header is missing"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not the built-in Owner using an unrestricted credential of the organization (`managed_agent_earnings_owner_required`), or the Owner must verify their identity before cash payouts pass $300 in total (`identity_verification_required`, with `details.remaining_atomic`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No payout wallet is set (`payout_wallet_required`), the key was used for a different payout (`idempotency_key_reused`), some earnings were settled in an asset that cannot be valued in dollars (`managed_agent_earnings_unvalued`), or another change to the organization's earnings is in progress and the request can be retried (`managed_agent_earnings_busy`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/earnings/wallet": {
+      "put": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Set the wallet that receives the organization's USDC payouts.",
+        "description": "Payouts already requested keep the wallet they were requested with.",
+        "operationId": "set_managed_agent_earnings_payout_wallet",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the managed agents",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetManagedAgentEarningsPayoutWalletRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The payout wallet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentEarningsPayoutWallet"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The address is not a `0x` wallet address, or the request body is invalid"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not the built-in Owner using an unrestricted credential of the organization (`managed_agent_earnings_owner_required`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another change to the organization's earnings is in progress; retry the request (`managed_agent_earnings_busy`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/organizations/{organization_id}/employee-collaboration-policy": {
       "get": {
         "tags": [
@@ -8614,18 +9120,18 @@
         ]
       }
     },
-    "/organizations/{organization_id}/templates/{slug}/fee": {
+    "/organizations/{organization_id}/templates/{slug}/fees/{kind}": {
       "get": {
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Read the current run fee of an Employee this organization publishes, with the minimum it may be set to.",
+        "summary": "Read one run kind's current amount for a managed agent this organization publishes, with the minimum it may be set to.",
         "operationId": "get_managed_agent_run_fee",
         "parameters": [
           {
             "name": "organization_id",
             "in": "path",
-            "description": "Organization that publishes the Employee",
+            "description": "Organization that publishes the managed agent",
             "required": true,
             "schema": {
               "type": "string",
@@ -8640,11 +9146,20 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "description": "Run kind key of the managed agent's current release",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Current run fee and its minimum",
+            "description": "The run kind's current amount and its minimum",
             "content": {
               "application/json": {
                 "schema": {
@@ -8657,10 +9172,10 @@
             "description": "Authentication required"
           },
           "403": {
-            "description": "An unrestricted direct Owner credential of the organization is required, the organization does not publish the Employee, or the Employee is suspended"
+            "description": "An unrestricted direct Owner credential of the organization is required, the organization does not publish the managed agent, or the managed agent is suspended"
           },
           "404": {
-            "description": "Employee not found"
+            "description": "Managed agent not found, or its current release has no such run kind (`managed_agent_run_kind_not_found`)"
           }
         },
         "security": [
@@ -8673,13 +9188,13 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Set the fee for future runs of every hire. Runs already admitted keep their original fee.",
+        "summary": "Set one run kind's amount for future runs of every hire: a fee kind's price, or a cost kind's cap. Runs already admitted keep the kind and amount they were admitted with.",
         "operationId": "set_managed_agent_run_fee",
         "parameters": [
           {
             "name": "organization_id",
             "in": "path",
-            "description": "Organization that publishes the Employee",
+            "description": "Organization that publishes the managed agent",
             "required": true,
             "schema": {
               "type": "string",
@@ -8690,6 +9205,15 @@
             "name": "slug",
             "in": "path",
             "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "description": "Run kind key of the managed agent's current release",
             "required": true,
             "schema": {
               "type": "string"
@@ -8708,7 +9232,7 @@
         },
         "responses": {
           "200": {
-            "description": "Current run fee",
+            "description": "The run kind's current amount",
             "content": {
               "application/json": {
                 "schema": {
@@ -8718,19 +9242,19 @@
             }
           },
           "400": {
-            "description": "The fee must be nonnegative whole cents"
+            "description": "The amount must be nonnegative whole cents"
           },
           "401": {
             "description": "Authentication required"
           },
           "403": {
-            "description": "An unrestricted direct Owner credential of the organization is required, the organization does not publish the Employee, or the Employee is suspended"
+            "description": "An unrestricted direct Owner credential of the organization is required, the organization does not publish the managed agent, or the managed agent is suspended"
           },
           "404": {
-            "description": "Employee not found"
+            "description": "Managed agent not found, or its current release has no such run kind (`managed_agent_run_kind_not_found`)"
           },
           "409": {
-            "description": "The fee is below the Employee's minimum (`run_fee_below_minimum`); the error details carry the minimum"
+            "description": "The amount is below the run kind's minimum (`run_fee_below_minimum`); the error details carry the kind and its minimum"
           }
         },
         "security": [
@@ -9775,7 +10299,7 @@
             "description": "The credential or organization may not publish this template, or the template is suspended (`managed_agent_template_suspended`)"
           },
           "409": {
-            "description": "The slug is reserved and no template exists there (`managed_agent_template_slug_reserved`), the display name differs from the template's, the release conflicts with the template or its bundle, the rollout of a published release could not start because the current revision is unavailable or the template is suspended, or the template's fee is below its minimum (`run_fee_below_minimum`)"
+            "description": "The slug is reserved and no template exists there (`managed_agent_template_slug_reserved`), the display name differs from the template's, the release conflicts with the template or its bundle, the rollout of a published release could not start because the current revision is unavailable or the template is suspended, or one of the template's run kinds is priced below its minimum (`run_fee_below_minimum`)"
           }
         },
         "security": [
@@ -13813,6 +14337,26 @@
         }
       }
     },
+    "/webhooks/stripe/identity": {
+      "post": {
+        "tags": [
+          "webhooks"
+        ],
+        "summary": "Receive identity verification results from the verification provider.",
+        "operationId": "handle_stripe_identity_webhook",
+        "responses": {
+          "200": {
+            "description": "Webhook processed"
+          },
+          "400": {
+            "description": "Invalid webhook signature"
+          },
+          "503": {
+            "description": "Identity verification is not available"
+          }
+        }
+      }
+    },
     "/webhooks/triggers/{route_id}": {
       "post": {
         "tags": [
@@ -14724,6 +15268,7 @@
           "tier_bonus",
           "refund",
           "publisher_payout",
+          "managed_agent_earnings",
           "transfer_in",
           "transfer_recall",
           "transfer_refund"
@@ -19360,6 +19905,258 @@
           }
         }
       },
+      "DataResponse_ManagedAgentEarnings": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "templates",
+              "totals",
+              "identity"
+            ],
+            "properties": {
+              "identity": {
+                "$ref": "#/components/schemas/ManagedAgentEarningsIdentity"
+              },
+              "payout_wallet": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentEarningsPayoutWallet",
+                    "description": "Unset until the Owner chooses a wallet."
+                  }
+                ]
+              },
+              "templates": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentEarningsByTemplate"
+                }
+              },
+              "totals": {
+                "$ref": "#/components/schemas/ManagedAgentEarningsTotals"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentEarningsCharges": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "charges",
+              "total",
+              "limit",
+              "offset"
+            ],
+            "properties": {
+              "charges": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentEarningsCharge"
+                }
+              },
+              "limit": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "offset": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "total": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentEarningsIdentityVerification": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "The calling Owner's identity verification. Holds no identity documents.",
+            "properties": {
+              "status": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/IdentityVerificationStatus",
+                    "description": "Unset when the caller has never started a verification."
+                  }
+                ]
+              },
+              "url": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Where the caller completes a verification started by this request."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentEarningsPayout": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "kind",
+              "amount_atomic",
+              "status",
+              "created_at"
+            ],
+            "properties": {
+              "amount_atomic": {
+                "type": "string",
+                "example": "490000",
+                "pattern": "^(0|-?[1-9][0-9]*)$"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "destination_wallet": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Set for a USDC payout."
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "kind": {
+                "$ref": "#/components/schemas/ManagedAgentEarningsPayoutKind"
+              },
+              "status": {
+                "$ref": "#/components/schemas/ManagedAgentEarningsPayoutStatus"
+              },
+              "tx_hash": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Set once a USDC transfer is submitted."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentEarningsPayoutWallet": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "wallet_address",
+              "network_id",
+              "updated_at"
+            ],
+            "properties": {
+              "network_id": {
+                "type": "string",
+                "description": "CAIP-2 network the USDC is sent on."
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "wallet_address": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedAgentReferralCampaign": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -19641,8 +20438,11 @@
         "properties": {
           "data": {
             "type": "object",
-            "description": "An Employee's current fee with the minimum it may not be priced below.",
+            "description": "One run kind's current amount with the minimum it may not be priced below.",
             "required": [
+              "run_kind",
+              "name",
+              "charge",
               "atomic",
               "usd",
               "minimum"
@@ -19650,10 +20450,20 @@
             "properties": {
               "atomic": {
                 "type": "integer",
-                "format": "int64"
+                "format": "int64",
+                "description": "A fee kind's price, or the most one run of a cost kind may cost."
+              },
+              "charge": {
+                "$ref": "#/components/schemas/ManagedAgentRunKindCharge"
               },
               "minimum": {
                 "$ref": "#/components/schemas/ManagedAgentRunMinimum"
+              },
+              "name": {
+                "type": "string"
+              },
+              "run_kind": {
+                "$ref": "#/components/schemas/ManagedAgentRunKindKey"
               },
               "usd": {
                 "type": "string"
@@ -28888,6 +29698,14 @@
           "PATCH"
         ]
       },
+      "IdentityVerificationStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "verified",
+          "canceled"
+        ]
+      },
       "InitiateManagedAgentSecretsSetupRequest": {
         "type": "object",
         "required": [
@@ -29425,6 +30243,347 @@
           }
         }
       },
+      "ManagedAgentEarnings": {
+        "type": "object",
+        "required": [
+          "templates",
+          "totals",
+          "identity"
+        ],
+        "properties": {
+          "identity": {
+            "$ref": "#/components/schemas/ManagedAgentEarningsIdentity"
+          },
+          "payout_wallet": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentEarningsPayoutWallet",
+                "description": "Unset until the Owner chooses a wallet."
+              }
+            ]
+          },
+          "templates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentEarningsByTemplate"
+            }
+          },
+          "totals": {
+            "$ref": "#/components/schemas/ManagedAgentEarningsTotals"
+          }
+        }
+      },
+      "ManagedAgentEarningsByTemplate": {
+        "type": "object",
+        "description": "Settled run charges and completed-run counts for one published template.",
+        "required": [
+          "template_id",
+          "template_slug",
+          "display_name",
+          "successful_runs",
+          "gross_fee_atomic",
+          "owner_share_atomic",
+          "seren_share_atomic"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "gross_fee_atomic": {
+            "type": "string",
+            "description": "What the settled charges collected: the full fee, or the cost part alone.",
+            "example": "490000",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "owner_share_atomic": {
+            "type": "string",
+            "example": "490000",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "seren_share_atomic": {
+            "type": "string",
+            "example": "490000",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "successful_runs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Completed runs with a settled charge, including cost-only charges."
+          },
+          "template_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "template_slug": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentEarningsCharge": {
+        "type": "object",
+        "description": "One settled charge. Carries no run content and no hirer identity.",
+        "required": [
+          "run_id",
+          "template_id",
+          "template_slug",
+          "display_name",
+          "fee_atomic",
+          "owner_share_atomic",
+          "charged_at"
+        ],
+        "properties": {
+          "charged_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "fee_atomic": {
+            "type": "string",
+            "description": "What the charge collected: the full fee, or the cost part alone.",
+            "example": "490000",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "owner_share_atomic": {
+            "type": "string",
+            "example": "490000",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "run_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Opaque identifier of the charged run."
+          },
+          "template_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "template_slug": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentEarningsCharges": {
+        "type": "object",
+        "required": [
+          "charges",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "properties": {
+          "charges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentEarningsCharge"
+            }
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ManagedAgentEarningsIdentity": {
+        "type": "object",
+        "description": "The caller's standing against the cash payout limit. A cash payout is\nchecked against the larger of the organization's earnings cash and the\ncaller's own lifetime cash, so a new Owner inherits the organization's total.",
+        "required": [
+          "verified",
+          "paid_out_lifetime_atomic",
+          "threshold_atomic"
+        ],
+        "properties": {
+          "paid_out_lifetime_atomic": {
+            "type": "string",
+            "description": "Cash already counted against the limit, including payouts that have not\nsettled: the larger of the two histories. Equals `threshold_atomic` when\nearlier cash cannot be valued in dollars.",
+            "example": "490000",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "threshold_atomic": {
+            "type": "string",
+            "description": "Total cash that may be paid out before identity verification.",
+            "example": "490000",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ManagedAgentEarningsIdentityVerification": {
+        "type": "object",
+        "description": "The calling Owner's identity verification. Holds no identity documents.",
+        "properties": {
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/IdentityVerificationStatus",
+                "description": "Unset when the caller has never started a verification."
+              }
+            ]
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where the caller completes a verification started by this request."
+          }
+        }
+      },
+      "ManagedAgentEarningsPayout": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "amount_atomic",
+          "status",
+          "created_at"
+        ],
+        "properties": {
+          "amount_atomic": {
+            "type": "string",
+            "example": "490000",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "destination_wallet": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set for a USDC payout."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ManagedAgentEarningsPayoutKind"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ManagedAgentEarningsPayoutStatus"
+          },
+          "tx_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set once a USDC transfer is submitted."
+          }
+        }
+      },
+      "ManagedAgentEarningsPayoutKind": {
+        "type": "string",
+        "enum": [
+          "usdc",
+          "credit"
+        ]
+      },
+      "ManagedAgentEarningsPayoutRequest": {
+        "type": "object",
+        "required": [
+          "amount_atomic"
+        ],
+        "properties": {
+          "amount_atomic": {
+            "type": "string",
+            "description": "Millionths of a dollar as a base-10 string, such as `\"1000000\"`; must be\npositive and no more than `available_atomic`.",
+            "example": "490000",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentEarningsPayoutStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "completed",
+          "failed"
+        ]
+      },
+      "ManagedAgentEarningsPayoutWallet": {
+        "type": "object",
+        "required": [
+          "wallet_address",
+          "network_id",
+          "updated_at"
+        ],
+        "properties": {
+          "network_id": {
+            "type": "string",
+            "description": "CAIP-2 network the USDC is sent on."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "wallet_address": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentEarningsTotals": {
+        "type": "object",
+        "description": "Atomic units are millionths of a dollar, written as base-10 strings.",
+        "required": [
+          "earned_atomic",
+          "paid_out_usdc_atomic",
+          "taken_as_credit_atomic",
+          "pending_atomic",
+          "available_atomic"
+        ],
+        "properties": {
+          "available_atomic": {
+            "type": "string",
+            "description": "What can still be paid out or taken as credit.",
+            "example": "490000",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "earned_atomic": {
+            "type": "string",
+            "description": "Owner shares of every settled charge. Reserved and released fees earn nothing.",
+            "example": "490000",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "paid_out_usdc_atomic": {
+            "type": "string",
+            "description": "USDC payouts that settled.",
+            "example": "490000",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "pending_atomic": {
+            "type": "string",
+            "description": "USDC payouts that have not settled.",
+            "example": "490000",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "taken_as_credit_atomic": {
+            "type": "string",
+            "example": "490000",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          }
+        }
+      },
       "ManagedAgentHireProvider": {
         "type": "string",
         "enum": [
@@ -29696,8 +30855,11 @@
       },
       "ManagedAgentRunFeeView": {
         "type": "object",
-        "description": "An Employee's current fee with the minimum it may not be priced below.",
+        "description": "One run kind's current amount with the minimum it may not be priced below.",
         "required": [
+          "run_kind",
+          "name",
+          "charge",
           "atomic",
           "usd",
           "minimum"
@@ -29705,15 +30867,76 @@
         "properties": {
           "atomic": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "description": "A fee kind's price, or the most one run of a cost kind may cost."
+          },
+          "charge": {
+            "$ref": "#/components/schemas/ManagedAgentRunKindCharge"
           },
           "minimum": {
             "$ref": "#/components/schemas/ManagedAgentRunMinimum"
+          },
+          "name": {
+            "type": "string"
+          },
+          "run_kind": {
+            "$ref": "#/components/schemas/ManagedAgentRunKindKey"
           },
           "usd": {
             "type": "string"
           }
         }
+      },
+      "ManagedAgentRunKind": {
+        "type": "object",
+        "description": "One priced kind of run a release declares.",
+        "required": [
+          "key",
+          "name",
+          "charge",
+          "triggers"
+        ],
+        "properties": {
+          "charge": {
+            "$ref": "#/components/schemas/ManagedAgentRunKindCharge"
+          },
+          "key": {
+            "$ref": "#/components/schemas/ManagedAgentRunKindKey"
+          },
+          "name": {
+            "type": "string",
+            "description": "Shown to hirers, 1-64 characters without surrounding whitespace."
+          },
+          "triggers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentRunTrigger"
+            },
+            "description": "The triggers priced as this kind."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentRunKindCharge": {
+        "type": "string",
+        "description": "What a run kind charges a hirer outside the Owner's organization.",
+        "enum": [
+          "fee",
+          "cost"
+        ]
+      },
+      "ManagedAgentRunKindKey": {
+        "type": "string",
+        "description": "A run kind's key: lowercase ASCII letters, digits and underscores, starting\nwith a letter, at most 64 characters.",
+        "example": "prospecting",
+        "pattern": "^[a-z][a-z0-9_]{0,63}$"
+      },
+      "ManagedAgentRunKinds": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/ManagedAgentRunKind"
+        },
+        "description": "A release's run kinds. Every trigger maps to exactly one kind."
       },
       "ManagedAgentRunMinimum": {
         "type": "object",
@@ -29760,6 +30983,17 @@
             "description": "One cold start."
           }
         }
+      },
+      "ManagedAgentRunTrigger": {
+        "type": "string",
+        "description": "What started a run. Admission prices each trigger as the run kind the\ntemplate's current release maps it to; neither the managed agent nor its\nmodel chooses it.",
+        "enum": [
+          "hire_cron",
+          "schedule",
+          "chat",
+          "webhook",
+          "api"
+        ]
       },
       "ManagedAgentSecretFieldRequirement": {
         "type": "object",
@@ -30321,6 +31555,17 @@
               "null"
             ],
             "description": "Python packages installed for every hired copy before it starts. Each\nnon-comment line is `name==version` with a public version, followed by\none or more `--hash=sha256:<digest>` options on the same line,\nseparated by spaces, with each digest written as 64 lowercase\nhexadecimal digits. Each package appears once, and the list names every\npackage to install, dependencies included. Comment lines and blank\nlines are allowed."
+          },
+          "run_kinds": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentRunKinds",
+                "description": "How hirers pay for each kind of run. Every trigger maps to exactly one\nkind. Omit to price every run as one fee kind with key `run`."
+              }
+            ]
           },
           "runtime_class": {
             "oneOf": [
@@ -33982,6 +35227,17 @@
           "rollout": {
             "type": "boolean",
             "description": "Whether to offer the current release to existing hires now. Each hire\nfollows its Employer's update setting either way."
+          },
+          "run_kinds": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentRunKinds",
+                "description": "How hirers pay for each kind of run in this release. Every trigger maps\nto exactly one kind. Omit to price every run as one fee kind."
+              }
+            ]
           }
         },
         "additionalProperties": false
@@ -35927,6 +37183,19 @@
           }
         }
       },
+      "SetManagedAgentEarningsPayoutWalletRequest": {
+        "type": "object",
+        "required": [
+          "wallet_address"
+        ],
+        "properties": {
+          "wallet_address": {
+            "type": "string",
+            "description": "A `0x` address that receives USDC."
+          }
+        },
+        "additionalProperties": false
+      },
       "SetManagedAgentRunFee": {
         "type": "object",
         "required": [
@@ -35936,7 +37205,7 @@
           "run_fee_atomic": {
             "type": "integer",
             "format": "int64",
-            "description": "USD atomic units, in whole cents (multiples of 10,000), at or above the Employee's minimum.",
+            "description": "USD atomic units, in whole cents (multiples of 10,000), at or above the\nrun kind's minimum: a fee kind's price, or a cost kind's cap.",
             "multipleOf": 10000,
             "minimum": 0
           }

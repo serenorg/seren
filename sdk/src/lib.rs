@@ -430,7 +430,11 @@ mod tests {
                 "publisher": {"organization_id": organization_id, "name": "Acme Studio"},
                 "published_at": "2026-10-07T12:34:56Z",
                 "capabilities": ["Research"],
-                "run_fee": {"atomic": 500000, "usd": "0.50"}
+                "run_kinds": [{
+                    "key": "run", "name": "Run", "charge": "fee",
+                    "triggers": ["hire_cron", "schedule", "chat", "webhook", "api"],
+                    "amount": {"atomic": 500000, "usd": "$0.50"}, "changed_at": null
+                }]
             }]
         });
         Mock::given(method("GET"))
@@ -451,7 +455,13 @@ mod tests {
             response.data[0].published_at,
             "2026-10-07T12:34:56Z".parse::<jiff::Timestamp>().unwrap()
         );
-        assert_eq!(serde_json::to_value(response).unwrap(), wire);
+        assert!(response.data[0].run_kinds[0].changed_at.is_none());
+        let mut serialized = wire;
+        serialized["data"][0]["run_kinds"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("changed_at");
+        assert_eq!(serde_json::to_value(response).unwrap(), serialized);
     }
 
     #[tokio::test]

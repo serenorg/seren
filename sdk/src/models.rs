@@ -1,5 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+/// Managed deployment view with any pending stop refusal.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ManagedDeploymentReadResponse {
+    #[serde(flatten)]
+    pub deployment: crate::ManagedDeploymentReadView,
+    pub pending_stop_refusal: Option<crate::ManagedDeploymentPendingStopRefusal>,
+}
+
 // ===================== Schema Diff Types (not in OpenAPI spec) =====================
 
 /// Schema diff result comparing two branches.

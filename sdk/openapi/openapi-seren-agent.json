@@ -133,6 +133,7 @@
           "seren-agent"
         ],
         "summary": "Delete a managed seren-agent deployment and clean up runtime resources.",
+        "description": "Deleting a managed agent hire keeps its databases in the organization's Seren Employees project.",
         "operationId": "seren_agent_delete_managed_deployment",
         "parameters": [
           {
@@ -682,6 +683,66 @@
           },
           "404": {
             "description": "Deployment or allowance not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/announcements": {
+      "put": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Turn this Employee's public activity posts on or off, for the person who\nhired it only. Posts say only that the Employee was hired or started a task.",
+        "operationId": "seren_agent_update_managed_agent_activity_posts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagedAgentActivityPostsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The hire as its hirer sees it, with the saved setting. The response must not be cached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentOwnerView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid body"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The credential is not the hirer's session or user API key"
+          },
+          "404": {
+            "description": "Hire not found, including another user's hire"
           }
         },
         "security": [
@@ -5674,7 +5735,7 @@
             }
           },
           "409": {
-            "description": "A hire is in progress, the account must be reconnected, the template's setup is unavailable (`template_artifact_unavailable`), its setup does not match the published revision (`template_artifact_mismatch`), a service the Employee uses has changed (`managed_agent_template_unavailable`), or the Employee's fee is below its minimum (`run_fee_below_minimum`)",
+            "description": "A hire is in progress, the account must be reconnected, the template's setup is unavailable (`template_artifact_unavailable`), its setup does not match the published revision (`template_artifact_mismatch`), a service the Employee uses has changed (`managed_agent_template_unavailable`), or one of the Employee's run kinds is priced below its minimum (`run_fee_below_minimum`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5685,6 +5746,16 @@
           },
           "429": {
             "description": "Too many hire requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Employee's setup could not finish; retrying the hire resumes it (`managed_agent_hire_runtime_setup_failed`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -8353,7 +8424,8 @@
       "ChannelVerificationView": {
         "type": "object",
         "required": [
-          "status"
+          "status",
+          "texts_paused"
         ],
         "properties": {
           "address": {
@@ -8365,6 +8437,10 @@
           },
           "status": {
             "$ref": "#/components/schemas/ChannelVerificationStatus"
+          },
+          "texts_paused": {
+            "type": "boolean",
+            "description": "True when the number turned off texts from this address by texting STOP.\nNothing is sent to it until it texts START."
           }
         }
       },
@@ -9048,7 +9124,8 @@
           "data": {
             "type": "object",
             "required": [
-              "status"
+              "status",
+              "texts_paused"
             ],
             "properties": {
               "address": {
@@ -9060,6 +9137,10 @@
               },
               "status": {
                 "$ref": "#/components/schemas/ChannelVerificationStatus"
+              },
+              "texts_paused": {
+                "type": "boolean",
+                "description": "True when the number turned off texts from this address by texting STOP.\nNothing is sent to it until it texts START."
               }
             }
           },
@@ -10064,7 +10145,7 @@
               "hire_id",
               "created",
               "bonus",
-              "run_fee"
+              "run_kinds"
             ],
             "properties": {
               "bonus": {
@@ -10081,15 +10162,12 @@
                 "type": "string",
                 "format": "uuid"
               },
-              "run_fee": {
-                "$ref": "#/components/schemas/ManagedAgentRunFeeAmount"
-              },
-              "run_fee_changed_at": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "format": "date-time"
+              "run_kinds": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentRunKindPrice"
+                },
+                "description": "Each kind of run of the current release, with what it charges."
               }
             }
           },
@@ -10160,11 +10238,18 @@
               "status",
               "desired_lifecycle_state",
               "template",
-              "run_fee",
+              "run_kinds",
               "created_at",
               "updated_at"
             ],
             "properties": {
+              "activity_posts": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "description": "Whether the hire's public activity posts are on. Only the person who\nhired it sees this or can change it."
+              },
               "connection": {
                 "oneOf": [
                   {
@@ -10224,15 +10309,12 @@
                 "type": "boolean",
                 "description": "Always true; distinguishes this view from an ordinary deployment summary."
               },
-              "run_fee": {
-                "$ref": "#/components/schemas/ManagedAgentRunFeeAmount"
-              },
-              "run_fee_changed_at": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "format": "date-time"
+              "run_kinds": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentRunKindPrice"
+                },
+                "description": "Each kind of run of the current release, with what it charges."
               },
               "skill_slug": {
                 "type": "string"
@@ -10872,6 +10954,22 @@
                   "null"
                 ],
                 "format": "date-time"
+              },
+              "revision": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "The saved state's revision, null before the first save."
+              },
+              "updated_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time",
+                "description": "When the state was last saved, null before the first save."
               }
             }
           },
@@ -11023,7 +11121,7 @@
           "data": {
             "type": "object",
             "required": [
-              "run_fee",
+              "run_kinds",
               "hours_of_work",
               "skills_count",
               "active_hires",
@@ -11040,15 +11138,12 @@
                 "type": "integer",
                 "format": "int64"
               },
-              "run_fee": {
-                "$ref": "#/components/schemas/ManagedAgentRunFeeAmount"
-              },
-              "run_fee_changed_at": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "format": "date-time"
+              "run_kinds": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentRunKindPrice"
+                },
+                "description": "Each kind of run of the current release, with what it charges."
               },
               "skills_count": {
                 "type": "integer",
@@ -11650,12 +11745,25 @@
         ],
         "properties": {
           "data": {
-            "oneOf": [
+            "allOf": [
               {
-                "$ref": "#/components/schemas/ManagedAgentDeploymentDetail"
+                "$ref": "#/components/schemas/ManagedDeploymentReadView"
               },
               {
-                "$ref": "#/components/schemas/ManagedAgentOwnerView"
+                "type": "object",
+                "properties": {
+                  "pending_stop_refusal": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/ManagedDeploymentPendingStopRefusal",
+                        "description": "Why the latest stop request has not taken effect yet, when the runtime\nrefused it. Null otherwise."
+                      }
+                    ]
+                  }
+                }
               }
             ]
           },
@@ -12647,9 +12755,16 @@
                 "display_name",
                 "publisher",
                 "published_at",
-                "run_fee"
+                "run_kinds"
               ],
               "properties": {
+                "activity_url": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Link to the Employee's public activity channel, or null when unset."
+                },
                 "avatar_url": {
                   "type": [
                     "string",
@@ -12694,15 +12809,12 @@
                 "publisher": {
                   "$ref": "#/components/schemas/ManagedAgentTemplatePublisher"
                 },
-                "run_fee": {
-                  "$ref": "#/components/schemas/ManagedAgentRunFeeAmount"
-                },
-                "run_fee_changed_at": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "format": "date-time"
+                "run_kinds": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ManagedAgentRunKindPrice"
+                  },
+                  "description": "Each kind of run of the current release, with what it charges."
                 },
                 "slug": {
                   "type": "string"
@@ -13437,6 +13549,18 @@
             "$ref": "#/components/schemas/CloudDeploymentStatus"
           }
         }
+      },
+      "ManagedAgentActivityPostsRequest": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
       },
       "ManagedAgentActivitySummary": {
         "type": "object",
@@ -14998,7 +15122,7 @@
           "hire_id",
           "created",
           "bonus",
-          "run_fee"
+          "run_kinds"
         ],
         "properties": {
           "bonus": {
@@ -15015,15 +15139,12 @@
             "type": "string",
             "format": "uuid"
           },
-          "run_fee": {
-            "$ref": "#/components/schemas/ManagedAgentRunFeeAmount"
-          },
-          "run_fee_changed_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
+          "run_kinds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentRunKindPrice"
+            },
+            "description": "Each kind of run of the current release, with what it charges."
           }
         }
       },
@@ -15227,11 +15348,18 @@
           "status",
           "desired_lifecycle_state",
           "template",
-          "run_fee",
+          "run_kinds",
           "created_at",
           "updated_at"
         ],
         "properties": {
+          "activity_posts": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the hire's public activity posts are on. Only the person who\nhired it sees this or can change it."
+          },
           "connection": {
             "oneOf": [
               {
@@ -15291,15 +15419,12 @@
             "type": "boolean",
             "description": "Always true; distinguishes this view from an ordinary deployment summary."
           },
-          "run_fee": {
-            "$ref": "#/components/schemas/ManagedAgentRunFeeAmount"
-          },
-          "run_fee_changed_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
+          "run_kinds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentRunKindPrice"
+            },
+            "description": "Each kind of run of the current release, with what it charges."
           },
           "skill_slug": {
             "type": "string"
@@ -16112,6 +16237,71 @@
             "type": "string"
           }
         }
+      },
+      "ManagedAgentRunKindCharge": {
+        "type": "string",
+        "description": "What a run kind charges a hirer outside the Owner's organization.",
+        "enum": [
+          "fee",
+          "cost"
+        ]
+      },
+      "ManagedAgentRunKindKey": {
+        "type": "string",
+        "description": "A run kind's key: lowercase ASCII letters, digits and underscores, starting\nwith a letter, at most 64 characters.",
+        "example": "prospecting",
+        "pattern": "^[a-z][a-z0-9_]{0,63}$"
+      },
+      "ManagedAgentRunKindPrice": {
+        "type": "object",
+        "description": "A run kind with its current amount: the fee, or a cost kind's cap.",
+        "required": [
+          "key",
+          "name",
+          "charge",
+          "triggers",
+          "amount"
+        ],
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/ManagedAgentRunFeeAmount",
+            "description": "A fee kind's price, or the most one run of a cost kind may cost."
+          },
+          "changed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the amount last changed; null if it never has."
+          },
+          "charge": {
+            "$ref": "#/components/schemas/ManagedAgentRunKindCharge"
+          },
+          "key": {
+            "$ref": "#/components/schemas/ManagedAgentRunKindKey"
+          },
+          "name": {
+            "type": "string"
+          },
+          "triggers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentRunTrigger"
+            }
+          }
+        }
+      },
+      "ManagedAgentRunTrigger": {
+        "type": "string",
+        "description": "What started a run. Admission prices each trigger as the run kind the\ntemplate's current release maps it to; neither the managed agent nor its\nmodel chooses it.",
+        "enum": [
+          "hire_cron",
+          "schedule",
+          "chat",
+          "webhook",
+          "api"
+        ]
       },
       "ManagedAgentRuntimeAdapter": {
         "type": "string",
@@ -16956,6 +17146,22 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The saved state's revision, null before the first save."
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the state was last saved, null before the first save."
           }
         }
       },
@@ -17171,9 +17377,16 @@
           "display_name",
           "publisher",
           "published_at",
-          "run_fee"
+          "run_kinds"
         ],
         "properties": {
+          "activity_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Link to the Employee's public activity channel, or null when unset."
+          },
           "avatar_url": {
             "type": [
               "string",
@@ -17218,15 +17431,12 @@
           "publisher": {
             "$ref": "#/components/schemas/ManagedAgentTemplatePublisher"
           },
-          "run_fee": {
-            "$ref": "#/components/schemas/ManagedAgentRunFeeAmount"
-          },
-          "run_fee_changed_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
+          "run_kinds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentRunKindPrice"
+            },
+            "description": "Each kind of run of the current release, with what it charges."
           },
           "slug": {
             "type": "string"
@@ -17391,7 +17601,7 @@
       "ManagedAgentTemplateStats": {
         "type": "object",
         "required": [
-          "run_fee",
+          "run_kinds",
           "hours_of_work",
           "skills_count",
           "active_hires",
@@ -17408,15 +17618,12 @@
             "type": "integer",
             "format": "int64"
           },
-          "run_fee": {
-            "$ref": "#/components/schemas/ManagedAgentRunFeeAmount"
-          },
-          "run_fee_changed_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
+          "run_kinds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentRunKindPrice"
+            },
+            "description": "Each kind of run of the current release, with what it charges."
           },
           "skills_count": {
             "type": "integer",
@@ -18561,7 +18768,54 @@
           "Failed"
         ]
       },
+      "ManagedDeploymentPendingStopRefusal": {
+        "type": "object",
+        "description": "Information about a refused stop request that has not completed.",
+        "required": [
+          "code",
+          "reason",
+          "refused_at"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Stable refusal code."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Refusal summary safe to display."
+          },
+          "refused_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the stop was last refused."
+          }
+        }
+      },
       "ManagedDeploymentReadResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ManagedDeploymentReadView"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "pending_stop_refusal": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedDeploymentPendingStopRefusal",
+                    "description": "Why the latest stop request has not taken effect yet, when the runtime\nrefused it. Null otherwise."
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ManagedDeploymentReadView": {
         "oneOf": [
           {
             "$ref": "#/components/schemas/ManagedAgentDeploymentDetail"

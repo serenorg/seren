@@ -443,6 +443,14 @@ fn schema_fingerprint(value: &serde_json::Value) -> Option<String> {
     serde_json::to_string(&normalize_schema_for_fingerprint(value)).ok()
 }
 
+/// Composed schemas the SDK defines in `src/models.rs`. Progenitor flattens
+/// `ManagedDeploymentReadResponse` into anonymous variants, so the SDK keeps
+/// the named deployment view beside its nullable stop refusal instead.
+const SDK_SCHEMA_REPLACEMENTS: &[(&str, &str)] = &[(
+    "ManagedDeploymentReadResponse",
+    "crate::ManagedDeploymentReadResponse",
+)];
+
 /// Replace inline schemas in DataResponse wrappers with `$ref` to named schemas.
 ///
 /// We intentionally use a strict schema fingerprint match instead of loose field
@@ -466,7 +474,9 @@ fn dedup_data_response_schemas(raw: &mut serde_json::Value) {
         }
     }
 
-    // Patch schemas that expose a `data` property with inline object/array item schemas.
+    // Patch inline objects and array items in `data` properties. An inline
+    // composition is patched only for an SDK-owned schema; others keep their
+    // generated data types.
     let wrapper_names: Vec<String> = raw
         .pointer("/components/schemas")
         .and_then(|v| v.as_object())
@@ -498,13 +508,15 @@ fn dedup_data_response_schemas(raw: &mut serde_json::Value) {
                     continue;
                 }
                 (items.clone(), format!("{data_path}/items"))
-            } else if data_schema.get("type").and_then(|v| v.as_str()) == Some("object")
+            } else if (data_schema.get("type").and_then(|v| v.as_str()) == Some("object")
+                || data_schema.get("allOf").is_some())
                 && data_schema.get("$ref").is_none()
             {
                 (data_schema.clone(), data_path.clone())
             } else {
                 continue;
             };
+        let composition = data_schema.get("type").is_none() && data_schema.get("allOf").is_some();
 
         let Some(fingerprint) = schema_fingerprint(&inline_schema) else {
             continue;
@@ -515,6 +527,13 @@ fn dedup_data_response_schemas(raw: &mut serde_json::Value) {
         let Some(target) = choose_ref_target(wrapper_name, candidates) else {
             continue;
         };
+        if composition
+            && !SDK_SCHEMA_REPLACEMENTS
+                .iter()
+                .any(|(schema, _)| *schema == target)
+        {
+            continue;
+        }
 
         if let Some(slot) = raw.pointer_mut(&replace_path) {
             *slot = serde_json::json!({ "$ref": format!("#/components/schemas/{target}") });
@@ -945,6 +964,14 @@ fn main() -> anyhow::Result<()> {
     let mut settings = GenerationSettings::default();
     settings.with_interface(InterfaceStyle::Positional);
     settings.with_derive("schemars::JsonSchema");
+
+    for (schema, rust_type) in SDK_SCHEMA_REPLACEMENTS {
+        settings.with_replacement(
+            *schema,
+            *rust_type,
+            std::iter::empty::<progenitor::TypeImpl>(),
+        );
+    }
 
     // Replace chrono DateTime with jiff Timestamp for date-time format
     settings.with_replacement(

@@ -347,17 +347,13 @@ pub async fn managed_secrets_apply_target(
 /// Platform-managed deployments return an owner view without editable template
 /// material, so they cannot be changed through the managed agent detail contract.
 pub fn managed_agent_deployment_detail(
-    data: crate::DataResponseManagedDeploymentReadResponseData,
+    data: crate::ManagedDeploymentReadResponse,
 ) -> Result<crate::ManagedAgentDeploymentDetail, ValidationError> {
-    match data {
-        crate::DataResponseManagedDeploymentReadResponseData::DeploymentDetail(detail) => {
-            Ok(detail)
-        }
-        crate::DataResponseManagedDeploymentReadResponseData::OwnerView(_) => {
-            Err(ValidationError::new(
-                "This deployment uses platform-managed template material and cannot be changed through the managed agent detail contract.",
-            ))
-        }
+    match data.deployment {
+        crate::ManagedDeploymentReadView::DeploymentDetail(detail) => Ok(detail),
+        crate::ManagedDeploymentReadView::OwnerView(_) => Err(ValidationError::new(
+            "This deployment uses platform-managed template material and cannot be changed through the managed agent detail contract.",
+        )),
     }
 }
 
@@ -2129,7 +2125,7 @@ mod tests {
         let read: crate::DataResponseManagedDeploymentReadResponse =
             serde_json::from_value(serde_json::json!({ "data": detail.clone() }))
                 .expect("managed detail decodes as the detail variant");
-        let selected = managed_agent_deployment_detail(read.data).expect("detail variant");
+        let selected = managed_agent_deployment_detail(read.data.clone()).expect("detail variant");
         assert_eq!(selected.deployment_id, deployment_id);
 
         let owner_view: crate::DataResponseManagedDeploymentReadResponse =
@@ -2150,13 +2146,38 @@ mod tests {
                         "display_name": "Platform Template",
                         "revision": 1
                     },
-                    "run_fee": {"atomic": 500000, "usd": "0.50"}
+                    "run_kinds": [{
+                        "key": "run", "name": "Run", "charge": "fee",
+                        "triggers": ["hire_cron", "schedule", "chat", "webhook", "api"],
+                        "amount": {"atomic": 500000, "usd": "$0.50"}, "changed_at": null
+                    }]
                 }
             }))
             .expect("platform-managed view decodes as the owner-view variant");
-        let crate::DataResponseManagedDeploymentReadResponseData::OwnerView(view) =
-            &owner_view.data
-        else {
+        for (response, editable) in [(&read, true), (&owner_view, false)] {
+            for refusal in [
+                serde_json::Value::Null,
+                serde_json::json!({
+                    "code": "run_still_active",
+                    "reason": "The run has not stopped yet.",
+                    "refused_at": "2026-10-17T00:00:00Z"
+                }),
+            ] {
+                let mut wire = serde_json::to_value(response).expect("response serializes");
+                wire["data"]["pending_stop_refusal"] = refusal.clone();
+                let decoded: crate::DataResponseManagedDeploymentReadResponse =
+                    serde_json::from_value(wire).expect("view and refusal decode together");
+                assert_eq!(
+                    serde_json::to_value(&decoded).expect("response re-encodes")["data"]["pending_stop_refusal"],
+                    refusal
+                );
+                assert_eq!(
+                    managed_agent_deployment_detail(decoded.data).is_ok(),
+                    editable
+                );
+            }
+        }
+        let crate::ManagedDeploymentReadView::OwnerView(view) = &owner_view.data.deployment else {
             panic!("hired Employee returns an owner view");
         };
         assert_eq!(
@@ -2653,7 +2674,11 @@ mod tests {
                         "display_name": "Platform Template",
                         "revision": 3
                     },
-                    "run_fee": {"atomic": 500000, "usd": "0.50"},
+                    "run_kinds": [{
+                        "key": "run", "name": "Run", "charge": "fee",
+                        "triggers": ["hire_cron", "schedule", "chat", "webhook", "api"],
+                        "amount": {"atomic": 500000, "usd": "$0.50"}, "changed_at": null
+                    }],
                     "created_at": "2026-09-01T00:00:00Z",
                     "updated_at": "2026-09-01T00:00:00Z"
                 }

@@ -659,6 +659,7 @@
           "seren-cloud"
         ],
         "summary": "Delete a deployment and clean up runtime resources.",
+        "description": "Deleting a managed agent hire keeps its databases in the organization's Seren Employees project.",
         "operationId": "seren_cloud_delete",
         "parameters": [
           {
@@ -3665,7 +3666,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DataResponse_Vec_CloudDeploymentRunEvent"
+                  "$ref": "#/components/schemas/DataResponse_Vec_CloudDeploymentRunHistoryItem"
                 }
               }
             }
@@ -3735,7 +3736,14 @@
             }
           },
           "402": {
-            "description": "Insufficient SerenBucks. Promotional credit can pay a hired Employee's run fee only up to its minimum; the rest requires purchased credit."
+            "description": "Insufficient SerenBucks for this run type; no run was admitted. The message names the type and its amount.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedAgentRunFeeUnfunded"
+                }
+              }
+            }
           },
           "404": {
             "description": "Not found"
@@ -4379,6 +4387,9 @@
           },
           "404": {
             "description": "Deployment not found"
+          },
+          "503": {
+            "description": "Schedules are temporarily unavailable"
           }
         },
         "security": [
@@ -4402,6 +4413,18 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "name": "x-seren-schedule-caller-run",
+            "in": "header",
+            "description": "Calling run's execution ID, supplied only by the deployment's runtime. A verified active run supplies the default conversation for the scheduled reply when conversation_id is omitted.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         ],
@@ -4427,10 +4450,13 @@
             }
           },
           "400": {
-            "description": "Invalid schedule request"
+            "description": "Invalid schedule request. `schedule_conversation_unavailable` means the requested conversation is unavailable to this caller. Only the deployment's runtime, using the deployment's current key, may send `x-seren-schedule-caller-run`."
           },
           "404": {
             "description": "Deployment not found"
+          },
+          "503": {
+            "description": "Schedules are temporarily unavailable"
           }
         },
         "security": [
@@ -4778,7 +4804,14 @@
             }
           },
           "402": {
-            "description": "Insufficient SerenBucks for a message that starts immediately. Promotional credit can pay a hired Employee's run fee up to its minimum; the rest requires purchased credit. Queued messages wait until credit covers the run fee."
+            "description": "Insufficient SerenBucks for a message that starts immediately. The message names the run type and its amount. Queued messages wait until credit covers that amount.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedAgentRunFeeUnfunded"
+                }
+              }
+            }
           },
           "409": {
             "description": "Interactive session is closed or idempotency conflict"
@@ -7424,7 +7457,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DataResponse_Vec_CloudDeploymentRunEvent"
+                  "$ref": "#/components/schemas/DataResponse_Vec_CloudDeploymentRunHistoryItem"
                 }
               }
             }
@@ -11415,6 +11448,13 @@
             "type": "integer",
             "format": "int32"
           },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The task text the schedule runs with; null when the schedule has none."
+          },
           "next_run_at": {
             "type": "string",
             "format": "date-time"
@@ -11446,7 +11486,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Conversation that receives each scheduled run and its reply when the caller owns\nit on this deployment. Unavailable or archived conversations are refused. On a\nhired Employee, the target must already be an active conversation the caller\nowns. On other deployments, an ID that names no conversation yet starts that\nconversation at the first scheduled run. Scheduled runs are not added to any\nconversation when this is omitted."
           },
           "cron": {
             "type": [
@@ -12150,6 +12191,29 @@
             "format": "uuid"
           }
         }
+      },
+      "CloudDeploymentRunHistoryItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CloudDeploymentRunEvent"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "run_fee": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentRunFeeSummary"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "description": "A run in run history, with the kind and charge it was admitted with when\na run fee applies."
       },
       "CloudDeploymentRunInvocationResponse": {
         "type": "object",
@@ -16702,6 +16766,13 @@
                 "type": "integer",
                 "format": "int32"
               },
+              "message": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The task text the schedule runs with; null when the schedule has none."
+              },
               "next_run_at": {
                 "type": "string",
                 "format": "date-time"
@@ -20595,6 +20666,13 @@
                   "type": "integer",
                   "format": "int32"
                 },
+                "message": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The task text the schedule runs with; null when the schedule has none."
+                },
                 "next_run_at": {
                   "type": "string",
                   "format": "date-time"
@@ -20793,7 +20871,7 @@
           }
         }
       },
-      "DataResponse_Vec_CloudDeploymentRunEvent": {
+      "DataResponse_Vec_CloudDeploymentRunHistoryItem": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
         "required": [
@@ -20803,170 +20881,27 @@
           "data": {
             "type": "array",
             "items": {
-              "type": "object",
-              "description": "A single execution run event for a cloud deployment.",
-              "required": [
-                "id",
-                "deployment_id",
-                "organization_id",
-                "user_id",
-                "execution_id",
-                "compute_backend",
-                "source",
-                "status",
-                "execution_time_ms",
-                "billed_duration_ms",
-                "requested_cpu_millicores",
-                "requested_memory_mib",
-                "compute_cost_atomic",
-                "compute_cost_usd",
-                "inference_input_tokens",
-                "inference_output_tokens",
-                "inference_cost_atomic",
-                "inference_cost_usd",
-                "started_at",
-                "invocation_payload",
-                "metadata",
-                "created_at",
-                "updated_at"
-              ],
-              "properties": {
-                "billed_duration_ms": {
-                  "type": "integer",
-                  "format": "int32"
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/CloudDeploymentRunEvent"
                 },
-                "completed_at": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "format": "date-time"
-                },
-                "compute_backend": {
-                  "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
-                },
-                "compute_cost_atomic": {
-                  "type": "integer",
-                  "format": "int64"
-                },
-                "compute_cost_usd": {
-                  "type": "string"
-                },
-                "conversation_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "created_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "deployment_id": {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                "execution_id": {
-                  "type": "string"
-                },
-                "execution_time_ms": {
-                  "type": "integer",
-                  "format": "int32"
-                },
-                "id": {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                "inference_cost_atomic": {
-                  "type": "integer",
-                  "format": "int64"
-                },
-                "inference_cost_usd": {
-                  "type": "string"
-                },
-                "inference_input_tokens": {
-                  "type": "integer",
-                  "format": "int64"
-                },
-                "inference_output_tokens": {
-                  "type": "integer",
-                  "format": "int64"
-                },
-                "invocation_payload": {
-                  "description": "Canonical JSON payload submitted to trigger the run."
-                },
-                "metadata": {},
-                "organization_id": {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                "output": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "description": "Raw stdout/stderr output. Universal fallback for all backend types."
-                },
-                "output_events": {
-                  "description": "Structured event trace for agentic executions (thinking, tool calls, text).\nNull for non-agentic scripts that produce plain stdout/stderr."
-                },
-                "requested_cpu_millicores": {
-                  "type": "integer",
-                  "format": "int32"
-                },
-                "requested_memory_mib": {
-                  "type": "integer",
-                  "format": "int32"
-                },
-                "run_name": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "session_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "session_url": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "source": {
-                  "type": "string"
-                },
-                "started_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "status": {
-                  "type": "string"
-                },
-                "status_message": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "stop_reason": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "updated_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "user_id": {
-                  "type": "string",
-                  "format": "uuid"
+                {
+                  "type": "object",
+                  "properties": {
+                    "run_fee": {
+                      "oneOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ManagedAgentRunFeeSummary"
+                        }
+                      ]
+                    }
+                  }
                 }
-              }
+              ],
+              "description": "A run in run history, with the kind and charge it was admitted with when\na run fee applies."
             }
           },
           "pagination": {
@@ -23083,11 +23018,18 @@
           "status",
           "desired_lifecycle_state",
           "template",
-          "run_fee",
+          "run_kinds",
           "created_at",
           "updated_at"
         ],
         "properties": {
+          "activity_posts": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the hire's public activity posts are on. Only the person who\nhired it sees this or can change it."
+          },
           "connection": {
             "oneOf": [
               {
@@ -23147,15 +23089,12 @@
             "type": "boolean",
             "description": "Always true; distinguishes this view from an ordinary deployment summary."
           },
-          "run_fee": {
-            "$ref": "#/components/schemas/ManagedAgentRunFeeAmount"
-          },
-          "run_fee_changed_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
+          "run_kinds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentRunKindPrice"
+            },
+            "description": "Each kind of run of the current release, with what it charges."
           },
           "skill_slug": {
             "type": "string"
@@ -23201,6 +23140,57 @@
             "type": "string"
           }
         }
+      },
+      "ManagedAgentRunFeeRefusalCode": {
+        "type": "string",
+        "description": "Machine-readable reason a paid managed run was not admitted.",
+        "enum": [
+          "managed_agent_run_fee_unfunded"
+        ]
+      },
+      "ManagedAgentRunFeeSummary": {
+        "type": "object",
+        "description": "The run kind a paid run was admitted as and what its completion charges.",
+        "required": [
+          "run_kind",
+          "charge"
+        ],
+        "properties": {
+          "charge": {
+            "$ref": "#/components/schemas/RunFeeCharge",
+            "description": "`fee` charges the kind's fee; `cost_only` charges what the run cost\nto serve, up to the kind's amount."
+          },
+          "run_kind": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentRunFeeUnfunded": {
+        "type": "object",
+        "description": "Core's unwrapped payment-required response. Consumers display its message unchanged.",
+        "required": [
+          "error",
+          "message",
+          "run_fee_atomic",
+          "paid_available_atomic"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ManagedAgentRunFeeRefusalCode"
+          },
+          "message": {
+            "type": "string"
+          },
+          "paid_available_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "run_fee_atomic": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
       },
       "ManagedAgentRunFile": {
         "type": "object",
@@ -23267,6 +23257,71 @@
         "enum": [
           "owner_upload",
           "run_artifact"
+        ]
+      },
+      "ManagedAgentRunKindCharge": {
+        "type": "string",
+        "description": "What a run kind charges a hirer outside the Owner's organization.",
+        "enum": [
+          "fee",
+          "cost"
+        ]
+      },
+      "ManagedAgentRunKindKey": {
+        "type": "string",
+        "description": "A run kind's key: lowercase ASCII letters, digits and underscores, starting\nwith a letter, at most 64 characters.",
+        "example": "prospecting",
+        "pattern": "^[a-z][a-z0-9_]{0,63}$"
+      },
+      "ManagedAgentRunKindPrice": {
+        "type": "object",
+        "description": "A run kind with its current amount: the fee, or a cost kind's cap.",
+        "required": [
+          "key",
+          "name",
+          "charge",
+          "triggers",
+          "amount"
+        ],
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/ManagedAgentRunFeeAmount",
+            "description": "A fee kind's price, or the most one run of a cost kind may cost."
+          },
+          "changed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the amount last changed; null if it never has."
+          },
+          "charge": {
+            "$ref": "#/components/schemas/ManagedAgentRunKindCharge"
+          },
+          "key": {
+            "$ref": "#/components/schemas/ManagedAgentRunKindKey"
+          },
+          "name": {
+            "type": "string"
+          },
+          "triggers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentRunTrigger"
+            }
+          }
+        }
+      },
+      "ManagedAgentRunTrigger": {
+        "type": "string",
+        "description": "What started a run. Admission prices each trigger as the run kind the\ntemplate's current release maps it to; neither the managed agent nor its\nmodel chooses it.",
+        "enum": [
+          "hire_cron",
+          "schedule",
+          "chat",
+          "webhook",
+          "api"
         ]
       },
       "ManagedAgentRuntimeAdapter": {
@@ -25175,6 +25230,14 @@
             "$ref": "#/components/schemas/RequirementSource"
           }
         }
+      },
+      "RunFeeCharge": {
+        "type": "string",
+        "description": "How much of a reserved fee a run's ending charges.",
+        "enum": [
+          "fee",
+          "cost_only"
+        ]
       },
       "RunFileContent": {
         "type": "string",

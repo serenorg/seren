@@ -18896,7 +18896,7 @@ API endpoint: {endpoint}",
         };
         let api_client = self.api_client(&extensions)?;
         let response = match api_client
-            .seren_cloud_create_agent_schedule(&params.deployment_id, &body)
+            .seren_cloud_create_agent_schedule(&params.deployment_id, None, &body)
             .await
         {
             Ok(response) => response.into_inner(),
@@ -26802,8 +26802,8 @@ mod tests {
         let decoded: seren::DataResponseManagedDeploymentReadResponse =
             serde_json::from_value(fixture.clone()).expect("versionless managed detail");
         assert!(matches!(
-            decoded.data,
-            seren::DataResponseManagedDeploymentReadResponseData::DeploymentDetail(_)
+            decoded.data.deployment,
+            seren::ManagedDeploymentReadView::DeploymentDetail(_)
         ));
         let decoded_json = serde_json::to_value(decoded).expect("managed detail re-encodes");
         assert!(
@@ -26824,12 +26824,18 @@ mod tests {
             Some(&serde_json::json!("lookup"))
         );
 
+        let mut refused = fixture;
+        refused["data"]["pending_stop_refusal"] = serde_json::json!({
+            "code": "run_still_active",
+            "reason": "The run has not stopped yet.",
+            "refused_at": "2026-10-17T00:00:00Z"
+        });
         let proxy = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path(format!(
                 "/publishers/seren-agent/deployments/{deployment_id}/managed"
             )))
-            .respond_with(ResponseTemplate::new(200).set_body_json(fixture))
+            .respond_with(ResponseTemplate::new(200).set_body_json(refused))
             .expect(1)
             .mount(&proxy)
             .await;
@@ -26843,6 +26849,14 @@ mod tests {
             .await
             .expect("managed detail should reach the first-class MCP wrapper");
         assert!(!result.is_error.unwrap_or(false));
+        // The read tool keeps the stop refusal beside the deployment detail.
+        for needle in [
+            "run_still_active",
+            "The run has not stopped yet.",
+            "2026-10-17T00:00:00Z",
+        ] {
+            assert!(result_contains(&result, needle), "{needle}");
+        }
     }
 
     #[tokio::test]
@@ -28352,7 +28366,11 @@ mod tests {
                     "display_name": "Platform Template",
                     "revision": 1
                 },
-                "run_fee": {"atomic": 500000, "usd": "0.50"},
+                "run_kinds": [{
+                    "key": "run", "name": "Run", "charge": "fee",
+                    "triggers": ["hire_cron", "schedule", "chat", "webhook", "api"],
+                    "amount": {"atomic": 500000, "usd": "$0.50"}, "changed_at": null
+                }],
                 "created_at": "2026-09-01T00:00:00Z",
                 "updated_at": "2026-09-01T00:00:00Z"
             }

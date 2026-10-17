@@ -5292,11 +5292,11 @@ pub async fn managed_agent_get(deployment_id: Uuid, ctx: &CommandContext) -> Res
     let payload = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&payload)?,
-        OutputFormat::Table => match &payload.data {
-            seren::DataResponseManagedDeploymentReadResponseData::OwnerView(_) => {
+        OutputFormat::Table => match &payload.data.deployment {
+            seren::ManagedDeploymentReadView::OwnerView(_) => {
                 super::managed::print_response(&payload, ctx)?;
             }
-            seren::DataResponseManagedDeploymentReadResponseData::DeploymentDetail(_) => {
+            seren::ManagedDeploymentReadView::DeploymentDetail(_) => {
                 let value = serde_json::to_value(&payload)?;
                 print_managed_agent_detail_table(&value);
             }
@@ -9841,7 +9841,7 @@ pub async fn cloud_agent_schedule_create(
 
     let client = ctx.client().await?;
     let response = client
-        .seren_cloud_create_agent_schedule(&options.deployment_id, &request)
+        .seren_cloud_create_agent_schedule(&options.deployment_id, None, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create agent schedule: {}", e))?
         .into_inner();
