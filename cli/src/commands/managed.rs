@@ -60,13 +60,14 @@ pub enum InboxDecision {
 
 #[derive(Subcommand)]
 pub enum ManagedAction {
-    /// Create a managed deployment from a published template using a connected account
+    /// Create a managed deployment from a published template
     ManagedDeployTemplate {
         template: String,
         #[arg(long, value_enum)]
         provider: TemplateProvider,
+        /// Mail and files connection; omit for a sign-in-only template
         #[arg(long)]
-        connection_id: Uuid,
+        connection_id: Option<Uuid>,
         /// IANA time zone for the managed deployment's schedule
         #[arg(long)]
         timezone: String,
@@ -755,6 +756,25 @@ mod tests {
             cli.action,
             ManagedAction::ManagedDeployTemplate {
                 provider: TemplateProvider::Google,
+                connection_id: Some(_),
+                ..
+            }
+        ));
+        let cli = ManagedCli::try_parse_from([
+            "agent",
+            "managed-deploy-template",
+            "researcher",
+            "--provider",
+            "microsoft",
+            "--timezone",
+            "UTC",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.action,
+            ManagedAction::ManagedDeployTemplate {
+                provider: TemplateProvider::Microsoft,
+                connection_id: None,
                 ..
             }
         ));
@@ -779,6 +799,58 @@ mod tests {
         assert_eq!(template_publication_timeout(None), None);
         assert_eq!(template_publication_timeout(Some(false)), None);
         assert_eq!(template_publication_timeout(Some(true)), Some(600));
+    }
+
+    #[tokio::test]
+    async fn template_deployment_forwards_only_the_selected_mail_connection() {
+        use wiremock::matchers::{body_json, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        for connection_id in [None, Some(Uuid::new_v4())] {
+            let server = MockServer::start().await;
+            let mut request = json!({"provider": "google", "timezone": "UTC"});
+            if let Some(id) = connection_id {
+                request["oauth_connection_id"] = json!(id);
+            }
+            Mock::given(method("POST"))
+                .and(path(
+                    "/publishers/seren-agent/templates/researcher/deployments",
+                ))
+                .and(body_json(request))
+                .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+                    "data": {
+                        "deployment_id": Uuid::new_v4(),
+                        "hire_id": Uuid::new_v4(),
+                        "created": true,
+                        "bonus": {"status": "ineligible"},
+                        "run_kinds": [{
+                            "key": "run", "name": "Run", "charge": "fee",
+                            "triggers": ["hire_cron", "schedule", "chat", "webhook", "api"],
+                            "amount": {"atomic": 300000, "usd": "$0.30"}
+                        }]
+                    }
+                })))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let context = CommandContext::new(
+                Some(server.uri()),
+                Some("test-key".into()),
+                OutputFormat::Json,
+            );
+            execute(
+                ManagedAction::ManagedDeployTemplate {
+                    template: "researcher".into(),
+                    provider: TemplateProvider::Google,
+                    connection_id,
+                    timezone: "UTC".into(),
+                },
+                &context,
+            )
+            .await
+            .expect("template deployment request succeeds");
+            assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        }
     }
 
     #[tokio::test]

@@ -1437,7 +1437,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Owner email and mail binding. The response must not be cached.",
+            "description": "Verified owner email and mail binding. The binding fields are null when the deployment's template revision needs only a sign-in identity. The response must not be cached.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1453,7 +1453,7 @@
             "description": "Deployment not found"
           },
           "409": {
-            "description": "The owner email is unverified, or the mail binding is missing or ambiguous"
+            "description": "The owner email is unverified, the deployment's template revision is unavailable, or a `mail_and_files` deployment's mail binding is missing or ambiguous"
           }
         },
         "security": [
@@ -5695,7 +5695,7 @@
             }
           },
           "400": {
-            "description": "Invalid request, or the template cannot be hired with the selected provider (`managed_agent_template_provider_unsupported`)",
+            "description": "Invalid request, the template cannot be hired with the selected provider (`managed_agent_template_provider_unsupported`), a `mail_and_files` template was hired without `oauth_connection_id`, or a `sign_in_only` template was hired with one (`connection_not_accepted`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5715,7 +5715,7 @@
             }
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, including a caller without a Google or Microsoft sign-in identity (`managed_agent_hire_signup_required`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -8901,13 +8901,16 @@
         "type": "object",
         "required": [
           "provider",
-          "oauth_connection_id",
           "timezone"
         ],
         "properties": {
           "oauth_connection_id": {
-            "type": "string",
-            "format": "uuid"
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Required for mail_and_files templates; omit for sign_in_only templates."
           },
           "provider": {
             "$ref": "#/components/schemas/ManagedAgentHireProvider"
@@ -10738,19 +10741,27 @@
             "type": "object",
             "description": "Owner and mail binding of a platform-managed deployment.",
             "required": [
-              "owner_email",
-              "mail_provider",
-              "oauth_connection_id"
+              "owner_email"
             ],
             "properties": {
               "mail_provider": {
-                "$ref": "#/components/schemas/ManagedAgentMailProvider",
-                "description": "Mail provider bound to the deployment."
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentMailProvider",
+                    "description": "Mail provider bound to the deployment, or null for sign-in-only templates."
+                  }
+                ]
               },
               "oauth_connection_id": {
-                "type": "string",
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "format": "uuid",
-                "description": "OAuth connection the deployment's mail and file requests use."
+                "description": "OAuth connection for mail and files, or null for sign-in-only templates."
               },
               "owner_email": {
                 "type": "string",
@@ -12750,6 +12761,7 @@
               "type": "object",
               "description": "A template available for hire.",
               "required": [
+                "owner_connection",
                 "capabilities",
                 "slug",
                 "display_name",
@@ -12800,6 +12812,10 @@
                       "description": "The intro video; null when unset or while the profile is suspended."
                     }
                   ]
+                },
+                "owner_connection": {
+                  "$ref": "#/components/schemas/ManagedAgentTemplateOwnerConnection",
+                  "description": "Whether hiring requires a mail and files connection or only a sign-in identity."
                 },
                 "published_at": {
                   "type": "string",
@@ -16313,19 +16329,27 @@
         "type": "object",
         "description": "Owner and mail binding of a platform-managed deployment.",
         "required": [
-          "owner_email",
-          "mail_provider",
-          "oauth_connection_id"
+          "owner_email"
         ],
         "properties": {
           "mail_provider": {
-            "$ref": "#/components/schemas/ManagedAgentMailProvider",
-            "description": "Mail provider bound to the deployment."
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentMailProvider",
+                "description": "Mail provider bound to the deployment, or null for sign-in-only templates."
+              }
+            ]
           },
           "oauth_connection_id": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "format": "uuid",
-            "description": "OAuth connection the deployment's mail and file requests use."
+            "description": "OAuth connection for mail and files, or null for sign-in-only templates."
           },
           "owner_email": {
             "type": "string",
@@ -17372,6 +17396,7 @@
         "type": "object",
         "description": "A template available for hire.",
         "required": [
+          "owner_connection",
           "capabilities",
           "slug",
           "display_name",
@@ -17422,6 +17447,10 @@
                 "description": "The intro video; null when unset or while the profile is suspended."
               }
             ]
+          },
+          "owner_connection": {
+            "$ref": "#/components/schemas/ManagedAgentTemplateOwnerConnection",
+            "description": "Whether hiring requires a mail and files connection or only a sign-in identity."
           },
           "published_at": {
             "type": "string",
@@ -17506,6 +17535,14 @@
           }
         ],
         "description": "Credential-free model choices shared by a template's hired copies."
+      },
+      "ManagedAgentTemplateOwnerConnection": {
+        "type": "string",
+        "description": "Owner access required when hiring a template.",
+        "enum": [
+          "mail_and_files",
+          "sign_in_only"
+        ]
       },
       "ManagedAgentTemplatePublisher": {
         "type": "object",
@@ -20144,6 +20181,28 @@
       },
       "TemplateAccessChange": {
         "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "before",
+              "after",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateOwnerConnection"
+              },
+              "before": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateOwnerConnection"
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "owner_connection_changed"
+                ]
+              }
+            }
+          },
           {
             "type": "object",
             "required": [

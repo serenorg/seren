@@ -31549,6 +31549,10 @@
               "$ref": "#/components/schemas/ManagedAgentTemplateEgressRule"
             }
           },
+          "owner_connection": {
+            "$ref": "#/components/schemas/ManagedAgentTemplateOwnerConnection",
+            "description": "Defaults to mail_and_files when omitted."
+          },
           "requirements_txt": {
             "type": [
               "string",
@@ -31704,6 +31708,14 @@
             "type": "string"
           }
         }
+      },
+      "ManagedAgentTemplateOwnerConnection": {
+        "type": "string",
+        "description": "Owner access required when hiring a template.",
+        "enum": [
+          "mail_and_files",
+          "sign_in_only"
+        ]
       },
       "ManagedAgentTemplateProfile": {
         "type": "object",

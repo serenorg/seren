@@ -8729,6 +8729,19 @@ mod tests {
         assert!(
             matches!(cli.command, Commands::Agent { action } if matches!(*action, AgentAction::Managed(commands::managed::ManagedAction::ManagedDeployTemplate { provider: commands::managed::TemplateProvider::Google, .. })))
         );
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-deploy-template",
+            "researcher",
+            "--provider",
+            "microsoft",
+            "--timezone",
+            "UTC",
+        ]);
+        assert!(
+            matches!(cli.command, Commands::Agent { action } if matches!(*action, AgentAction::Managed(commands::managed::ManagedAction::ManagedDeployTemplate { connection_id: None, .. })))
+        );
         assert!(
             try_parse_cli_with_large_stack(vec!["seren", "agent", "managed-hire", "camilla"])
                 .is_err()

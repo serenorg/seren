@@ -428,6 +428,7 @@ mod tests {
                 "slug": "release-test",
                 "display_name": "Release test",
                 "publisher": {"organization_id": organization_id, "name": "Acme Studio"},
+                "owner_connection": "mail_and_files",
                 "published_at": "2026-10-07T12:34:56Z",
                 "capabilities": ["Research"],
                 "run_kinds": [{

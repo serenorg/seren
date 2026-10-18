@@ -15533,7 +15533,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Create a managed agent deployment from a published template using an existing OAuth connection and IANA timezone. This creates paid infrastructure; obtain user approval first.",
+        description = "Create a managed agent deployment from a published template using an IANA timezone. A template whose catalog owner_connection is mail_and_files requires an existing oauth_connection_id; omit oauth_connection_id for a sign_in_only template. This creates paid infrastructure; obtain user approval first.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
