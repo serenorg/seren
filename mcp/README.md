@@ -267,6 +267,8 @@ Built-in helper tools:
 
 Local MCP mode also exposes vault administration and migration tools, including vault create/archive/rotate, item create/update/delete/restore, encrypted attachments, approvals, memberships, invitations, shares, audit verification, import/export, and agent identity provisioning.
 
+Attachment uploads accept empty base64 content for an empty file. Omit `content_type` or pass null when the type is unknown; an explicitly empty string is rejected. Attachment results and plaintext exports use `content_type: null` for absent metadata. Imports accept null, an omitted field, or a nonempty string, and existing nonempty content types remain readable. Importing an export with absent content types requires a client that supports nullable attachment metadata.
+
 ### Seren Memory Tools
 
 Seren Memory tools let assistants search and hydrate private context, recall and store memories, learn verified error fixes, ingest source-managed rich documents, append and inspect revisions, change lifecycle status, retain and export conversation sources, inspect timelines, manage memory relationships, and read governed organizational knowledge. `seren_memory_remember`, `seren_memory_learn_from_error`, `seren_memory_ingest_document`, and `seren_memory_process_conversation` may replace or supersede existing content and are marked destructive; MCP read-only mode blocks them.

@@ -272,6 +272,8 @@ seren passwords audit verify
 
 Use `--password-stdin`, `--key-stdin`, and `--body-stdin` for secret material so values do not end up in shell history. Use `seren passwords export` and `seren passwords import` only for explicit plaintext backup or migration workflows.
 
+Attachments can be empty. Omit `--content-type` when the type is unknown; an explicitly empty value is rejected. Attachment JSON and plaintext exports use `content_type: null` for absent metadata, and imports accept null, an omitted field, or a nonempty string. Existing nonempty content types remain readable. Importing an export with absent content types requires a client that supports nullable attachment metadata.
+
 ### Seren Memory
 
 Seren Memory stores private context, retained conversation sources, and governed organizational knowledge. Use compact search to select relevant IDs before fetching full content. Source deletion is permanent and removes both matching retained sources and their derived memories. Provide at least one source identity, and use `--project-id` when the identity should be narrowed to one project.

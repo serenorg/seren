@@ -778,7 +778,7 @@ struct DecryptedAttachmentMetadata {
     attachment_id: Uuid,
     item_id: Uuid,
     filename: String,
-    content_type: String,
+    content_type: Option<String>,
     size_bytes: i64,
     created_at: jiff::Timestamp,
 }
@@ -789,7 +789,7 @@ struct DownloadedAttachmentOutput {
     item_id: Uuid,
     attachment_id: Uuid,
     filename: String,
-    content_type: String,
+    content_type: Option<String>,
     size_bytes: usize,
     output: String,
 }
@@ -800,7 +800,7 @@ struct UploadedAttachmentOutput {
     item_id: Uuid,
     attachment_id: Uuid,
     filename: String,
-    content_type: String,
+    content_type: Option<String>,
     size_bytes: i64,
 }
 
@@ -845,7 +845,7 @@ struct PasswordsVaultExportAttachment {
     #[serde(default)]
     attachment_id: Option<Uuid>,
     filename: String,
-    content_type: String,
+    content_type: Option<String>,
     size_bytes: usize,
     content_base64: String,
 }
@@ -853,7 +853,7 @@ struct PasswordsVaultExportAttachment {
 struct PasswordsPreparedImportAttachment {
     attachment_id: Uuid,
     filename: String,
-    content_type: String,
+    content_type: Option<String>,
     size_bytes: usize,
     content_base64: String,
 }
@@ -911,9 +911,6 @@ pub async fn attachment_upload(
     let plaintext = Zeroizing::new(
         std::fs::read(&path).with_context(|| format!("could not read {}", path.display()))?,
     );
-    if plaintext.is_empty() {
-        bail!("attachment file is empty");
-    }
     let filename = match filename {
         Some(value) => value,
         None => path
@@ -926,11 +923,7 @@ pub async fn attachment_upload(
     if filename.is_empty() {
         bail!("attachment filename cannot be empty");
     }
-    let content_type = content_type
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("application/octet-stream");
+    let content_type = content_type.as_deref().map(str::trim);
 
     let client = passwords_api_client(ctx).await?;
     let metadata = upload_plaintext_attachment(
@@ -959,7 +952,10 @@ pub async fn attachment_upload(
             &[
                 ("Attachment ID", output.attachment_id.to_string()),
                 ("Filename", output.filename),
-                ("Content type", output.content_type),
+                (
+                    "Content type",
+                    output.content_type.unwrap_or_else(|| "unspecified".into()),
+                ),
                 ("Bytes", output.size_bytes.to_string()),
             ],
         ),
@@ -974,7 +970,7 @@ async fn upload_plaintext_attachment(
     item_id: Uuid,
     attachment_id: Option<Uuid>,
     filename: &str,
-    content_type: &str,
+    content_type: Option<&str>,
     plaintext: &[u8],
 ) -> Result<DecryptedAttachmentMetadata> {
     let attachment_id = attachment_id.unwrap_or_else(Uuid::new_v4);
@@ -1002,9 +998,16 @@ fn build_attachment_create_request(
     item_id: Uuid,
     attachment_id: Uuid,
     filename: &str,
-    content_type: &str,
+    content_type: Option<&str>,
     plaintext: &[u8],
 ) -> Result<seren::CreateAttachmentRequest> {
+    seren_secrets_resolver::vault::attachments::validate_upload(
+        plaintext.len(),
+        filename.len(),
+        content_type.map(str::len),
+        0,
+    )
+    .context("invalid attachment filename, content type, or size")?;
     let attachment_key = generate_attachment_key();
     let item_id_bytes = item_id.as_bytes();
     let attachment_id_bytes = attachment_id.as_bytes();
@@ -1024,7 +1027,7 @@ fn build_attachment_create_request(
             vault_key,
             item_id_bytes,
             attachment_id_bytes,
-            content_type,
+            content_type.unwrap_or(""),
         )),
         filename_ciphertext: BASE64.encode(encrypt_filename(
             vault_key,
@@ -1072,7 +1075,7 @@ pub async fn attachment_list(
                             "{} | {} | {} | {} bytes",
                             attachment.attachment_id,
                             attachment.filename,
-                            attachment.content_type,
+                            attachment.content_type.as_deref().unwrap_or("unspecified"),
                             attachment.size_bytes
                         )
                     })
@@ -1130,7 +1133,10 @@ pub async fn attachment_download(
             &[
                 ("Attachment ID", output.attachment_id.to_string()),
                 ("Filename", output.filename),
-                ("Content type", output.content_type),
+                (
+                    "Content type",
+                    output.content_type.unwrap_or_else(|| "unspecified".into()),
+                ),
                 ("Bytes", output.size_bytes.to_string()),
                 ("Output", output.output),
             ],
@@ -1385,8 +1391,8 @@ pub async fn import_vault(
                 if filename.is_empty() {
                     bail!("import attachment filename cannot be empty");
                 }
-                let content_type = attachment.content_type.trim();
-                if content_type.is_empty() {
+                let content_type = attachment.content_type.as_deref().map(str::trim);
+                if content_type.is_some_and(str::is_empty) {
                     bail!("import attachment content_type cannot be empty");
                 }
                 let plaintext = Zeroizing::new(decode_passwords_b64_field(
@@ -1954,7 +1960,7 @@ async fn duplicate_item_attachments(
             target_item_id,
             target_attachment_id,
             &metadata.filename,
-            &metadata.content_type,
+            metadata.content_type.as_deref(),
             &plaintext,
         )?;
         id_map.insert(
@@ -3347,7 +3353,7 @@ fn decrypt_attachment_metadata_fields(
         attachment_id: fields.attachment_id,
         item_id: fields.response_item_id,
         filename,
-        content_type,
+        content_type: (!content_type.is_empty()).then_some(content_type),
         size_bytes: fields.size_bytes,
         created_at: fields.created_at,
     })
@@ -4627,6 +4633,180 @@ mod tests {
         );
     }
 
+    fn empty_attachment_response(
+        content_type: Option<&str>,
+    ) -> (super::VaultKey, Uuid, seren::AttachmentWithBlobView) {
+        let key = seren_secrets_crypto::protocol::vault::generate_vault_key();
+        let item_id = Uuid::new_v4();
+        let request = super::build_attachment_create_request(
+            &key,
+            item_id,
+            Uuid::new_v4(),
+            "empty.txt",
+            content_type,
+            b"",
+        )
+        .unwrap();
+        let size = BASE64.decode(&request.blob).unwrap().len();
+        assert_eq!(
+            size,
+            seren_secrets_resolver::vault::attachments::ENVELOPE_BYTES
+        );
+        let mut response = serde_json::to_value(request).unwrap();
+        response["item_id"] = serde_json::json!(item_id);
+        response["created_at"] = serde_json::json!("2030-01-01T00:00:00Z");
+        response["size_bytes"] = serde_json::json!(size);
+        (key, item_id, serde_json::from_value(response).unwrap())
+    }
+
+    #[test]
+    fn empty_attachments_preserve_optional_content_type_through_reads_and_rotation() {
+        for content_type in [None, Some("text/plain")] {
+            let (key, item_id, response) = empty_attachment_response(content_type);
+            let metadata =
+                super::decrypt_attachment_metadata_with_blob(&key, item_id, &response).unwrap();
+            assert_eq!(metadata.content_type.as_deref(), content_type);
+            assert!(
+                super::decrypt_attachment_blob(&key, item_id, &response)
+                    .unwrap()
+                    .is_empty()
+            );
+            assert_eq!(
+                serde_json::to_value(&metadata).unwrap()["content_type"],
+                serde_json::json!(content_type)
+            );
+            let record: seren::AttachmentView =
+                serde_json::from_value(serde_json::to_value(&response).unwrap()).unwrap();
+            let listed = super::decrypt_attachment_metadata(&key, item_id, &record).unwrap();
+            assert_eq!(listed.content_type.as_deref(), content_type);
+
+            let new_key = seren_secrets_crypto::protocol::vault::generate_vault_key();
+            let rotated =
+                super::rewrap_attachment_for_rotation(&key, &new_key, item_id, &record).unwrap();
+            let mut rotated_response = serde_json::to_value(&response).unwrap();
+            rotated_response["content_type_ciphertext"] =
+                serde_json::json!(rotated.content_type_ciphertext);
+            rotated_response["filename_ciphertext"] =
+                serde_json::json!(rotated.filename_ciphertext);
+            rotated_response["wrapped_content_key"] =
+                serde_json::json!(rotated.wrapped_content_key);
+            let rotated_response = serde_json::from_value(rotated_response).unwrap();
+            let metadata =
+                super::decrypt_attachment_metadata_with_blob(&new_key, item_id, &rotated_response)
+                    .unwrap();
+            assert_eq!(metadata.content_type.as_deref(), content_type);
+            assert!(
+                super::decrypt_attachment_blob(&new_key, item_id, &rotated_response)
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+    }
+
+    #[test]
+    fn empty_attachments_reject_tampering_and_wrong_ids() {
+        let (key, item_id, mut response) = empty_attachment_response(None);
+        let mut blob = BASE64.decode(&response.blob).unwrap();
+        *blob.last_mut().unwrap() ^= 1;
+        response.blob = BASE64.encode(blob);
+        assert!(super::decrypt_attachment_blob(&key, item_id, &response).is_err());
+
+        let (key, item_id, mut response) = empty_attachment_response(None);
+        let mut content_type = BASE64.decode(&response.content_type_ciphertext).unwrap();
+        *content_type.last_mut().unwrap() ^= 1;
+        response.content_type_ciphertext = BASE64.encode(content_type);
+        assert!(super::decrypt_attachment_metadata_with_blob(&key, item_id, &response).is_err());
+
+        let (key, item_id, mut response) = empty_attachment_response(None);
+        assert!(super::decrypt_attachment_blob(&key, Uuid::new_v4(), &response).is_err());
+        assert!(
+            super::decrypt_attachment_metadata_with_blob(&key, Uuid::new_v4(), &response).is_err()
+        );
+        response.attachment_id = Uuid::new_v4();
+        assert!(super::decrypt_attachment_blob(&key, item_id, &response).is_err());
+        assert!(super::decrypt_attachment_metadata_with_blob(&key, item_id, &response).is_err());
+    }
+
+    #[test]
+    fn attachment_requests_reject_present_empty_and_oversized_metadata() {
+        let key = seren_secrets_crypto::protocol::vault::generate_vault_key();
+        let item_id = Uuid::new_v4();
+        let attachment_id = Uuid::new_v4();
+        assert!(
+            super::build_attachment_create_request(
+                &key,
+                item_id,
+                attachment_id,
+                "empty.txt",
+                Some(""),
+                b"",
+            )
+            .is_err()
+        );
+        assert!(
+            super::build_attachment_create_request(&key, item_id, attachment_id, "", None, b"",)
+                .is_err()
+        );
+        let metadata_limit = seren_secrets_resolver::vault::attachments::MAX_METADATA_BYTES
+            - seren_secrets_resolver::vault::attachments::ENVELOPE_BYTES;
+        let oversized = "a".repeat(metadata_limit + 1);
+        assert!(
+            super::build_attachment_create_request(
+                &key,
+                item_id,
+                attachment_id,
+                &oversized,
+                None,
+                b"",
+            )
+            .is_err()
+        );
+        assert!(
+            super::build_attachment_create_request(
+                &key,
+                item_id,
+                attachment_id,
+                "empty.txt",
+                Some(&oversized),
+                b"",
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn attachment_import_preserves_absent_and_present_content_type() {
+        for content_type in [serde_json::Value::Null, serde_json::json!("text/plain")] {
+            let expected = content_type.as_str().map(str::to_owned);
+            let value = serde_json::json!({
+                "filename": "empty.txt",
+                "content_type": content_type,
+                "size_bytes": 0,
+                "content_base64": ""
+            });
+            let attachment: super::PasswordsVaultExportAttachment =
+                serde_json::from_value(value).unwrap();
+            assert_eq!(attachment.content_type, expected);
+            assert_eq!(
+                serde_json::to_value(&attachment).unwrap()["content_type"],
+                serde_json::json!(expected)
+            );
+            let (_, prepared) = super::prepare_passwords_import_item_content(
+                serde_json::json!({"type": "document"}),
+                vec![attachment],
+            );
+            assert_eq!(prepared[0].content_type, expected);
+            assert_eq!(prepared[0].size_bytes, 0);
+            assert!(prepared[0].content_base64.is_empty());
+        }
+        let attachment: super::PasswordsVaultExportAttachment =
+            serde_json::from_value(serde_json::json!({
+                "filename": "empty.txt", "size_bytes": 0, "content_base64": ""
+            }))
+            .unwrap();
+        assert_eq!(attachment.content_type, None);
+    }
+
     #[test]
     fn attachment_create_request_preserves_supplied_attachment_id() {
         let vault_key = generate_vault_key();
@@ -4639,7 +4819,7 @@ mod tests {
             item_id,
             attachment_id,
             "document.pdf",
-            "application/pdf",
+            Some("application/pdf"),
             plaintext,
         )
         .unwrap();
@@ -4815,7 +4995,7 @@ mod tests {
             vec![PasswordsVaultExportAttachment {
                 attachment_id: Some(source_id),
                 filename: "doc.pdf".to_string(),
-                content_type: "application/pdf".to_string(),
+                content_type: Some("application/pdf".to_string()),
                 size_bytes: 7,
                 content_base64: "ZXhhbXBsZQ==".to_string(),
             }],

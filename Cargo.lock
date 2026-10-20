@@ -5598,7 +5598,7 @@ dependencies = [
 [[package]]
 name = "seren-secrets-crypto"
 version = "0.6.0"
-source = "git+https://github.com/serenorg/seren-secrets.git#3367bbb88421e54a841beb499129a0c9fd360e3d"
+source = "git+https://github.com/serenorg/seren-secrets.git#32785d816ab75544e4ff9d98b207c29c8cd33620"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -5627,7 +5627,7 @@ dependencies = [
 [[package]]
 name = "seren-secrets-macros"
 version = "0.6.0"
-source = "git+https://github.com/serenorg/seren-secrets.git#3367bbb88421e54a841beb499129a0c9fd360e3d"
+source = "git+https://github.com/serenorg/seren-secrets.git#32785d816ab75544e4ff9d98b207c29c8cd33620"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5637,7 +5637,7 @@ dependencies = [
 [[package]]
 name = "seren-secrets-resolver"
 version = "0.6.0"
-source = "git+https://github.com/serenorg/seren-secrets.git#3367bbb88421e54a841beb499129a0c9fd360e3d"
+source = "git+https://github.com/serenorg/seren-secrets.git#32785d816ab75544e4ff9d98b207c29c8cd33620"
 dependencies = [
  "async-trait",
  "base64 0.22.1",

@@ -941,7 +941,7 @@ enum PasswordAttachmentAction {
         /// Stored filename. Defaults to the file name from --path.
         #[arg(long)]
         filename: Option<String>,
-        /// Stored content type. Defaults to application/octet-stream.
+        /// Stored content type; omit when unknown.
         #[arg(long)]
         content_type: Option<String>,
     },
