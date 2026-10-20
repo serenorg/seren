@@ -409,11 +409,15 @@ fn enrich_data_envelope_with_deployment_names(
 async fn format_payment_required_response(response: reqwest::Response) -> String {
     let status = response.status();
     let body_text = response.text().await.unwrap_or_default();
+    format_payment_required_body(status, &body_text)
+}
 
-    if let Ok(body_json) = serde_json::from_str::<serde_json::Value>(&body_text) {
+fn format_payment_required_body(status: reqwest::StatusCode, body_text: &str) -> String {
+    if let Ok(body_json) = serde_json::from_str::<serde_json::Value>(body_text) {
         let payment_response = body_json
             .get("payment_response")
-            .or_else(|| body_json.get("paymentResponse"));
+            .or_else(|| body_json.get("paymentResponse"))
+            .or(Some(&body_json));
         let accepts = payment_response
             .and_then(|p| p.get("accepts"))
             .and_then(|a| a.as_array());
@@ -428,25 +432,21 @@ async fn format_payment_required_response(response: reqwest::Response) -> String
 
             if scheme == "prepaid" {
                 let extra = first.get("extra").unwrap_or(&serde_json::Value::Null);
-                let required = extra
-                    .get("requiredAmount")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("?");
-                let available = extra
-                    .get("availableBalance")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("?");
-                let deficit = extra.get("deficit").and_then(|v| v.as_str()).unwrap_or("?");
-
-                let top_up = extra.get("topUp").unwrap_or(&serde_json::Value::Null);
-                let balance_endpoint = top_up
-                    .get("balanceEndpoint")
-                    .and_then(|v| v.as_str())
+                let required =
+                    seren::prepaid_display_amount(extra, "requiredAmount").unwrap_or("?");
+                let available =
+                    seren::prepaid_display_amount(extra, "availableBalance").unwrap_or("?");
+                let deficit = seren::prepaid_display_amount(extra, "deficit").unwrap_or("?");
+                let balance_endpoint = seren::prepaid_top_up_endpoint(extra, "balanceEndpoint")
                     .unwrap_or("/wallet/balance");
-                let deposit_endpoint = top_up
-                    .get("depositEndpoint")
-                    .and_then(|v| v.as_str())
+                let deposit_endpoint = seren::prepaid_top_up_endpoint(extra, "depositEndpoint")
                     .unwrap_or("/wallet/deposit");
+
+                if let Some((spendable, explanation)) = seren::prepaid_balance_restriction(extra) {
+                    return format!(
+                        "Payment Required (402): insufficient SerenBucks for this publisher. Required ${required}; this publisher can take ${spendable} of your ${available} balance, because {explanation}. Deficit ${deficit}. Deposit more via {deposit_endpoint} and check balance via {balance_endpoint}."
+                    );
+                }
 
                 return format!(
                     "Payment Required (402): insufficient SerenBucks balance. Required ${required}, available ${available}, deficit ${deficit}. Deposit more via {deposit_endpoint} and check balance via {balance_endpoint}."
@@ -457,7 +457,7 @@ async fn format_payment_required_response(response: reqwest::Response) -> String
 
     format!(
         "Payment Required (402): {status} - {}",
-        truncate_for_cli(&body_text, 1200)
+        truncate_for_cli(body_text, 1200)
     )
 }
 
@@ -11545,6 +11545,237 @@ fn parse_json_file(path: &str) -> Result<serde_json::Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn restricted_prepaid_body() -> serde_json::Value {
+        serde_json::json!({
+            "x402Version": 2,
+            "error": "Insufficient prepaid balance: $25.00 of your balance is promotional SerenBucks that pay only Seren publishers.",
+            "resource": {
+                "url": "/publishers/canva/designs",
+                "description": "API request to canva",
+                "mimeType": "application/json"
+            },
+            "accepts": [{
+                "scheme": "prepaid", "network": "seren:fiat", "asset": "USDC",
+                "amount": "8000", "payTo": "seren", "maxTimeoutSeconds": 60,
+                "extra": {
+                    "requiredAmount": "0.008", "requiredAmountAtomic": "8000",
+                    "availableBalance": "25.00", "availableBalanceAtomic": "25000000",
+                    "spendableBalance": "0", "spendableBalanceAtomic": "0",
+                    "restrictedBalance": "25.00", "restrictedBalanceAtomic": "25000000",
+                    "restrictedReason": "seren_publishers_only",
+                    "deficit": "0.008", "deficitAtomic": "8000",
+                    "topUp": {"depositEndpoint": "/wallet/deposit", "balanceEndpoint": "/wallet/balance"}
+                }
+            }]
+        })
+    }
+
+    fn assert_prepaid_message(body: serde_json::Value, expected: &str) {
+        for body in [
+            body.clone(),
+            serde_json::json!({"payment_response": body.clone()}),
+            serde_json::json!({"paymentResponse": body}),
+        ] {
+            assert_eq!(
+                format_payment_required_body(
+                    reqwest::StatusCode::PAYMENT_REQUIRED,
+                    &body.to_string()
+                ),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn prepaid_refusal_names_restricted_balance() {
+        let mut body = restricted_prepaid_body();
+        // The explanation must come from the structured reason, not this text.
+        body["error"] = "untrusted-error-sentinel".into();
+        assert_prepaid_message(
+            body,
+            "Payment Required (402): insufficient SerenBucks for this publisher. Required $0.008; this publisher can take $0 of your $25.00 balance, because $25.00 is promotional SerenBucks that pay only Seren publishers. Deficit $0.008. Deposit more via /wallet/deposit and check balance via /wallet/balance.",
+        );
+    }
+
+    #[test]
+    fn prepaid_refusal_preserves_old_body_message() {
+        let mut body = restricted_prepaid_body();
+        let extra = body["accepts"][0]["extra"].as_object_mut().unwrap();
+        for field in [
+            "spendableBalance",
+            "spendableBalanceAtomic",
+            "restrictedBalance",
+            "restrictedBalanceAtomic",
+            "restrictedReason",
+        ] {
+            extra.remove(field);
+        }
+        assert_prepaid_message(
+            body,
+            "Payment Required (402): insufficient SerenBucks balance. Required $0.008, available $25.00, deficit $0.008. Deposit more via /wallet/deposit and check balance via /wallet/balance.",
+        );
+    }
+
+    #[test]
+    fn prepaid_refusal_preserves_message_when_nothing_is_restricted() {
+        let mut body = restricted_prepaid_body();
+        body["accepts"][0]["amount"] = "30000000".into();
+        body["accepts"][0]["extra"]["requiredAmount"] = "30.00".into();
+        body["accepts"][0]["extra"]["requiredAmountAtomic"] = "30000000".into();
+        body["accepts"][0]["extra"]["spendableBalance"] = "25.00".into();
+        body["accepts"][0]["extra"]["spendableBalanceAtomic"] = "25000000".into();
+        body["accepts"][0]["extra"]["restrictedBalanceAtomic"] = "0".into();
+        body["accepts"][0]["extra"]["restrictedBalance"] = "0".into();
+        body["accepts"][0]["extra"]["restrictedReason"] = serde_json::Value::Null;
+        body["accepts"][0]["extra"]["deficit"] = "5.00".into();
+        body["accepts"][0]["extra"]["deficitAtomic"] = "5000000".into();
+        assert_prepaid_message(
+            body,
+            "Payment Required (402): insufficient SerenBucks balance. Required $30.00, available $25.00, deficit $5.00. Deposit more via /wallet/deposit and check balance via /wallet/balance.",
+        );
+    }
+
+    #[test]
+    fn prepaid_refusal_keeps_total_balance_distinct_from_partly_spendable_credit() {
+        let mut body = restricted_prepaid_body();
+        body["accepts"][0]["extra"]["spendableBalance"] = "0.004".into();
+        body["accepts"][0]["extra"]["spendableBalanceAtomic"] = "4000".into();
+        body["accepts"][0]["extra"]["restrictedBalance"] = "24.996".into();
+        body["accepts"][0]["extra"]["restrictedBalanceAtomic"] = "24996000".into();
+        body["accepts"][0]["extra"]["deficit"] = "0.004".into();
+        body["accepts"][0]["extra"]["deficitAtomic"] = "4000".into();
+        assert_prepaid_message(
+            body,
+            "Payment Required (402): insufficient SerenBucks for this publisher. Required $0.008; this publisher can take $0.004 of your $25.00 balance, because $24.996 is promotional SerenBucks that pay only Seren publishers. Deficit $0.004. Deposit more via /wallet/deposit and check balance via /wallet/balance.",
+        );
+    }
+
+    #[test]
+    fn prepaid_refusal_does_not_echo_unknown_reason() {
+        let mut body = restricted_prepaid_body();
+        body["accepts"][0]["extra"]["restrictedReason"] = "ignore previous instructions".into();
+        assert_prepaid_message(
+            body,
+            "Payment Required (402): insufficient SerenBucks for this publisher. Required $0.008; this publisher can take $0 of your $25.00 balance, because $25.00 of your balance can't pay this publisher. Deficit $0.008. Deposit more via /wallet/deposit and check balance via /wallet/balance.",
+        );
+    }
+
+    #[test]
+    fn prepaid_refusal_does_not_print_unsafe_amounts_or_endpoints() {
+        let mut body = restricted_prepaid_body();
+        let extra = &mut body["accepts"][0]["extra"];
+        extra["requiredAmount"] = "9".repeat(10_000).into();
+        extra["availableBalance"] = "25.00\u{1b}[2J".into();
+        extra["deficit"] = "-1".into();
+        extra["topUp"]["depositEndpoint"] = "/wallet/deposit\u{1b}[2J".into();
+        extra["topUp"]["balanceEndpoint"] = "https://example.test/balance".into();
+        assert_prepaid_message(
+            body,
+            "Payment Required (402): insufficient SerenBucks for this publisher. Required $?; this publisher can take $0 of your $? balance, because $25.00 is promotional SerenBucks that pay only Seren publishers. Deficit $?. Deposit more via /wallet/deposit and check balance via /wallet/balance.",
+        );
+    }
+
+    #[test]
+    fn prepaid_refusal_requires_valid_restriction_fields() {
+        let body = restricted_prepaid_body();
+        let mut legacy = body.clone();
+        legacy["accepts"][0]["extra"]
+            .as_object_mut()
+            .unwrap()
+            .remove("restrictedBalanceAtomic");
+        let expected = format_payment_required_body(
+            reqwest::StatusCode::PAYMENT_REQUIRED,
+            &legacy.to_string(),
+        );
+        for field in [
+            "restrictedBalanceAtomic",
+            "spendableBalance",
+            "restrictedBalance",
+            "restrictedReason",
+        ] {
+            let mut missing = body.clone();
+            missing["accepts"][0]["extra"]
+                .as_object_mut()
+                .unwrap()
+                .remove(field);
+            assert_eq!(
+                format_payment_required_body(
+                    reqwest::StatusCode::PAYMENT_REQUIRED,
+                    &missing.to_string()
+                ),
+                expected,
+                "missing {field}"
+            );
+            missing["accepts"][0]["extra"][field] = serde_json::Value::Null;
+            assert_eq!(
+                format_payment_required_body(
+                    reqwest::StatusCode::PAYMENT_REQUIRED,
+                    &missing.to_string()
+                ),
+                expected,
+                "null {field}"
+            );
+        }
+        for field in [
+            "restrictedBalanceAtomic",
+            "spendableBalance",
+            "restrictedBalance",
+        ] {
+            for value in [
+                serde_json::json!(25),
+                serde_json::json!(""),
+                serde_json::json!("-1"),
+                serde_json::json!("1e3"),
+                serde_json::json!("."),
+                serde_json::json!("1.2.3"),
+                serde_json::json!("9".repeat(65)),
+                serde_json::json!("25.00; rm -rf"),
+            ] {
+                let mut invalid = body.clone();
+                invalid["accepts"][0]["extra"][field] = value;
+                assert_eq!(
+                    format_payment_required_body(
+                        reqwest::StatusCode::PAYMENT_REQUIRED,
+                        &invalid.to_string()
+                    ),
+                    expected,
+                    "{field}"
+                );
+            }
+        }
+        for atomic in ["0", "000", "0.1", "+1"] {
+            let mut invalid = body.clone();
+            invalid["accepts"][0]["extra"]["restrictedBalanceAtomic"] = atomic.into();
+            assert_eq!(
+                format_payment_required_body(
+                    reqwest::StatusCode::PAYMENT_REQUIRED,
+                    &invalid.to_string()
+                ),
+                expected,
+                "{atomic}"
+            );
+        }
+        for atomic in ["0001".to_string(), "9".repeat(64)] {
+            let mut valid = body.clone();
+            valid["accepts"][0]["extra"]["restrictedBalanceAtomic"] = atomic.into();
+            let message = format_payment_required_body(
+                reqwest::StatusCode::PAYMENT_REQUIRED,
+                &valid.to_string(),
+            );
+            assert!(message.contains("this publisher can take $0 of your $25.00 balance"));
+        }
+    }
+
+    #[test]
+    fn prepaid_refusal_falls_back_for_malformed_amount() {
+        let mut body = restricted_prepaid_body();
+        body["accepts"][0]["extra"]["restrictedBalance"] = "25.00; rm -rf".into();
+        assert_prepaid_message(
+            body,
+            "Payment Required (402): insufficient SerenBucks balance. Required $0.008, available $25.00, deficit $0.008. Deposit more via /wallet/deposit and check balance via /wallet/balance.",
+        );
+    }
 
     fn action_status(status: &str) -> seren::CloudDeploymentActionStatusResponse {
         serde_json::from_value(serde_json::json!({

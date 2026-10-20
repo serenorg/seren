@@ -3,6 +3,63 @@ use thiserror::Error;
 
 pub const MANAGED_AGENT_SECRETS_REDIRECT_ORIGIN: &str = "https://passwords.serendb.com";
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum PrepaidCreditRestriction {
+    SerenPublishersOnly,
+}
+
+/// A bounded decimal amount from a prepaid x402 `extra` object, safe to display.
+pub fn prepaid_display_amount<'a>(extra: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    extra.get(key)?.as_str().filter(|value| {
+        value.len() <= 64
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || byte == b'.')
+            && value.bytes().any(|byte| byte.is_ascii_digit())
+            && value.bytes().filter(|byte| *byte == b'.').count() <= 1
+    })
+}
+
+/// A bounded same-origin top-up path from a prepaid x402 `extra.topUp` object, safe to display.
+/// Network-path references (`//host`, or `\` that clients may read as `/`) are rejected.
+pub fn prepaid_top_up_endpoint<'a>(extra: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    extra.get("topUp")?.get(key)?.as_str().filter(|value| {
+        value.starts_with('/')
+            && !value.starts_with("//")
+            && value.len() <= 512
+            && value.bytes().all(|byte| byte.is_ascii_graphic())
+            && !value.contains('?')
+            && !value.contains('\\')
+    })
+}
+
+/// Validated publisher-spendable balance and a bounded explanation of restricted credit.
+pub fn prepaid_balance_restriction(extra: &serde_json::Value) -> Option<(&str, String)> {
+    let atomic = extra.get("restrictedBalanceAtomic")?.as_str()?;
+    if atomic.len() > 64
+        || !atomic.bytes().all(|byte| byte.is_ascii_digit())
+        || !atomic.bytes().any(|byte| byte != b'0')
+    {
+        return None;
+    }
+    let spendable = prepaid_display_amount(extra, "spendableBalance")?;
+    let restricted = prepaid_display_amount(extra, "restrictedBalance")?;
+    let reason = extra.get("restrictedReason")?;
+    if reason.as_str()?.len() > 64 {
+        return None;
+    }
+    let restriction: Option<PrepaidCreditRestriction> =
+        serde::Deserialize::deserialize(reason).ok();
+    let explanation = match restriction {
+        Some(PrepaidCreditRestriction::SerenPublishersOnly) => {
+            format!("${restricted} is promotional SerenBucks that pay only Seren publishers")
+        }
+        None => format!("${restricted} of your balance can't pay this publisher"),
+    };
+    Some((spendable, explanation))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CloudDeploymentLifecycleAction {
     Start,
@@ -1918,6 +1975,79 @@ pub fn validate_cloud_approval_resume_identity(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prepaid_restriction_uses_checked_fields_without_echoing_unknown_reasons() {
+        let mut extra = serde_json::json!({
+            "spendableBalance":"0.004","restrictedBalance":"24.996",
+            "restrictedBalanceAtomic":"24996000","restrictedReason":"seren_publishers_only",
+        });
+        assert_eq!(
+            prepaid_balance_restriction(&extra),
+            Some((
+                "0.004",
+                "$24.996 is promotional SerenBucks that pay only Seren publishers".into()
+            ))
+        );
+        extra["restrictedReason"] = "unrecognized-reason".into();
+        assert_eq!(
+            prepaid_balance_restriction(&extra),
+            Some((
+                "0.004",
+                "$24.996 of your balance can't pay this publisher".into()
+            ))
+        );
+        for invalid in [
+            serde_json::Value::Null,
+            serde_json::json!(true),
+            serde_json::json!(42),
+            serde_json::json!({"reason":"seren_publishers_only"}),
+            serde_json::json!("x".repeat(65)),
+        ] {
+            extra["restrictedReason"] = invalid;
+            assert_eq!(prepaid_balance_restriction(&extra), None);
+        }
+    }
+
+    #[test]
+    fn prepaid_display_fields_accept_only_bounded_amounts_and_relative_paths() {
+        let nines = "9".repeat(64);
+        for valid in ["0", "0001", "25.00", ".5", nines.as_str()] {
+            let extra = serde_json::json!({ "deficit": valid });
+            assert_eq!(prepaid_display_amount(&extra, "deficit"), Some(valid));
+        }
+        for invalid in [
+            serde_json::json!(25),
+            serde_json::json!(""),
+            serde_json::json!("."),
+            serde_json::json!("-1"),
+            serde_json::json!("1e3"),
+            serde_json::json!("1.2.3"),
+            serde_json::json!("25.00\u{1b}[2J"),
+            serde_json::json!("9".repeat(65)),
+        ] {
+            let extra = serde_json::json!({ "deficit": invalid });
+            assert_eq!(prepaid_display_amount(&extra, "deficit"), None);
+        }
+        let extra = serde_json::json!({ "topUp": { "depositEndpoint": "/wallet/deposit" } });
+        assert_eq!(
+            prepaid_top_up_endpoint(&extra, "depositEndpoint"),
+            Some("/wallet/deposit")
+        );
+        for invalid in [
+            serde_json::json!("https://example.test/wallet/deposit"),
+            serde_json::json!("//example.test/wallet/deposit"),
+            serde_json::json!("/\\example.test/wallet/deposit"),
+            serde_json::json!("/wallet/deposit?next=elsewhere"),
+            serde_json::json!("/wallet/deposit\u{1b}[2J"),
+            serde_json::json!("/wallet deposit"),
+            serde_json::json!(format!("/{}", "a".repeat(512))),
+            serde_json::json!(1),
+        ] {
+            let extra = serde_json::json!({ "topUp": { "depositEndpoint": invalid } });
+            assert_eq!(prepaid_top_up_endpoint(&extra, "depositEndpoint"), None);
+        }
+    }
 
     #[tokio::test]
     async fn managed_secrets_binding_resolves_each_original_apply_target() {
