@@ -7457,9 +7457,17 @@ impl SerenMcpServer {
         extensions: &Extensions,
     ) -> Result<seren::Client, McpError> {
         let (bearer, _) = self.passwords_vault_auth(extensions).await?;
+        self.passwords_api_client_for_bearer(&bearer, extensions)
+    }
+
+    fn passwords_api_client_for_bearer(
+        &self,
+        bearer: &str,
+        extensions: &Extensions,
+    ) -> Result<seren::Client, McpError> {
         let base_url = passwords_generated_api_base_url(&self.passwords_api_base_url);
         let agent_metadata = extract_agent_metadata_from_extensions(extensions);
-        let http_client = self.build_http_client(&bearer, &agent_metadata)?;
+        let http_client = self.build_http_client(bearer, &agent_metadata)?;
         Ok(seren::Client::new_with_client(&base_url, http_client))
     }
 
@@ -7473,14 +7481,27 @@ impl SerenMcpServer {
         &self,
         extensions: &Extensions,
     ) -> Result<seren_secrets_resolver::VaultClient, McpError> {
-        use seren_secrets_resolver::{VaultClient, VaultClientConfig, VaultKeySource};
+        use seren_secrets_resolver::{
+            ResolverNetwork, VaultClient, VaultClientConfig, VaultKeySource,
+        };
 
         let (bearer, kem_private) = self.passwords_vault_auth(extensions).await?;
+        ResolverNetwork::HostEnvironment
+            .validate_endpoint(&self.passwords_api_base_url)
+            .map_err(crate::passwords::vault_err)?;
+        let api_client = self.passwords_api_client_for_bearer(&bearer, extensions)?;
+        let caller_identity_id =
+            crate::passwords::passwords_gateway_data(api_client.identity_get_me().await)
+                .await?
+                .data
+                .identity_id;
 
         VaultClient::new(VaultClientConfig {
             base_url: self.passwords_api_base_url.clone(),
             bearer_token: bearer,
             key_source: VaultKeySource::AgentKey { kem_private },
+            network: ResolverNetwork::HostEnvironment,
+            caller_identity_id,
         })
         .map_err(crate::passwords::vault_err)
     }
@@ -22986,6 +23007,83 @@ mod tests {
             err.to_string().contains("Vault locked"),
             "unexpected error: {err}"
         );
+    }
+
+    #[tokio::test]
+    async fn passwords_vault_client_uses_agent_credential_for_identity_and_membership() {
+        use seren_secrets_crypto::keys::IdentityKemKeypair;
+        use seren_secrets_crypto::protocol::vault::{
+            encrypt_vault_name, generate_vault_key, wrap_vault_key_for_identity,
+        };
+        use seren_secrets_resolver::vault::VaultAccessLevel;
+        use wiremock::matchers::{header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let gateway = MockServer::start().await;
+        let identity_id = Uuid::new_v4();
+        let vault_id = Uuid::new_v4();
+        let kem = IdentityKemKeypair::generate();
+        let vault_key = generate_vault_key();
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-passwords/identities/me"))
+            .and(header("authorization", "Bearer selected-vault-token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "identity_id": identity_id,
+                    "kind": "agent",
+                    "owner_user_id": Uuid::new_v4(),
+                    "display_name": "Synthetic caller",
+                    "kem_public_key": BASE64.encode(kem.public.as_bytes()),
+                    "signing_public_key": BASE64.encode([0u8; 32]),
+                    "key_provenance": {},
+                    "created_at": "2026-10-20T00:00:00Z",
+                    "updated_at": "2026-10-20T00:00:00Z"
+                }
+            })))
+            .expect(1)
+            .mount(&gateway)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-passwords/sync"))
+            .and(header("authorization", "Bearer selected-vault-token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "vaults": [{
+                        "vault_id": vault_id,
+                        "name_ciphertext": BASE64.encode(encrypt_vault_name(
+                            &vault_key, vault_id.as_bytes(), "Synthetic vault"
+                        )),
+                        "wrapped_vault_key": BASE64.encode(wrap_vault_key_for_identity(
+                            &vault_key, &kem.public
+                        ))
+                    }],
+                    "item_overviews": [],
+                    "memberships": [{
+                        "vault_id": vault_id,
+                        "identity_id": identity_id,
+                        "access_level": "read",
+                        "revoked_at": null
+                    }]
+                }
+            })))
+            .expect(1)
+            .mount(&gateway)
+            .await;
+        let mut server = server_with_http_client(reqwest::Client::new());
+        server.passwords_api_base_url = format!("{}/publishers/seren-passwords", gateway.uri());
+        server.passwords_agent = Some(Arc::new(crate::passwords::PasswordsAgentIdentity {
+            api_key: Zeroizing::new("selected-vault-token".to_string()),
+            kem_private: kem.private,
+        }));
+
+        let client = server
+            .passwords_vault_client(&Extensions::default())
+            .await
+            .unwrap();
+        let vaults = client.list_vaults().await.unwrap();
+        assert_eq!(vaults.len(), 1);
+        assert_eq!(vaults[0].vault_id, vault_id);
+        assert_eq!(vaults[0].access, Some(VaultAccessLevel::Read));
     }
 
     #[tokio::test]

@@ -29,7 +29,7 @@ use seren_secrets_crypto::protocol::vault::{
     generate_vault_key, unwrap_vault_key, wrap_vault_key_for_identity,
 };
 use seren_secrets_resolver::{
-    VaultClient, VaultClientConfig, VaultKeySource, create_agent_identity,
+    ResolverNetwork, VaultClient, VaultClientConfig, VaultKeySource, create_agent_identity,
     fetch_master_password_key_source, grant_membership, revoke_agent_identity, revoke_membership,
 };
 use uuid::Uuid;
@@ -626,7 +626,10 @@ pub async fn list_items(
         .list_items(vault.vault_id, &vault.key)
         .await?
         .into_iter()
-        .map(|(item_id, title)| ItemSummaryOutput { item_id, title })
+        .map(|summary| ItemSummaryOutput {
+            item_id: summary.item_id,
+            title: summary.title,
+        })
         .collect::<Vec<_>>();
 
     match ctx.format {
@@ -1186,7 +1189,7 @@ pub async fn export_vault(
     let mut attachment_bytes = 0usize;
     let mut attachments_omitted_count = 0usize;
     let mut attachments_omitted_bytes = 0usize;
-    for (item_id, _) in listed {
+    for item_id in listed.into_iter().map(|summary| summary.item_id) {
         let item = client.get_item(vault.vault_id, item_id, &vault.key).await?;
         let metadata = serde_json::from_str::<serde_json::Value>(&item.metadata_json).ok();
         let sensitive = metadata_bool(metadata.as_ref(), "sensitive");
@@ -2174,8 +2177,10 @@ pub async fn update_item(
             content,
             &title,
             &tags,
+            None,
             sensitive,
             vault.key_version,
+            None,
         )
         .await?;
 
@@ -2366,12 +2371,9 @@ pub async fn agent_provision(
         }
         _ => bail!("agent provisioning requires master-password authentication"),
     };
-    let client = VaultClient::new(VaultClientConfig {
-        base_url: passwords_base_url.clone(),
-        bearer_token: bearer.clone(),
-        key_source,
-    })
-    .context("could not build vault client")?;
+    let client =
+        build_vault_client_for_bearer(passwords_base_url.clone(), bearer.clone(), key_source, ctx)
+            .await?;
 
     let vaults = client.list_vaults().await?;
     let targets: Vec<&seren_secrets_resolver::vault::DecryptedVault> = if provision.vault == "all" {
@@ -3522,12 +3524,8 @@ pub async fn membership_grant(options: MembershipGrantOptions, ctx: &CommandCont
     )
     .await?;
     let signing_private = account_signing_private_from_key_source(&key_source)?;
-    let vault_client = VaultClient::new(VaultClientConfig {
-        base_url: passwords_base_url,
-        bearer_token: bearer,
-        key_source,
-    })
-    .context("could not build vault client")?;
+    let vault_client =
+        build_vault_client_for_bearer(passwords_base_url, bearer, key_source, ctx).await?;
     let vault = select_vault(&vault_client, Some(options.vault_id)).await?;
     let client = passwords_api_client(ctx).await?;
     let identity = passwords_gateway_data(
@@ -3613,12 +3611,8 @@ pub async fn membership_update_access(
     )
     .await?;
     let signing_private = account_signing_private_from_key_source(&key_source)?;
-    let vault_client = VaultClient::new(VaultClientConfig {
-        base_url: passwords_base_url,
-        bearer_token: bearer,
-        key_source,
-    })
-    .context("could not build vault client")?;
+    let vault_client =
+        build_vault_client_for_bearer(passwords_base_url, bearer, key_source, ctx).await?;
     let vault = select_vault(&vault_client, Some(options.vault_id)).await?;
     let client = passwords_api_client(ctx).await?;
     let identity = passwords_gateway_data(
@@ -3820,12 +3814,8 @@ pub async fn invitation_complete(
     )
     .await?;
     let signing_private = account_signing_private_from_key_source(&key_source)?;
-    let vault_client = VaultClient::new(VaultClientConfig {
-        base_url: passwords_base_url,
-        bearer_token: bearer,
-        key_source,
-    })
-    .context("could not build vault client")?;
+    let vault_client =
+        build_vault_client_for_bearer(passwords_base_url, bearer, key_source, ctx).await?;
     let vault = select_vault(&vault_client, Some(options.vault_id)).await?;
     let client = passwords_api_client(ctx).await?;
     let invitations = passwords_gateway_data(
@@ -4083,8 +4073,14 @@ fn publisher_api_base_url(api_base_url: &str, publisher_slug: &str) -> String {
 
 async fn passwords_api_client(ctx: &CommandContext) -> Result<seren::Client> {
     let bearer = get_bearer_token(ctx.api_key.clone()).await?;
-    seren::Client::from_config(&seren::ClientConfig::new(bearer).with_base_url(ctx.api_base()))
-        .context("could not build Seren API client")
+    passwords_api_client_for_bearer(ctx, &bearer)
+}
+
+fn passwords_api_client_for_bearer(ctx: &CommandContext, bearer: &str) -> Result<seren::Client> {
+    seren::Client::from_config(
+        &seren::ClientConfig::new(bearer.to_string()).with_base_url(ctx.api_base()),
+    )
+    .context("could not build Seren API client")
 }
 
 /// Resolve a Seren Passwords publisher response into its typed wrapper.
@@ -4173,10 +4169,29 @@ async fn build_vault_client(
     ctx: &CommandContext,
 ) -> Result<VaultClient> {
     let (passwords_base_url, bearer, key_source) = build_vault_key_source(options, ctx).await?;
+    build_vault_client_for_bearer(passwords_base_url, bearer, key_source, ctx).await
+}
+
+async fn build_vault_client_for_bearer(
+    passwords_base_url: String,
+    bearer: String,
+    key_source: VaultKeySource,
+    ctx: &CommandContext,
+) -> Result<VaultClient> {
+    ResolverNetwork::HostEnvironment.validate_endpoint(&passwords_base_url)?;
+    let api_client = passwords_api_client_for_bearer(ctx, &bearer)?;
+    let caller_identity_id = passwords_gateway_data(
+        api_client.identity_get_me().await,
+        "failed to load password identity",
+    )?
+    .data
+    .identity_id;
     VaultClient::new(VaultClientConfig {
         base_url: passwords_base_url,
         bearer_token: bearer,
         key_source,
+        network: ResolverNetwork::HostEnvironment,
+        caller_identity_id,
     })
     .context("could not build vault client")
 }

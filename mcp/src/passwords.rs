@@ -1545,7 +1545,7 @@ impl SerenMcpServer {
         let mut attachment_count = 0usize;
         let mut attachments_omitted_count = 0usize;
         let mut attachments_omitted_bytes = 0usize;
-        for (item_id, _) in listed {
+        for item_id in listed.into_iter().map(|summary| summary.item_id) {
             let item = client
                 .get_item(vault.vault_id, item_id, &vault.key)
                 .await
@@ -2568,10 +2568,10 @@ impl SerenMcpServer {
 
         let output = items
             .into_iter()
-            .map(|(item_id, title)| {
+            .map(|summary| {
                 serde_json::json!({
-                    "item_id": item_id,
-                    "title": title,
+                    "item_id": summary.item_id,
+                    "title": summary.title,
                 })
             })
             .collect::<Vec<_>>();
@@ -2898,8 +2898,10 @@ impl SerenMcpServer {
                 content,
                 &title,
                 &tags,
+                None,
                 sensitive,
                 vault.key_version,
+                None,
             )
             .await
             .map_err(vault_err)?;
@@ -4023,7 +4025,7 @@ pub(crate) fn vault_err(e: seren_secrets_resolver::ResolverError) -> McpError {
 /// gateway, which wraps the upstream `DataResponse<T>` in a metered envelope.
 /// The generated SDK methods deserialize the direct `DataResponse<T>` shape, so
 /// the gateway envelope is unwrapped here when it appears.
-async fn passwords_gateway_data<T>(
+pub(crate) async fn passwords_gateway_data<T>(
     result: Result<seren::ResponseValue<T>, seren::Error<()>>,
 ) -> Result<T, McpError>
 where
