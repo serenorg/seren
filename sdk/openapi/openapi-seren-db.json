@@ -19,6 +19,147 @@
     }
   ],
   "paths": {
+    "/databases": {
+      "get": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "List the calling hired managed agent's databases.",
+        "operationId": "seren_db_list_managed_agent_databases",
+        "responses": {
+          "200": {
+            "description": "Databases listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_ManagedAgentDatabase"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Requires a running hired managed agent using its own deployment key (`managed_agent_database_hire_required`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Create a database for the calling hired managed agent, or return the one it already has.",
+        "description": "The database belongs to the hirer's organization and appears in its Seren Employees project.\nA new hire of the same managed agent by the same person gets back the databases of the\nearlier hire.",
+        "operationId": "seren_db_create_managed_agent_database",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateManagedAgentDatabaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Database created, already present, or restored from an earlier hire",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentDatabaseCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid database name (`managed_agent_database_name_invalid`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Database quota exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Requires a running hired managed agent using its own deployment key (`managed_agent_database_hire_required`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another setup of the same database or in the same project is in progress (`managed_agent_database_busy`), or the setup changed (`managed_agent_database_changed`); retry the request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database setup is temporarily unavailable; retry the request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/projects": {
       "get": {
         "tags": [
@@ -4092,7 +4233,7 @@
             }
           },
           "403": {
-            "description": "Not authorized for the requested SerenDB target",
+            "description": "Not authorized for the requested SerenDB target, or a managed agent database statement is not allowed (`managed_agent_database_statement_not_allowed`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4102,7 +4243,7 @@
             }
           },
           "404": {
-            "description": "Branch or database not found",
+            "description": "Branch or database not found, or no managed agent database with that name (`managed_agent_database_not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4829,6 +4970,20 @@
             "format": "int32"
           }
         }
+      },
+      "CreateManagedAgentDatabaseRequest": {
+        "type": "object",
+        "description": "JSON body for creating a managed agent database.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Up to 30 lowercase letters, digits or underscores, starting with a letter."
+          }
+        },
+        "additionalProperties": false
       },
       "CreateProjectRequest": {
         "type": "object",
@@ -5806,6 +5961,45 @@
                 "type": "string"
               }
             }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentDatabaseCreated": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ManagedAgentDatabase"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "$ref": "#/components/schemas/ManagedAgentDatabaseStatus"
+                  }
+                }
+              }
+            ],
+            "description": "Result of creating a managed agent database."
           },
           "pagination": {
             "oneOf": [
@@ -6952,6 +7146,59 @@
           }
         }
       },
+      "DataResponse_Vec_ManagedAgentDatabase": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "A database the calling hire can query.",
+              "required": [
+                "name",
+                "database_name",
+                "project_id",
+                "branch_id"
+              ],
+              "properties": {
+                "branch_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "Branch holding the database."
+                },
+                "database_name": {
+                  "type": "string",
+                  "description": "Database name in the Seren Employees project."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Name the hire chose."
+                },
+                "project_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "Seren Employees project."
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_Vec_Project": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -7806,6 +8053,64 @@
           }
         }
       },
+      "ManagedAgentDatabase": {
+        "type": "object",
+        "description": "A database the calling hire can query.",
+        "required": [
+          "name",
+          "database_name",
+          "project_id",
+          "branch_id"
+        ],
+        "properties": {
+          "branch_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Branch holding the database."
+          },
+          "database_name": {
+            "type": "string",
+            "description": "Database name in the Seren Employees project."
+          },
+          "name": {
+            "type": "string",
+            "description": "Name the hire chose."
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Seren Employees project."
+          }
+        }
+      },
+      "ManagedAgentDatabaseCreated": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ManagedAgentDatabase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "$ref": "#/components/schemas/ManagedAgentDatabaseStatus"
+              }
+            }
+          }
+        ],
+        "description": "Result of creating a managed agent database."
+      },
+      "ManagedAgentDatabaseStatus": {
+        "type": "string",
+        "description": "How a create request was satisfied.",
+        "enum": [
+          "created",
+          "existing",
+          "restored"
+        ]
+      },
       "ManagedSkillDatabaseScope": {
         "type": "string",
         "enum": [
@@ -8265,6 +8570,21 @@
             ],
             "description": "Database identifier declared by the skill."
           },
+          "managed_agent_database": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name of a database the calling hired managed agent created. Only the owning hire's\ndeployment key may use it, and it cannot be combined with any other target field.\nDirect DELETE, TRUNCATE and DROP statements, and UPDATE without a `WHERE` that\nnames a column, are refused. Each request must contain one statement."
+          },
+          "params": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {},
+            "description": "Values bound in order to `$1..$n`: null, booleans, integers, floats, strings,\narrays of strings (`text[]`) and objects (`jsonb`). A query with parameters must be\na single statement. Cast a parameter in SQL when its column type differs."
+          },
           "project_id": {
             "type": [
               "string",
@@ -8282,7 +8602,7 @@
               "boolean",
               "null"
             ],
-            "description": "Execute query in a read-only transaction. When omitted, obvious read-only queries\nrun read-only and all other statements run read-write."
+            "description": "Execute query in a read-only transaction. Managed agent SELECT statements always\nrun read-only. For other targets, obvious read-only queries default to read-only."
           },
           "scope": {
             "oneOf": [

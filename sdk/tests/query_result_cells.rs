@@ -12,6 +12,8 @@ fn query_request() -> QueryRequest {
         branch_id: None,
         database: None,
         database_identifier: None,
+        managed_agent_database: None,
+        params: None,
         project_id: None,
         query: "SELECT 1".to_string(),
         read_only: Some(true),

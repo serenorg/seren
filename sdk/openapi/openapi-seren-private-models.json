@@ -37,7 +37,7 @@
         },
         "responses": {
           "200": {
-            "description": "Publisher chat completion response",
+            "description": "Publisher chat completion response. Budgeted runs include task, day, and balance observations",
             "content": {
               "application/json": {
                 "schema": {
@@ -50,10 +50,17 @@
             "description": "Authentication required"
           },
           "402": {
-            "description": "Insufficient SerenBucks, or the run named in `X-Seren-Run-Id` has reached its run fee"
+            "description": "Insufficient SerenBucks (x402), or a managed run refusal with code budget_reached (scope, limit_atomic, used_atomic, suggested_increase_atomic) or balance_exhausted (balance_atomic)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateModelsPaymentRequired"
+                }
+              }
+            }
           },
           "403": {
-            "description": "Private models are not configured for this organization, a hired Employee's deployment key named no run in `X-Seren-Run-Id` (`run_required`), named a run of another deployment (`run_not_in_deployment`), or named a run with no model-call funding (`run_funding_required`)"
+            "description": "Private models are not configured for this organization, a hired managed agent's deployment key named no run in `X-Seren-Run-Id` (`run_required`), named a run of another deployment (`run_not_in_deployment`), or named a run with no model-call funding (`run_funding_required`)"
           },
           "409": {
             "description": "The run named in `X-Seren-Run-Id` has ended or is being cancelled (`run_not_active`)"
@@ -208,6 +215,51 @@
           }
         }
       },
+      "CostEstimate": {
+        "type": "object",
+        "description": "Cost estimate breakdown",
+        "required": [
+          "estimated_rows",
+          "asset_symbol",
+          "base_cost",
+          "markup_multiplier",
+          "min_charge",
+          "total_cost",
+          "total_cost_atomic"
+        ],
+        "properties": {
+          "asset_symbol": {
+            "type": "string",
+            "description": "Asset symbol (e.g., USDC, USDT)"
+          },
+          "base_cost": {
+            "type": "string",
+            "description": "Base cost in asset units (as decimal string)"
+          },
+          "estimated_rows": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Estimated rows to be returned"
+          },
+          "markup_multiplier": {
+            "type": "string",
+            "description": "Markup multiplier"
+          },
+          "min_charge": {
+            "type": "string",
+            "description": "Minimum charge in asset units"
+          },
+          "total_cost": {
+            "type": "string",
+            "description": "Total cost in asset units (as decimal string)"
+          },
+          "total_cost_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total cost in atomic units"
+          }
+        }
+      },
       "DataResponse_ApiResultResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -338,6 +390,174 @@
           }
         }
       },
+      "Eip712Domain": {
+        "type": "object",
+        "description": "EIP-712 domain (matches ethereum.rs Eip712Domain)",
+        "required": [
+          "name",
+          "version",
+          "chainId",
+          "verifyingContract"
+        ],
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "verifyingContract": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "Eip712Message": {
+        "type": "object",
+        "description": "EIP-712 message for TransferWithAuthorization",
+        "required": [
+          "from",
+          "to",
+          "value",
+          "validAfter",
+          "validBefore",
+          "nonce"
+        ],
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "nonce": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "validAfter": {
+            "type": "string"
+          },
+          "validBefore": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "Eip712TypedData": {
+        "type": "object",
+        "description": "EIP-712 typed data for signing payment authorization",
+        "required": [
+          "types",
+          "primaryType",
+          "domain",
+          "message"
+        ],
+        "properties": {
+          "domain": {
+            "$ref": "#/components/schemas/Eip712Domain"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Eip712Message"
+          },
+          "primaryType": {
+            "type": "string"
+          },
+          "types": {
+            "$ref": "#/components/schemas/Eip712Types"
+          }
+        }
+      },
+      "Eip712Types": {
+        "type": "object",
+        "description": "EIP-712 type definitions",
+        "required": [
+          "EIP712Domain",
+          "TransferWithAuthorization"
+        ],
+        "properties": {
+          "EIP712Domain": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TypedParam"
+            }
+          },
+          "TransferWithAuthorization": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TypedParam"
+            }
+          }
+        }
+      },
+      "ManagedAgentBudgetScope": {
+        "type": "string",
+        "enum": [
+          "task",
+          "day"
+        ]
+      },
+      "ManagedAgentBudgetStop": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "scope",
+              "limit_atomic",
+              "used_atomic",
+              "suggested_increase_atomic",
+              "code"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "budget_reached"
+                ]
+              },
+              "limit_atomic": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "scope": {
+                "$ref": "#/components/schemas/ManagedAgentBudgetScope"
+              },
+              "suggested_increase_atomic": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "used_atomic": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "balance_atomic",
+              "code"
+            ],
+            "properties": {
+              "balance_atomic": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "code": {
+                "type": "string",
+                "enum": [
+                  "balance_exhausted"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "A turn-ending refusal. It is not a provider failure and must never trigger fallback."
+      },
       "PaginationMeta": {
         "type": "object",
         "description": "Pagination metadata included in responses.",
@@ -372,6 +592,159 @@
             "type": "integer",
             "format": "int64",
             "description": "Total number of items across all pages"
+          }
+        }
+      },
+      "PaymentRequestInfo": {
+        "type": "object",
+        "description": "Internal payment request tracking (extends with Seren-specific fields)",
+        "required": [
+          "payment_request_id",
+          "publisher_id",
+          "expires"
+        ],
+        "properties": {
+          "eip712TypedData": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Eip712TypedData",
+                "description": "EIP-712 typed data for signing (EIP-3009 only)"
+              }
+            ]
+          },
+          "estimate": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CostEstimate",
+                "description": "Optional: Estimated cost breakdown"
+              }
+            ]
+          },
+          "expires": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Expiration timestamp (Unix seconds)"
+          },
+          "payment_request_id": {
+            "type": "string",
+            "description": "Payment request ID for correlation"
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Publisher ID"
+          }
+        }
+      },
+      "PaymentRequiredResponse": {
+        "type": "object",
+        "description": "x402 V2 402 Payment Required Response\n\nThe official V2 format with top-level resource info and extensions support.",
+        "required": [
+          "x402Version",
+          "resource",
+          "accepts"
+        ],
+        "properties": {
+          "accepts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentRequirements"
+            },
+            "description": "List of acceptable payment methods"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Error message explaining why payment is required"
+          },
+          "extensions": {
+            "description": "Optional extensions (V2 feature for protocol extensibility)"
+          },
+          "resource": {
+            "$ref": "#/components/schemas/ResourceInfo",
+            "description": "Resource information (V2 - moved to top level)"
+          },
+          "x402Version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "x402 protocol version (2 for V2)",
+            "minimum": 0
+          }
+        }
+      },
+      "PaymentRequiredResponseWithInfo": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PaymentRequiredResponse",
+            "description": "Protocol response (x402 v2)"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "seren": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PaymentRequestInfo",
+                    "description": "Seren-specific payment request info"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "description": "402 Payment Required response body (x402 v2) with Seren-specific extensions."
+      },
+      "PaymentRequirements": {
+        "type": "object",
+        "description": "x402 V2 Payment Requirements\n\nFollows the official x402 V2 specification.\nSee: https://github.com/coinbase/x402/blob/main/typescript/packages/core/src/types/payments.ts",
+        "required": [
+          "scheme",
+          "network",
+          "asset",
+          "amount",
+          "payTo",
+          "maxTimeoutSeconds",
+          "extra"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "description": "Amount in atomic units (token decimals)"
+          },
+          "asset": {
+            "type": "string",
+            "description": "Payment asset address (token contract)"
+          },
+          "extra": {
+            "description": "Extra information about the payment (scheme-specific)\n\nFor EVM/exact scheme, this typically contains:\n- `name`: Asset name (e.g., \"USD Coin\")\n- `version`: Asset version\n- `eip712TypedData`: EIP-712 typed data for signing (EIP-3009)\n- `paymentRequestId`: Correlation ID\n- `expires`: Expiration timestamp\n- `estimate`: Cost breakdown (optional)\n- `settlementMethod`: \"eip3009\" or \"transfer\""
+          },
+          "maxTimeoutSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Maximum time in seconds for the resource server to respond"
+          },
+          "network": {
+            "type": "string",
+            "description": "Network for payment in CAIP-2 format (e.g., \"eip155:8453\" for Base mainnet)"
+          },
+          "payTo": {
+            "type": "string",
+            "description": "Address to pay value to (publisher or gateway wallet)"
+          },
+          "scheme": {
+            "type": "string",
+            "description": "Payment scheme (e.g., \"exact\")"
           }
         }
       },
@@ -521,6 +894,17 @@
           }
         }
       },
+      "PrivateModelsPaymentRequired": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ManagedAgentBudgetStop"
+          },
+          {
+            "$ref": "#/components/schemas/PaymentRequiredResponseWithInfo"
+          }
+        ],
+        "description": "A publisher payment request or a managed run's graceful spending stop."
+      },
       "PrivateModelsReasoning": {
         "type": "object",
         "required": [
@@ -548,6 +932,45 @@
         "enum": [
           "auto"
         ]
+      },
+      "ResourceInfo": {
+        "type": "object",
+        "description": "Resource information for x402 V2\n\nIn V2, resource metadata is a top-level field rather than being\nembedded in each payment requirement.",
+        "required": [
+          "url",
+          "description",
+          "mimeType"
+        ],
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "Human-readable description of the resource"
+          },
+          "mimeType": {
+            "type": "string",
+            "description": "MIME type of the resource response"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL of the resource being paid for"
+          }
+        }
+      },
+      "TypedParam": {
+        "type": "object",
+        "description": "Single typed parameter definition",
+        "required": [
+          "name",
+          "type"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        }
       }
     },
     "securitySchemes": {

@@ -6767,13 +6767,13 @@
           "seren-cloud"
         ],
         "summary": "Record an operator decision for one approval entry.",
-        "description": "Only the user who started the run can decide an entry for a publisher\nrequest prepared by a managed skill script. Repeating a completed\nblocked-egress decision returns its current state.\nThe owner may choose `allow_always` for an ordinary publisher action, which\napproves the pending request and lets later matching requests run without\nasking until the owner revokes it. Email sends always require approval of\neach exact message.",
+        "description": "Only the user who started the run can decide an entry for a publisher\nrequest prepared by a managed skill script. Repeating a completed\nblocked-egress decision returns its current state.\nThe owner may choose `allow_always` for an ordinary publisher action, which\napproves the pending request and lets later matching requests run without\nasking until the owner revokes it. Email sends always require approval of\neach exact message.\n\nA `managed_agent_decision` entry is decided only by the hirer who started\nthe run, by sending `approve` with one of the entry's `option_id` values;\nevery other caller receives 404. Such a decision is made once: repeating\nthe same choice returns it, and a different choice is refused with 409.\nStanding approval and edits are never accepted for it. After the entry's\n`expires_at`, it can no longer be decided and the agent continues with the\nitem undecided.",
         "operationId": "seren_cloud_approval_inbox_decide",
         "parameters": [
           {
             "name": "entry_id",
             "in": "path",
-            "description": "Inbox-scoped entry id (e.g. tool:<run>:<call_id>)",
+            "description": "Inbox-scoped entry id (e.g. tool:<run>:<call_id> or decision:<run>:<approval_id>)",
             "required": true,
             "schema": {
               "type": "string"
@@ -8286,6 +8286,10 @@
           "profile": {
             "$ref": "#/components/schemas/AgentBrowserProfile"
           },
+          "public_web": {
+            "type": "boolean",
+            "description": "Gives skill scripts a reader browser that can open any public HTTPS\nsite, in place of the main browser. Requires the enabled full browser\nprofile."
+          },
           "timezone": {
             "type": [
               "string",
@@ -8370,6 +8374,13 @@
               }
             ]
           },
+          "native_tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentNativeToolSet"
+            },
+            "description": "Native tool families the trusted runtime runs itself. Only a hired\ncopy of a template that declares them carries any."
+          },
           "realtime_sessions": {
             "oneOf": [
               {
@@ -8444,7 +8455,8 @@
           "reference_env",
           "header",
           "body",
-          "proxy_inject"
+          "proxy_inject",
+          "runtime"
         ]
       },
       "AgentCredentialKind": {
@@ -8470,7 +8482,7 @@
         "properties": {
           "binding": {
             "$ref": "#/components/schemas/AgentCredentialBinding",
-            "description": "How the credential is delivered. `proxy_inject` is declarative: the\ngateway resolves and injects the reference at egress rather than this\nprocess materializing plaintext."
+            "description": "How the credential is delivered. `proxy_inject` is declarative: the\ngateway resolves and injects the reference at egress rather than this\nprocess materializing plaintext. `runtime` is never injected into a\npublisher request or a script environment."
           },
           "binding_target": {
             "type": [
@@ -8490,7 +8502,7 @@
               "string",
               "null"
             ],
-            "description": "Exact publisher receiving this credential on outbound requests. Header\nand body credentials may omit this only when the deployment declares a\nsingle publisher."
+            "description": "Exact publisher receiving this credential on outbound requests. Header\nand body credentials may omit this only when the deployment declares a\nsingle publisher. Runtime credentials always name their publisher."
           },
           "ref_uri": {
             "type": "string",
@@ -9000,6 +9012,13 @@
           }
         },
         "additionalProperties": false
+      },
+      "AgentNativeToolSet": {
+        "type": "string",
+        "description": "A family of native tools the trusted runtime runs itself.",
+        "enum": [
+          "onepassword"
+        ]
       },
       "AgentNetworkAccessPreset": {
         "type": "string",
@@ -10250,6 +10269,17 @@
                 "description": "Bounds a standing approval for the exact requested operation."
               }
             ]
+          },
+          "option_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentDecisionOptionId",
+                "description": "The chosen option, required with `approve` for a managed agent\ndecision and accepted for no other entry."
+              }
+            ]
           }
         }
       },
@@ -10266,6 +10296,17 @@
           },
           "entry_id": {
             "type": "string"
+          },
+          "option_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentDecisionOptionId",
+                "description": "The recorded choice for a managed agent decision."
+              }
+            ]
           }
         }
       },
@@ -10403,6 +10444,63 @@
           {
             "allOf": [
               {
+                "$ref": "#/components/schemas/ApprovalInboxManagedAgentDecision"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "entry_id",
+                  "deployment_id",
+                  "run_id",
+                  "created_at",
+                  "expires_at",
+                  "decision_state"
+                ],
+                "properties": {
+                  "created_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "decision_state": {
+                    "$ref": "#/components/schemas/ApprovalDecisionState"
+                  },
+                  "deployment_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "entry_id": {
+                    "type": "string"
+                  },
+                  "expires_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "After this time the decision can no longer be made and the tool\ncontinues with the item undecided."
+                  },
+                  "run_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "managed_agent_decision"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
                 "$ref": "#/components/schemas/ApprovalInboxOther"
               },
               {
@@ -10482,6 +10580,42 @@
               "null"
             ],
             "description": "Opaque cursor for the next page; absent when no further entries exist."
+          }
+        }
+      },
+      "ApprovalInboxManagedAgentDecision": {
+        "type": "object",
+        "description": "A typed decision a managed agent's native tool asks its hirer to make.\n\nOnly the hirer decides, by choosing one of `decision.options`. A decision is\nnever covered by standing approval and is never edited, so no\n`allow_always` or edit control applies. Display its content as text, not markup.",
+        "required": [
+          "tool_call_id",
+          "tool_ref",
+          "payload_digest",
+          "decision"
+        ],
+        "properties": {
+          "chosen_option_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentDecisionOptionId",
+                "description": "The hirer's recorded choice, once made."
+              }
+            ]
+          },
+          "decision": {
+            "$ref": "#/components/schemas/ManagedAgentDecision"
+          },
+          "payload_digest": {
+            "type": "string",
+            "description": "Binds a choice to this decision about the exact item and versions."
+          },
+          "tool_call_id": {
+            "type": "string"
+          },
+          "tool_ref": {
+            "type": "string"
           }
         }
       },
@@ -11068,6 +11202,38 @@
           }
         }
       },
+      "CloudConversationQueueState": {
+        "type": "object",
+        "required": [
+          "state",
+          "since",
+          "attempts"
+        ],
+        "properties": {
+          "attempts": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QueueReason"
+              }
+            ]
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "state": {
+            "$ref": "#/components/schemas/QueuePhase"
+          }
+        }
+      },
       "CloudConversationResponse": {
         "type": "object",
         "required": [
@@ -11136,6 +11302,13 @@
             "type": "string",
             "format": "uuid"
           },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The most recently accepted browser time zone, when known."
+          },
           "title": {
             "type": [
               "string",
@@ -11162,6 +11335,7 @@
           "task_id",
           "conversation_id",
           "state",
+          "queue_state",
           "files",
           "created_at"
         ],
@@ -11189,12 +11363,23 @@
               }
             ]
           },
+          "next_automatic_attempt_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When an automatic retry is scheduled. Absent when manual action is required."
+          },
           "position": {
             "type": [
               "integer",
               "null"
             ],
             "format": "int64"
+          },
+          "queue_state": {
+            "$ref": "#/components/schemas/CloudConversationQueueState"
           },
           "state": {
             "$ref": "#/components/schemas/CloudConversationTaskState"
@@ -11210,7 +11395,9 @@
         "enum": [
           "approval_pending",
           "credits",
+          "spending_limit",
           "startup_failed",
+          "platform_error",
           "stopped",
           "authority"
         ]
@@ -13708,6 +13895,16 @@
             "type": "string",
             "format": "uuid"
           },
+          "queue_state": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudConversationQueueState"
+              }
+            ]
+          },
           "run": {
             "oneOf": [
               {
@@ -13745,6 +13942,13 @@
               "string",
               "null"
             ]
+          },
+          "client_timezone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The browser's IANA time zone for this conversation."
           },
           "conversation_id": {
             "type": [
@@ -13952,6 +14156,14 @@
           }
         }
       },
+      "CloudRunActivityTimestampSource": {
+        "type": "string",
+        "description": "Timestamp provenance for a lifecycle observation.",
+        "enum": [
+          "observed_at",
+          "kubernetes"
+        ]
+      },
       "CloudRunApprovalDecision": {
         "type": "object",
         "description": "One decision submitted for a pending approval.",
@@ -13981,7 +14193,8 @@
         "type": "string",
         "enum": [
           "approve",
-          "reject"
+          "reject",
+          "expired"
         ]
       },
       "CloudRunCollaborationSelection": {
@@ -14042,6 +14255,7 @@
         "type": "string",
         "description": "Typed cause of a terminal `error` event. Operator-safe descriptors only;\nthe offending content must not appear in the cause label.",
         "enum": [
+          "platform",
           "agent",
           "model",
           "tool",
@@ -14056,6 +14270,7 @@
           "guardrail",
           "approval",
           "delivery",
+          "budget",
           "unknown"
         ]
       },
@@ -14078,6 +14293,11 @@
           "conversation_busy",
           "conversation_awaiting_approval",
           "managed_output_empty",
+          "budget_reached",
+          "operator_stop",
+          "approval_expired",
+          "runtime_missing",
+          "runtime_outdated",
           "runtime_error",
           "timeout",
           "unknown"
@@ -14107,6 +14327,14 @@
             }
           }
         }
+      },
+      "CloudRunEventOrigin": {
+        "type": "string",
+        "description": "Source of an event within the shared run stream.",
+        "enum": [
+          "runtime",
+          "controller"
+        ]
       },
       "CloudRunGuardrailAction": {
         "type": "string",
@@ -14207,6 +14435,30 @@
             "format": "date-time"
           }
         }
+      },
+      "CloudRunManagedAgentDecision": {
+        "type": "object",
+        "description": "A choice is bound to the deployment, the tool's exact subject state, and the display.",
+        "required": [
+          "subject_sha256",
+          "payload_digest",
+          "decision"
+        ],
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/ManagedAgentDecision"
+          },
+          "payload_digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "subject_sha256": {
+            "type": "string",
+            "description": "64 lowercase hexadecimal characters identifying the tool's exact subject state.",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "additionalProperties": false
       },
       "CloudRunModelPublisherApproval": {
         "type": "object",
@@ -14326,7 +14578,19 @@
               "type"
             ],
             "properties": {
+              "argument_summary": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "arguments": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "display_name": {
                 "type": [
                   "string",
                   "null"
@@ -14389,6 +14653,12 @@
                   {
                     "$ref": "#/components/schemas/ToolRecoveryMetadata"
                   }
+                ]
+              },
+              "result_summary": {
+                "type": [
+                  "string",
+                  "null"
                 ]
               },
               "retryable": {
@@ -14486,41 +14756,56 @@
             }
           },
           {
-            "type": "object",
-            "description": "Workflow/checkpoint marker for resumable runs.",
-            "required": [
-              "state",
-              "type"
-            ],
-            "properties": {
-              "checkpoint_id": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CloudRunWorkflowActivity"
               },
-              "contract_version": {
-                "type": [
-                  "integer",
-                  "null"
+              {
+                "type": "object",
+                "required": [
+                  "state"
                 ],
-                "format": "int32",
-                "minimum": 0
+                "properties": {
+                  "checkpoint_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "contract_version": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "details": {},
+                  "pending_approvals": {
+                    "description": "History retains the original payload; only current contracts may be interpreted."
+                  },
+                  "state": {
+                    "type": "string"
+                  }
+                }
               },
-              "details": {},
-              "pending_approvals": {
-                "description": "History retains the original payload; only current contracts may be interpreted."
-              },
-              "state": {
-                "type": "string"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "workflow"
-                ]
+              {
+                "type": "object",
+                "description": "Workflow/checkpoint marker for resumable runs.",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "workflow"
+                    ]
+                  }
+                }
               }
-            }
+            ],
+            "description": "Workflow/checkpoint marker for resumable runs."
           },
           {
             "type": "object",
@@ -14554,6 +14839,29 @@
                 ]
               }
             }
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ManagedAgentBudgetAction"
+              },
+              {
+                "type": "object",
+                "description": "A spending decision the hirer can take to continue the task.",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "action"
+                    ]
+                  }
+                }
+              }
+            ],
+            "description": "A spending decision the hirer can take to continue the task."
           },
           {
             "type": "object",
@@ -14868,6 +15176,16 @@
               "retryable": {
                 "type": "boolean"
               },
+              "run_budget": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RunBudgetSnapshot"
+                  }
+                ]
+              },
               "type": {
                 "type": "string",
                 "enum": [
@@ -14907,16 +15225,64 @@
                 ]
               },
               "kind": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "Canonical taxonomy for structured run output events.",
+                    "enum": [
+                      "text",
+                      "thinking",
+                      "tool_call_started",
+                      "tool_call_completed",
+                      "tool_audit",
+                      "workflow",
+                      "approval_wait",
+                      "action",
+                      "approval_decision",
+                      "guardrail_pass",
+                      "guardrail_fail",
+                      "handoff",
+                      "artifact",
+                      "compaction_started",
+                      "compaction_finished",
+                      "done",
+                      "error",
+                      "unknown"
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "raise_task_limit",
+                      "top_up"
+                    ]
+                  }
+                ]
+              },
+              "origin": {
                 "oneOf": [
                   {
                     "type": "null"
                   },
                   {
-                    "$ref": "#/components/schemas/CloudRunOutputEventKind"
+                    "$ref": "#/components/schemas/CloudRunEventOrigin"
                   }
                 ]
               },
               "output_index": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64"
+              },
+              "producer_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "producer_sequence_number": {
                 "type": [
                   "integer",
                   "null"
@@ -14934,29 +15300,6 @@
           }
         ],
         "description": "Envelope carrying structured output event metadata."
-      },
-      "CloudRunOutputEventKind": {
-        "type": "string",
-        "description": "Canonical taxonomy for structured run output events.",
-        "enum": [
-          "text",
-          "thinking",
-          "tool_call_started",
-          "tool_call_completed",
-          "tool_audit",
-          "workflow",
-          "approval_wait",
-          "approval_decision",
-          "guardrail_pass",
-          "guardrail_fail",
-          "handoff",
-          "artifact",
-          "compaction_started",
-          "compaction_finished",
-          "done",
-          "error",
-          "unknown"
-        ]
       },
       "CloudRunOwnerEmailEdit": {
         "type": "object",
@@ -14992,6 +15335,17 @@
           },
           "id": {
             "type": "string"
+          },
+          "managed_agent_decision": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudRunManagedAgentDecision",
+                "description": "Present when a native tool waits for an exact, one-time hirer choice."
+              }
+            ]
           },
           "model_publisher_approval": {
             "oneOf": [
@@ -15039,7 +15393,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Opaque token for this approval hold; return it unchanged as `resume_checkpoint_id`."
           },
           "pending_approvals": {
             "type": "array",
@@ -15459,6 +15814,82 @@
           "builtin",
           "unknown"
         ]
+      },
+      "CloudRunWorkflowActivity": {
+        "type": "object",
+        "description": "Optional lifecycle details; omitted observations are unknown.",
+        "properties": {
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "kubernetes_finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "kubernetes_started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "observed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "phase": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scheduled_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "timestamp_source": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudRunActivityTimestampSource"
+              }
+            ]
+          }
+        }
       },
       "ConnectorBindingProposalPreview": {
         "type": "object",
@@ -16062,6 +16493,17 @@
               },
               "entry_id": {
                 "type": "string"
+              },
+              "option_id": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentDecisionOptionId",
+                    "description": "The recorded choice for a managed agent decision."
+                  }
+                ]
               }
             }
           },
@@ -16425,6 +16867,13 @@
                 "type": "string",
                 "format": "uuid"
               },
+              "timezone": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The most recently accepted browser time zone, when known."
+              },
               "title": {
                 "type": [
                   "string",
@@ -16471,6 +16920,7 @@
               "task_id",
               "conversation_id",
               "state",
+              "queue_state",
               "files",
               "created_at"
             ],
@@ -16498,12 +16948,23 @@
                   }
                 ]
               },
+              "next_automatic_attempt_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time",
+                "description": "When an automatic retry is scheduled. Absent when manual action is required."
+              },
               "position": {
                 "type": [
                   "integer",
                   "null"
                 ],
                 "format": "int64"
+              },
+              "queue_state": {
+                "$ref": "#/components/schemas/CloudConversationQueueState"
               },
               "state": {
                 "$ref": "#/components/schemas/CloudConversationTaskState"
@@ -18480,6 +18941,16 @@
                 "type": "string",
                 "format": "uuid"
               },
+              "queue_state": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudConversationQueueState"
+                  }
+                ]
+              },
               "run": {
                 "oneOf": [
                   {
@@ -18749,7 +19220,8 @@
                 "type": [
                   "string",
                   "null"
-                ]
+                ],
+                "description": "Opaque token for this approval hold; return it unchanged as `resume_checkpoint_id`."
               },
               "pending_approvals": {
                 "type": "array",
@@ -21582,16 +22054,64 @@
                       ]
                     },
                     "kind": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "description": "Canonical taxonomy for structured run output events.",
+                          "enum": [
+                            "text",
+                            "thinking",
+                            "tool_call_started",
+                            "tool_call_completed",
+                            "tool_audit",
+                            "workflow",
+                            "approval_wait",
+                            "action",
+                            "approval_decision",
+                            "guardrail_pass",
+                            "guardrail_fail",
+                            "handoff",
+                            "artifact",
+                            "compaction_started",
+                            "compaction_finished",
+                            "done",
+                            "error",
+                            "unknown"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "raise_task_limit",
+                            "top_up"
+                          ]
+                        }
+                      ]
+                    },
+                    "origin": {
                       "oneOf": [
                         {
                           "type": "null"
                         },
                         {
-                          "$ref": "#/components/schemas/CloudRunOutputEventKind"
+                          "$ref": "#/components/schemas/CloudRunEventOrigin"
                         }
                       ]
                     },
                     "output_index": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "format": "int64"
+                    },
+                    "producer_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "producer_sequence_number": {
                       "type": [
                         "integer",
                         "null"
@@ -22249,6 +22769,39 @@
         ],
         "description": "Capability granted by an `ActionLease`. `All` grants every sub-action of\nthe named action; `Specific` enumerates a closed set."
       },
+      "HireSpendLimits": {
+        "type": "object",
+        "required": [
+          "per_task_atomic",
+          "per_day_atomic",
+          "day_timezone",
+          "defaults",
+          "run_kinds"
+        ],
+        "properties": {
+          "day_timezone": {
+            "type": "string"
+          },
+          "defaults": {
+            "$ref": "#/components/schemas/SpendLimitDefaults"
+          },
+          "per_day_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "per_task_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "run_kinds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentRunKindPrice"
+            },
+            "description": "Every run kind states its applicable promotional allowance and expected cost."
+          }
+        }
+      },
       "InvocationOrigin": {
         "oneOf": [
           {
@@ -22405,6 +22958,54 @@
           "seren_mcp_call_tool"
         ]
       },
+      "ManagedAgentBudgetAction": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "scope",
+              "suggested_atomic",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "raise_task_limit"
+                ]
+              },
+              "scope": {
+                "$ref": "#/components/schemas/ManagedAgentBudgetScope"
+              },
+              "suggested_atomic": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "top_up"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ManagedAgentBudgetScope": {
+        "type": "string",
+        "enum": [
+          "task",
+          "day"
+        ]
+      },
       "ManagedAgentConnectionState": {
         "type": "string",
         "description": "Whether a user's connection can serve a provider's mail and files tools.",
@@ -22413,6 +23014,89 @@
           "reconnect_required",
           "disconnected"
         ]
+      },
+      "ManagedAgentDecision": {
+        "type": "object",
+        "description": "The exact display and offered choices reviewed by the hirer.",
+        "required": [
+          "title",
+          "description",
+          "details",
+          "options"
+        ],
+        "properties": {
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1
+          },
+          "details": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentDecisionDetail"
+            },
+            "maxItems": 50
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentDecisionOption"
+            },
+            "maxItems": 8,
+            "minItems": 2
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentDecisionDetail": {
+        "type": "object",
+        "description": "One plain-text display detail, without executable or provider-specific meaning.",
+        "required": [
+          "label",
+          "value"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentDecisionOption": {
+        "type": "object",
+        "description": "One option as the hirer reads it. Render the label as plain text.",
+        "required": [
+          "id",
+          "label"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ManagedAgentDecisionOptionId"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentDecisionOptionId": {
+        "type": "string",
+        "description": "An opaque identifier offered by the tool, never a command or a permission.",
+        "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
       },
       "ManagedAgentHireProvider": {
         "type": "string",
@@ -23019,6 +23703,7 @@
           "desired_lifecycle_state",
           "template",
           "run_kinds",
+          "spend_limits",
           "created_at",
           "updated_at"
         ],
@@ -23099,6 +23784,9 @@
           "skill_slug": {
             "type": "string"
           },
+          "spend_limits": {
+            "$ref": "#/components/schemas/HireSpendLimits"
+          },
           "status": {
             "$ref": "#/components/schemas/CloudDeploymentStatus"
           },
@@ -23114,7 +23802,8 @@
       "ManagedAgentPauseReason": {
         "type": "string",
         "enum": [
-          "mail_connection_revoked"
+          "mail_connection_revoked",
+          "execution_recovery"
         ]
       },
       "ManagedAgentPrivateOutputPolicy": {
@@ -23126,7 +23815,7 @@
       },
       "ManagedAgentRunFeeAmount": {
         "type": "object",
-        "description": "The current per-run price. Promotional credit may pay its cost part.",
+        "description": "A configured run-kind amount in USD atomic units and display currency.",
         "required": [
           "atomic",
           "usd"
@@ -23158,7 +23847,7 @@
         "properties": {
           "charge": {
             "$ref": "#/components/schemas/RunFeeCharge",
-            "description": "`fee` charges the kind's fee; `cost_only` charges what the run cost\nto serve, up to the kind's amount."
+            "description": "`fee` adds the kind's service fee to recorded cost; `cost_only` bills recorded cost alone."
           },
           "run_kind": {
             "type": "string"
@@ -23275,18 +23964,21 @@
       },
       "ManagedAgentRunKindPrice": {
         "type": "object",
-        "description": "A run kind with its current amount: the fee, or a cost kind's cap.",
+        "description": "A run kind with its service fee and expected metered cost.",
         "required": [
           "key",
           "name",
           "charge",
           "triggers",
-          "amount"
+          "amount",
+          "expected_cost_atomic",
+          "promotional_per_run_atomic",
+          "cost_only_promotional_per_run_atomic"
         ],
         "properties": {
           "amount": {
             "$ref": "#/components/schemas/ManagedAgentRunFeeAmount",
-            "description": "A fee kind's price, or the most one run of a cost kind may cost."
+            "description": "The service fee for fee kinds, or the default promotional allowance for cost kinds."
           },
           "changed_at": {
             "type": [
@@ -23299,11 +23991,23 @@
           "charge": {
             "$ref": "#/components/schemas/ManagedAgentRunKindCharge"
           },
+          "cost_only_promotional_per_run_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "expected_cost_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
           "key": {
             "$ref": "#/components/schemas/ManagedAgentRunKindKey"
           },
           "name": {
             "type": "string"
+          },
+          "promotional_per_run_atomic": {
+            "type": "integer",
+            "format": "int64"
           },
           "triggers": {
             "type": "array",
@@ -25129,6 +25833,22 @@
           "outside_send"
         ]
       },
+      "QueuePhase": {
+        "type": "string",
+        "enum": [
+          "waiting",
+          "admitting",
+          "started"
+        ]
+      },
+      "QueueReason": {
+        "type": "string",
+        "enum": [
+          "not_waiting_head",
+          "wake_timeout",
+          "admission_retry"
+        ]
+      },
       "ReferenceEnvCredentialProposalPreview": {
         "type": "object",
         "required": [
@@ -25228,6 +25948,25 @@
           },
           "source": {
             "$ref": "#/components/schemas/RequirementSource"
+          }
+        }
+      },
+      "RunBudgetSnapshot": {
+        "type": "object",
+        "required": [
+          "total_atomic",
+          "used_atomic"
+        ],
+        "properties": {
+          "total_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "used_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -25360,6 +26099,32 @@
           "outbound_only",
           "socket_mode"
         ]
+      },
+      "SpendLimitDefaults": {
+        "type": "object",
+        "required": [
+          "per_task_atomic",
+          "per_day_atomic"
+        ],
+        "properties": {
+          "per_day_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "per_task_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "promotional_per_run_atomic": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Null preserves each kind's promotional allowance; a value sets a fixed cap for every kind."
+          }
+        },
+        "additionalProperties": false
       },
       "TaskLabel": {
         "type": "string",

@@ -2853,7 +2853,7 @@ async fn managed_secrets_binding_error_to_mcp_error(
     }
 }
 
-/// Name the apply tool Core bound to a managed secrets setup.
+/// Describe the apply path Core bound to a managed secrets setup.
 fn managed_secrets_apply_guidance(target: &seren::ManagedSecretsApplyTarget) -> String {
     match target {
         seren::ManagedSecretsApplyTarget::BaseManifest => {
@@ -2873,6 +2873,9 @@ fn managed_secrets_apply_guidance(target: &seren::ManagedSecretsApplyTarget) -> 
         ),
         seren::ManagedSecretsApplyTarget::ReferenceEnv { proposal_id } => format!(
             "Call apply_seren_agent_reference_env_credential_proposal with deployment_id, proposal_id {proposal_id}, and setup_id."
+        ),
+        seren::ManagedSecretsApplyTarget::VaultProvisioning { proposal_id, .. } => format!(
+            "This MCP server cannot apply vault provisioning proposal {proposal_id}. The deployment owner finishes this vault setup in Seren Passwords, which completes it; no apply call follows. Do not use apply_seren_agent_passwords_setup for this setup."
         ),
     }
 }
@@ -13827,6 +13830,7 @@ API endpoint: {endpoint}",
                 .map(serde_json::to_value)
                 .transpose()
                 .map_err(|e| McpError::invalid_params(e.to_string(), None))?,
+            forward_caller_identity: None,
             price_per_call,
             price_per_delete,
             price_per_execution,
@@ -14096,6 +14100,7 @@ API endpoint: {endpoint}",
                 .map(serde_json::to_value)
                 .transpose()
                 .map_err(|e| McpError::invalid_params(e.to_string(), None))?,
+            forward_caller_identity: None,
             resource_id_response_path: None,
             resource_id_url_pattern: None,
             upstream_cost_response_path,
@@ -16460,6 +16465,8 @@ API endpoint: {endpoint}",
                     publisher_credential_proposal_id: params.publisher_credential_proposal_id,
                     reference_env_credential_proposal_id: params
                         .reference_env_credential_proposal_id,
+                    // Only the owner's vault decision may initiate vault provisioning.
+                    vault_provisioning_proposal_id: None,
                     deployment_id: params.deployment_id,
                     redirect_origin: seren::MANAGED_AGENT_SECRETS_REDIRECT_ORIGIN.to_string(),
                 },
@@ -27372,7 +27379,7 @@ mod tests {
 
         let deployment_id = Uuid::from_u128(11);
         let fixture = managed_agent_resources_fixture(deployment_id);
-        let decoded: seren::DataResponseManagedAgentDeploymentResources =
+        let decoded: seren::DataResponseManagedAgentResourceReport =
             serde_json::from_value(fixture.clone()).expect("managed resources");
         let decoded_json = serde_json::to_value(decoded).expect("managed resources re-encode");
         assert_eq!(
@@ -28309,7 +28316,32 @@ mod tests {
             .expect("a committed setup is recovered from a partial response body");
         assert!(result_contains(&response, &setup_id.to_string()));
         assert!(result_contains(&response, "response_recovered"));
-        assert_eq!(proxy.received_requests().await.unwrap().len(), 2);
+        let requests = proxy.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 2);
+        let initiate = requests
+            .iter()
+            .find(|request| request.method.as_str() == "POST")
+            .expect("setup initiation was sent");
+        assert_eq!(
+            initiate.body_json::<serde_json::Value>().unwrap(),
+            serde_json::json!({
+                "deployment_id": deployment_id,
+                "redirect_origin": seren::MANAGED_AGENT_SECRETS_REDIRECT_ORIGIN,
+            })
+        );
+    }
+
+    #[test]
+    fn start_setup_rejects_owner_only_vault_provisioning_selector() {
+        for value in [serde_json::json!(Uuid::new_v4()), serde_json::Value::Null] {
+            let arguments = serde_json::json!({
+                "deployment_id": Uuid::new_v4(),
+                "vault_provisioning_proposal_id": value,
+            });
+            assert!(
+                serde_json::from_value::<StartSerenAgentPasswordsSetupParams>(arguments).is_err()
+            );
+        }
     }
 
     #[test]
@@ -28342,7 +28374,7 @@ mod tests {
             .context("MCP setup properties are missing")?;
         let expected: BTreeSet<_> = properties
             .keys()
-            .filter(|name| *name != "redirect_origin")
+            .filter(|name| *name != "redirect_origin" && *name != "vault_provisioning_proposal_id")
             .collect();
         ensure!(
             expected == mcp_properties.keys().collect(),
@@ -28708,6 +28740,12 @@ mod tests {
         let mut incompatible = core.clone();
         incompatible["components"]["schemas"]["InitiateManagedAgentSecretsSetupRequest"]["required"].as_array_mut().unwrap().push(serde_json::json!("reference_env_credential_proposal_id"));
         assert!(check_managed_secrets_contract(&incompatible, &tools).is_err());
+        let mut required_vault = core.clone();
+        required_vault["components"]["schemas"]["InitiateManagedAgentSecretsSetupRequest"]["required"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!("vault_provisioning_proposal_id"));
+        assert!(check_managed_secrets_contract(&required_vault, &tools).is_err());
         for (pointer, value) in [
             ("/additionalProperties", serde_json::json!(true)),
             (
@@ -30104,6 +30142,131 @@ mod tests {
                 .contains("apply_seren_agent_publisher_credential_proposal"),
             "unexpected error message: {}",
             error.message
+        );
+    }
+
+    #[test]
+    fn vault_provisioning_guidance_identifies_owner_flow_without_disclosing_binding() {
+        let proposal_id = Uuid::from_u128(0x7601);
+        let target = seren::ManagedSecretsApplyTarget::VaultProvisioning {
+            proposal_id,
+            binding: seren::VaultProvisioningBinding {
+                keys: vec!["private-vault-key".into()],
+                vault_count: 1,
+                payload_digest: "a".repeat(64),
+            },
+        };
+        let guidance = managed_secrets_apply_guidance(&target);
+        assert!(guidance.contains(&proposal_id.to_string()));
+        assert!(guidance.contains("cannot apply vault provisioning"));
+        assert!(guidance.contains("deployment owner"));
+        assert!(guidance.contains("Seren Passwords"));
+        assert!(!guidance.contains("private-vault-key"));
+        assert!(!guidance.contains(&"a".repeat(64)));
+        assert!(!guidance.contains("apply_seren_agent_vault"));
+    }
+
+    #[tokio::test]
+    async fn generic_passwords_apply_refuses_vault_setup_and_status_names_owner_flow() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let setup_id = Uuid::from_u128(0x7611);
+        let deployment_id = Uuid::from_u128(0x7612);
+        let organization_id = Uuid::from_u128(1);
+        let proposal_id = Uuid::from_u128(0x7613);
+        let mut policy = delegation_view_value(DelegationViewFixture {
+            request_id: setup_id,
+            organization_id,
+            deployment_id,
+            deployment_revision_id: Uuid::from_u128(0x7614),
+            agent_identity_id: Uuid::from_u128(0x7615),
+            result_id: Uuid::from_u128(0x7616),
+            vault_id: Uuid::from_u128(0x7617),
+            item_id: Uuid::from_u128(0x7618),
+        });
+        policy["data"]["scope_kind"] = serde_json::json!("vault_access");
+        policy["data"]["requested_fields"] = serde_json::json!([]);
+        policy["data"]["effective_mapping"] = serde_json::json!([]);
+        policy["data"]["progress"]["requested_fields"] = serde_json::json!(0);
+        policy["data"]["progress"]["mapped_fields"] = serde_json::json!(0);
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-passwords/delegations/{setup_id}"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(policy))
+            .expect(2)
+            .mount(&proxy)
+            .await;
+        let summary = cloud_deployment_body(deployment_id, Some("seren-agent"), false);
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/deployments"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [summary["data"].clone()]
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/organizations/{organization_id}/managed-agent-secrets/setups/{setup_id}"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "setup_id": setup_id,
+                    "deployment_id": deployment_id,
+                    "target": {
+                        "kind": "vault_provisioning",
+                        "proposal_id": proposal_id,
+                        "binding": {
+                            "keys": ["private-vault-key"],
+                            "vault_count": 1,
+                            "payload_digest": "a".repeat(64),
+                        },
+                    },
+                }
+            })))
+            .expect(2)
+            .mount(&proxy)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/managed-agent-secrets/setups/{setup_id}/status"
+            )))
+            .respond_with(ResponseTemplate::new(404))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let error = server
+            .apply_seren_agent_passwords_setup(
+                Parameters(SerenAgentPasswordsSetupParams { setup_id }),
+                Extensions::default(),
+            )
+            .await
+            .expect_err("a vault setup must not reach the base-manifest update");
+        assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_REQUEST);
+        assert!(error.message.contains("cannot apply vault provisioning"));
+        assert!(error.message.contains(&proposal_id.to_string()));
+        let status = server
+            .get_seren_agent_passwords_setup_status(
+                Parameters(SerenAgentPasswordsSetupParams { setup_id }),
+                Extensions::default(),
+            )
+            .await
+            .expect("a bound vault setup can describe its actual owner flow");
+        assert!(result_contains(&status, "deployment owner"));
+        assert!(result_contains(&status, "Seren Passwords"));
+        assert!(result_contains(&status, &proposal_id.to_string()));
+        assert!(!result_contains(&status, "private-vault-key"));
+        let requests = proxy.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 6);
+        assert!(
+            requests
+                .iter()
+                .all(|request| request.method.as_str() == "GET")
         );
     }
 

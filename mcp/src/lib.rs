@@ -2221,6 +2221,7 @@ mod tests {
         let user_info: seren::DataResponseUserMeData = serde_json::from_value(serde_json::json!({
             "id": Uuid::from_u128(21),
             "email": "operator@seren.ai",
+            "email_verified": true,
             "name": "Operator",
             "status": "active",
             "created_at": "2026-07-30T12:00:00Z",
@@ -2368,6 +2369,7 @@ mod tests {
                 "data": {
                     "id": user_id,
                     "email": "user@example.com",
+                    "email_verified": true,
                     "name": "Test User",
                     "status": "active",
                     "created_at": "2026-01-01T00:00:00Z",

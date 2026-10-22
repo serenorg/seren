@@ -144,8 +144,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "Update an agent's profile (e.g. set a real email address).",
-        "description": "When the email is changed, `email_verified` is set to `false` and a\nverification email with a clickable link is sent. The user verifies\nby clicking the link — no separate API call is needed.\nA verified email is required before making Stripe deposits.",
+        "summary": "Set an agent account's first email, or request a confirmed-address change.\nConfirmed addresses remain in use until the new address is confirmed.",
         "operationId": "agent_update",
         "requestBody": {
           "content": {
@@ -214,6 +213,57 @@
           },
           "404": {
             "description": "User not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/auth/email": {
+      "patch": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Request an email change. The current address remains in use until the new address is confirmed.",
+        "operationId": "request_email_change",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailChangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Confirmation requested",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_EmailChangeRequested"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid address"
+          },
+          "401": {
+            "description": "Sign-in required"
+          },
+          "403": {
+            "description": "Fresh sign-in or current-address confirmation required"
+          },
+          "409": {
+            "description": "Address unavailable or another change still undoable"
+          },
+          "503": {
+            "description": "Confirmation could not be sent"
           }
         },
         "security": [
@@ -303,7 +353,7 @@
           "Auth"
         ],
         "summary": "POST /auth/logout\nRevoke all refresh sessions for the current user.",
-        "description": "Revokes all refresh sessions for the current user. Access tokens already issued from those sessions remain valid until they expire.",
+        "description": "Revokes all refresh sessions for the current user and the access tokens bound to them.",
         "operationId": "logout",
         "responses": {
           "200": {
@@ -1522,13 +1572,13 @@
         "tags": [
           "checkins"
         ],
-        "summary": "Confirm an unsubscribe from weekly check-in emails. This page changes\nnothing; its button sends the unsubscribe.",
+        "summary": "Confirm an unsubscribe from a managed agent's emails. This page changes\nnothing; its button sends the unsubscribe.",
         "operationId": "confirm_checkin_unsubscribe",
         "parameters": [
           {
             "name": "token",
             "in": "query",
-            "description": "Token from the check-in email's unsubscribe link.",
+            "description": "Token from the email's unsubscribe link.",
             "required": false,
             "schema": {
               "type": [
@@ -1565,13 +1615,13 @@
         "tags": [
           "checkins"
         ],
-        "summary": "Unsubscribe from weekly check-in emails. A mail client's one-click request\nand the confirmation page both post here; repeating it succeeds.",
+        "summary": "Unsubscribe from a managed agent's emails. A mail client's one-click\nrequest and the confirmation page both post here; repeating it succeeds.",
         "operationId": "checkin_unsubscribe",
         "parameters": [
           {
             "name": "token",
             "in": "query",
-            "description": "Token from the check-in email's unsubscribe link.",
+            "description": "Token from the email's unsubscribe link.",
             "required": false,
             "schema": {
               "type": [
@@ -7549,6 +7599,16 @@
           },
           "500": {
             "description": "Internal server error"
+          },
+          "503": {
+            "description": "Caller identity forwarding is unavailable (`caller_identity_unavailable`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -7664,6 +7724,16 @@
           },
           "500": {
             "description": "Internal server error"
+          },
+          "503": {
+            "description": "Caller identity forwarding is unavailable (`caller_identity_unavailable`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       },
@@ -8227,7 +8297,14 @@
             "description": "Publisher not found"
           },
           "409": {
-            "description": "The publisher cannot pay out (`SerenOperatedPublisherCannotPayOut`)"
+            "description": "The publisher cannot pay out (`SerenOperatedPublisherCannotPayOut`), or another payment is in progress (`PaymentReservationBusy`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "500": {
             "description": "Internal server error"
@@ -9125,7 +9202,7 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Read one run kind's current amount for a managed agent this organization publishes, with the minimum it may be set to.",
+        "summary": "Read a published run kind's configured amount and expected cost. Fee kinds must cover that expected cost; cost kinds use the amount as their default promotional allowance.",
         "operationId": "get_managed_agent_run_fee",
         "parameters": [
           {
@@ -9188,7 +9265,7 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Set one run kind's amount for future runs of every hire: a fee kind's price, or a cost kind's cap. Runs already admitted keep the kind and amount they were admitted with.",
+        "summary": "Set one run kind's amount for future runs of every hire: a fee kind's additive service fee, or a cost kind's default promotional allowance. Runs already admitted keep the kind and amount they were admitted with.",
         "operationId": "set_managed_agent_run_fee",
         "parameters": [
           {
@@ -9254,7 +9331,7 @@
             "description": "Managed agent not found, or its current release has no such run kind (`managed_agent_run_kind_not_found`)"
           },
           "409": {
-            "description": "The amount is below the run kind's minimum (`run_fee_below_minimum`); the error details carry the kind and its minimum"
+            "description": "A service fee is below the run kind's minimum (`run_fee_below_minimum`); the error details carry the kind and its minimum"
           }
         },
         "security": [
@@ -12590,7 +12667,7 @@
           "Sessions"
         ],
         "summary": "Revoke all refresh sessions",
-        "description": "Revokes all refresh sessions. Access tokens already issued from those sessions remain valid until they expire.",
+        "description": "Revokes all refresh sessions and the access tokens bound to them.",
         "operationId": "revoke_all_sessions",
         "responses": {
           "200": {
@@ -12620,7 +12697,7 @@
           "Sessions"
         ],
         "summary": "Revoke a specific session",
-        "description": "Revokes the session's refresh credentials. Access tokens already issued from the session remain valid until they expire.",
+        "description": "Revokes the session and its access tokens.",
         "operationId": "revoke_session",
         "parameters": [
           {
@@ -12665,7 +12742,7 @@
           "Sessions"
         ],
         "summary": "Revoke all refresh sessions except a specified one",
-        "description": "Revokes other refresh sessions while retaining the session backing the current access token. Access tokens already issued from revoked sessions remain valid until they expire.",
+        "description": "Revokes other sessions and their access tokens while retaining the current session.",
         "operationId": "revoke_other_sessions",
         "parameters": [
           {
@@ -13398,7 +13475,7 @@
             "description": "Unauthorized"
           },
           "403": {
-            "description": "Verified email required"
+            "description": "Confirmed email required (`email_unverified`); the message names the address to confirm"
           }
         },
         "security": [
@@ -15330,6 +15407,13 @@
           }
         }
       },
+      "AgentNativeToolSet": {
+        "type": "string",
+        "description": "A family of native tools the trusted runtime runs itself.",
+        "enum": [
+          "onepassword"
+        ]
+      },
       "AgentNetworkProtocol": {
         "type": "string",
         "enum": [
@@ -15642,6 +15726,13 @@
           "email"
         ],
         "properties": {
+          "current_password": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Current password when changing a confirmed address without a fresh sign-in."
+          },
           "email": {
             "type": "string",
             "description": "Email address to set and verify.\nA verification email will be sent to this address."
@@ -16862,6 +16953,13 @@
               "$ref": "#/components/schemas/EndpointDefinition"
             },
             "description": "Structured endpoint definitions for LLM discoverability and access control"
+          },
+          "forward_caller_identity": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Send opaque publisher-scoped identifiers in X-Seren-Caller-Organization-Id and X-Seren-Caller-User-Id. The user identifier is also scoped to the authenticated organization. Defaults to off."
           },
           "gateway_fee_percent": {
             "type": [
@@ -19059,6 +19157,42 @@
           }
         }
       },
+      "DataResponse_EmailChangeRequested": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "email",
+              "expires_at"
+            ],
+            "properties": {
+              "email": {
+                "type": "string"
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_EmployeeReferralGrantResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -19763,7 +19897,7 @@
                   "null"
                 ],
                 "format": "uuid",
-                "description": "Opaque identifier for the refresh session backing these tokens. Revoking the session does not invalidate access tokens already issued from it."
+                "description": "Opaque identifier for the session backing these tokens. Ending the session also ends its access tokens."
               },
               "user": {
                 "$ref": "#/components/schemas/UserInfo"
@@ -20401,7 +20535,7 @@
         "properties": {
           "data": {
             "type": "object",
-            "description": "The current per-run price. Promotional credit may pay its cost part.",
+            "description": "A configured run-kind amount in USD atomic units and display currency.",
             "required": [
               "atomic",
               "usd"
@@ -20438,7 +20572,7 @@
         "properties": {
           "data": {
             "type": "object",
-            "description": "One run kind's current amount with the minimum it may not be priced below.",
+            "description": "One run kind's amount and expected cost; fee kinds cannot price below that cost.",
             "required": [
               "run_kind",
               "name",
@@ -20451,7 +20585,7 @@
               "atomic": {
                 "type": "integer",
                 "format": "int64",
-                "description": "A fee kind's price, or the most one run of a cost kind may cost."
+                "description": "The service fee for fee kinds, or the default promotional allowance for cost kinds."
               },
               "charge": {
                 "$ref": "#/components/schemas/ManagedAgentRunKindCharge"
@@ -23294,6 +23428,7 @@
               "auth_type",
               "allowed_passthrough_headers",
               "passthrough_header_rewrite",
+              "forward_caller_identity",
               "request_content_type",
               "upstream_headers",
               "ownership_tracking_enabled",
@@ -23448,6 +23583,10 @@
                   "$ref": "#/components/schemas/EndpointDefinition"
                 },
                 "description": "Structured endpoint definitions for LLM discoverability and access control"
+              },
+              "forward_caller_identity": {
+                "type": "boolean",
+                "description": "Whether this upstream receives opaque publisher-scoped organization and user identifiers."
               },
               "gateway_fee_percent": {
                 "type": "string"
@@ -24363,7 +24502,7 @@
                   "null"
                 ],
                 "format": "uuid",
-                "description": "Opaque identifier for the rotated refresh session. Revoking the session does not invalidate access tokens already issued from it."
+                "description": "Opaque identifier for the rotated session. Ending the session also ends its access tokens."
               }
             }
           },
@@ -26719,6 +26858,7 @@
                 "auth_type",
                 "allowed_passthrough_headers",
                 "passthrough_header_rewrite",
+                "forward_caller_identity",
                 "request_content_type",
                 "upstream_headers",
                 "ownership_tracking_enabled",
@@ -26873,6 +27013,10 @@
                     "$ref": "#/components/schemas/EndpointDefinition"
                   },
                   "description": "Structured endpoint definitions for LLM discoverability and access control"
+                },
+                "forward_caller_identity": {
+                  "type": "boolean",
+                  "description": "Whether this upstream receives opaque publisher-scoped organization and user identifiers."
                 },
                 "gateway_fee_percent": {
                   "type": "string"
@@ -28885,6 +29029,41 @@
         "description": "A validated email address.\n\nThis type ensures email addresses are validated at construction time.\nStored as TEXT in the database via SQLx's transparent encoding.\n\n# Examples\n\n```\nuse seren_core::models::Email;\n\nlet email = Email::new(\"user@example.com\").unwrap();\nassert!(Email::new(\"invalid\").is_err());\n```",
         "example": "user@example.com"
       },
+      "EmailChangeRequest": {
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "current_password": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Current password when a fresh sign-in is not available."
+          },
+          "email": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "EmailChangeRequested": {
+        "type": "object",
+        "required": [
+          "email",
+          "expires_at"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "EmployeeReferralGrantRequest": {
         "type": "object",
         "required": [
@@ -29751,6 +29930,14 @@
             ],
             "format": "uuid",
             "description": "Reference environment credential proposal. At most one proposal selector may be set."
+          },
+          "vault_provisioning_proposal_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Vault provisioning proposal, set only by the owner's vault decision. Direct initiation refuses it."
           }
         },
         "additionalProperties": false
@@ -30156,7 +30343,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "Opaque identifier for the refresh session backing these tokens. Revoking the session does not invalidate access tokens already issued from it."
+            "description": "Opaque identifier for the session backing these tokens. Ending the session also ends its access tokens."
           },
           "user": {
             "$ref": "#/components/schemas/UserInfo"
@@ -30838,7 +31025,7 @@
       },
       "ManagedAgentRunFeeAmount": {
         "type": "object",
-        "description": "The current per-run price. Promotional credit may pay its cost part.",
+        "description": "A configured run-kind amount in USD atomic units and display currency.",
         "required": [
           "atomic",
           "usd"
@@ -30855,7 +31042,7 @@
       },
       "ManagedAgentRunFeeView": {
         "type": "object",
-        "description": "One run kind's current amount with the minimum it may not be priced below.",
+        "description": "One run kind's amount and expected cost; fee kinds cannot price below that cost.",
         "required": [
           "run_kind",
           "name",
@@ -30868,7 +31055,7 @@
           "atomic": {
             "type": "integer",
             "format": "int64",
-            "description": "A fee kind's price, or the most one run of a cost kind may cost."
+            "description": "The service fee for fee kinds, or the default promotional allowance for cost kinds."
           },
           "charge": {
             "$ref": "#/components/schemas/ManagedAgentRunKindCharge"
@@ -31003,6 +31190,15 @@
           "source"
         ],
         "properties": {
+          "binding_target": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Reviewed native-tool field target. It does not grant credential access.",
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          },
           "description": {
             "type": [
               "string",
@@ -31028,6 +31224,22 @@
             ],
             "description": "Value pattern containing `...` with a non-empty prefix or suffix and a non-empty wildcard.\n`123456:ABC-...` instead matches the Telegram bot-token shape `^\\d+:[A-Za-z0-9_-]+$`.\nTreat unrecognized hints as advisory guidance during approval."
           },
+          "help": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Guidance for the owner, from the publisher's reviewed credential requirement.",
+            "maxLength": 500
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Field name for the owner, from the publisher's reviewed credential requirement.",
+            "maxLength": 100
+          },
           "reference_hint": {
             "oneOf": [
               {
@@ -31038,6 +31250,13 @@
                 "description": "Locates a locked item without replacing the fingerprint integrity check."
               }
             ]
+          },
+          "secret": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the value is masked while the owner enters it. Present on reviewed publisher\ncredential fields."
           },
           "selection_constraint": {
             "oneOf": [
@@ -31134,6 +31353,17 @@
           },
           "requirements_fingerprint": {
             "type": "string"
+          },
+          "vault_provisioning": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/VaultProvisioningBinding",
+                "description": "Present only for a vault provisioning setup, which requests no secret fields."
+              }
+            ]
           }
         }
       },
@@ -31201,7 +31431,8 @@
       "ManagedAgentSecretsGrantLifecycle": {
         "type": "string",
         "enum": [
-          "deployment_revision"
+          "deployment_revision",
+          "until_revoked"
         ]
       },
       "ManagedAgentSecretsParticipant": {
@@ -31498,6 +31729,10 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "public_web": {
+            "type": "boolean",
+            "description": "Lets the hire's skill scripts read any public HTTPS site in a reader\nbrowser that starts empty, keeps nothing and blocks downloads, in place\nof the main browser. The model's own browser tools keep the template's\nhost list."
           }
         },
         "additionalProperties": false
@@ -31542,6 +31777,13 @@
           },
           "model_policy": {
             "$ref": "#/components/schemas/ManagedAgentModelPolicy"
+          },
+          "native_tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentNativeToolSet"
+            },
+            "description": "Native tool sets every hired copy's runtime registers, each at most\nonce. Omit for none."
           },
           "network_egress": {
             "type": "array",
@@ -31974,6 +32216,29 @@
                 "type": "string",
                 "enum": [
                   "reference_env"
+                ]
+              },
+              "proposal_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "proposal_id",
+              "binding",
+              "kind"
+            ],
+            "properties": {
+              "binding": {
+                "$ref": "#/components/schemas/VaultProvisioningBinding"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "vault_provisioning"
                 ]
               },
               "proposal_id": {
@@ -33731,6 +33996,7 @@
                 "auth_type",
                 "allowed_passthrough_headers",
                 "passthrough_header_rewrite",
+                "forward_caller_identity",
                 "request_content_type",
                 "upstream_headers",
                 "ownership_tracking_enabled",
@@ -33885,6 +34151,10 @@
                     "$ref": "#/components/schemas/EndpointDefinition"
                   },
                   "description": "Structured endpoint definitions for LLM discoverability and access control"
+                },
+                "forward_caller_identity": {
+                  "type": "boolean",
+                  "description": "Whether this upstream receives opaque publisher-scoped organization and user identifiers."
                 },
                 "gateway_fee_percent": {
                   "type": "string"
@@ -35654,6 +35924,123 @@
           "Bearer ..."
         ]
       },
+      "PublisherHealthFinding": {
+        "type": "string",
+        "description": "A configuration problem that keeps a publisher from working as configured.",
+        "enum": [
+          "caller_identity_unavailable"
+        ]
+      },
+      "PublisherHealthResponse": {
+        "type": "object",
+        "required": [
+          "publisher_id",
+          "slug",
+          "name",
+          "health_status",
+          "calls_5m",
+          "failures_5m",
+          "findings"
+        ],
+        "properties": {
+          "calls_5m": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "failures_5m": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "federation_staleness_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublisherHealthFinding"
+            }
+          },
+          "health_status": {
+            "type": "string"
+          },
+          "health_updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_failure_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_seen_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_success_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "name": {
+            "type": "string"
+          },
+          "p95_latency_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "probe_last_checked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "probe_last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "probe_last_status": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "success_rate_5m": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          }
+        }
+      },
       "PublisherOAuthProviderResponse": {
         "type": "object",
         "description": "Response type for OAuth provider (excludes sensitive fields)",
@@ -35870,6 +36257,7 @@
           "auth_type",
           "allowed_passthrough_headers",
           "passthrough_header_rewrite",
+          "forward_caller_identity",
           "request_content_type",
           "upstream_headers",
           "ownership_tracking_enabled",
@@ -36024,6 +36412,10 @@
               "$ref": "#/components/schemas/EndpointDefinition"
             },
             "description": "Structured endpoint definitions for LLM discoverability and access control"
+          },
+          "forward_caller_identity": {
+            "type": "boolean",
+            "description": "Whether this upstream receives opaque publisher-scoped organization and user identifiers."
           },
           "gateway_fee_percent": {
             "type": "string"
@@ -37217,7 +37609,7 @@
           "run_fee_atomic": {
             "type": "integer",
             "format": "int64",
-            "description": "USD atomic units, in whole cents (multiples of 10,000), at or above the\nrun kind's minimum: a fee kind's price, or a cost kind's cap.",
+            "description": "USD atomic units, in whole cents (multiples of 10,000), at or above the\nrun kind's minimum for fee kinds; cost kinds use it as their default promotional allowance.",
             "multipleOf": 10000,
             "minimum": 0
           }
@@ -37746,7 +38138,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "Opaque identifier for the rotated refresh session. Revoking the session does not invalidate access tokens already issued from it."
+            "description": "Opaque identifier for the rotated session. Ending the session also ends its access tokens."
           }
         }
       },
@@ -37826,7 +38218,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "Opaque identifier for the refresh session backing these tokens. Revoking the session does not invalidate access tokens already issued from it."
+            "description": "Opaque identifier for the session backing these tokens. Ending the session also ends its access tokens."
           },
           "token_type": {
             "type": "string"
@@ -38755,6 +39147,13 @@
             },
             "description": "Structured endpoint definitions for LLM discoverability and access control"
           },
+          "forward_caller_identity": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Send opaque publisher-scoped organization and user identifiers in X-Seren-Caller-Organization-Id and X-Seren-Caller-User-Id. The user identifier is also organization-scoped. Omit to keep the current setting."
+          },
           "gateway_fee_percent": {
             "type": [
               "string",
@@ -39499,6 +39898,7 @@
           "email",
           "name",
           "status",
+          "email_verified",
           "created_at"
         ],
         "properties": {
@@ -39520,6 +39920,10 @@
           },
           "email": {
             "$ref": "#/components/schemas/Email"
+          },
+          "email_verified": {
+            "type": "boolean",
+            "description": "Whether the person has proven they control `email`."
           },
           "id": {
             "type": "string",
@@ -39678,6 +40082,34 @@
           "disabled",
           "paused"
         ]
+      },
+      "VaultProvisioningBinding": {
+        "type": "object",
+        "description": "Opaque commitment to an owner's vault provisioning proposal. Vault names,\ndescriptions and sources reach the approval page only in the launch URL\nfragment, as the base64url encoding of the canonical list whose SHA-256 is\n`payload_digest`.",
+        "required": [
+          "keys",
+          "vault_count",
+          "payload_digest"
+        ],
+        "properties": {
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Opaque proposal keys in ascending order."
+          },
+          "payload_digest": {
+            "type": "string",
+            "description": "Lowercase hexadecimal SHA-256 of the canonical requested vault list."
+          },
+          "vault_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
       },
       "VerificationSent": {
         "type": "object",

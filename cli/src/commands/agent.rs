@@ -922,6 +922,7 @@ pub async fn create_publisher(
         ownership_tracking_enabled: None,
         passthrough_header_value_format: None,
         passthrough_header_rewrite,
+        forward_caller_identity: None,
         price_per_call: None,
         price_per_delete: None,
         price_per_execution: None,
@@ -5338,7 +5339,7 @@ async fn managed_agent_secrets_policy_request(
     Ok(response.data)
 }
 
-/// Name the apply command Core bound to a managed secrets setup.
+/// Describe the apply path Core bound to a managed secrets setup.
 fn managed_secrets_apply_guidance(target: &seren::ManagedSecretsApplyTarget) -> String {
     match target {
         seren::ManagedSecretsApplyTarget::BaseManifest => {
@@ -5358,6 +5359,9 @@ fn managed_secrets_apply_guidance(target: &seren::ManagedSecretsApplyTarget) -> 
         ),
         seren::ManagedSecretsApplyTarget::ReferenceEnv { proposal_id } => format!(
             "Run `seren agent managed-reference-env-credential-proposal-apply <deployment-id> --proposal-id {proposal_id} --setup-id <setup-id>`."
+        ),
+        seren::ManagedSecretsApplyTarget::VaultProvisioning { proposal_id, .. } => format!(
+            "This CLI cannot apply vault provisioning proposal {proposal_id}. The deployment owner finishes this vault setup in Seren Passwords, which completes it; no apply call follows. Do not use `seren agent managed-passwords-apply` for this setup."
         ),
     }
 }
@@ -5391,6 +5395,8 @@ pub async fn managed_agent_secrets_setup(
                 model_credential_proposal_id,
                 publisher_credential_proposal_id,
                 reference_env_credential_proposal_id,
+                // Only the owner's vault decision may initiate vault provisioning.
+                vault_provisioning_proposal_id: None,
                 deployment_id,
                 redirect_origin: seren::MANAGED_AGENT_SECRETS_REDIRECT_ORIGIN.to_string(),
             },
@@ -11545,6 +11551,28 @@ fn parse_json_file(path: &str) -> Result<serde_json::Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vault_provisioning_guidance_identifies_owner_completion_without_disclosing_binding() {
+        let proposal_id = Uuid::from_u128(0x7601);
+        let target = seren::ManagedSecretsApplyTarget::VaultProvisioning {
+            proposal_id,
+            binding: seren::VaultProvisioningBinding {
+                keys: vec!["private-vault-key".into()],
+                vault_count: 1,
+                payload_digest: "a".repeat(64),
+            },
+        };
+        let guidance = managed_secrets_apply_guidance(&target);
+        assert!(guidance.contains(&proposal_id.to_string()));
+        assert!(guidance.contains("cannot apply vault provisioning"));
+        assert!(guidance.contains("deployment owner"));
+        assert!(guidance.contains("Seren Passwords"));
+        assert!(guidance.contains("no apply call follows"));
+        assert!(!guidance.contains("private-vault-key"));
+        assert!(!guidance.contains(&"a".repeat(64)));
+        assert!(!guidance.contains("managed-vault"));
+    }
 
     fn restricted_prepaid_body() -> serde_json::Value {
         serde_json::json!({
