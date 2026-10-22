@@ -379,6 +379,14 @@ seren agent private-models catalog --region aws-us-east-1
 seren agent private-models chat --model <model-id> --message "Summarize this incident."
 ```
 
+### Publisher caller identity
+
+Add `--forward-caller-identity` to `seren agent create-publisher` to let that publisher receive stable, opaque organization and user identifiers in `X-Seren-Caller-Organization-Id` and `X-Seren-Caller-User-Id`. The option is off by default.
+
+The organization identifier is scoped to the publisher and authenticated hiring organization. The user identifier is scoped to the publisher, authenticated hiring organization and authenticated user, so the same user receives different identifiers in different organizations or at different publishers. Neither value is a raw Seren account ID. This feature sends no agent, deployment or run identifiers and grants no permission over Seren resources. Existing wallet and payment behavior remains unchanged. The identifiers are pseudonymous, not anonymous: request content and existing payment headers can still identify or correlate callers.
+
+Only API and MCP integration publishers support the option; external MCP publishers using passthrough authentication do not. Core refuses an unavailable key or missing required organization or user context instead of sending an identity-less request. If a server answers successfully without confirming `forward_caller_identity: true`, the command exits with an error. Inspect the publisher before retrying because the write may already have succeeded.
+
 ### Managed Agents
 
 Use `seren agent` to deploy managed agents from published templates, replace connected accounts, read completed work, create feedback records, configure weekly check-ins, review skill changes, and manage publisher access. `managed-list` and `managed-get` return the redacted owner view for a hired managed agent. Runtime-only state writes, work recording, access requests, issue reports, and browser relay operations stay with the deployed runtime.

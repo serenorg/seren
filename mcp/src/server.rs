@@ -1556,6 +1556,13 @@ pub struct CreatePublisherParams {
     /// Use this to map a non-reserved client header to Authorization upstream.
     #[serde(default)]
     pub passthrough_header_rewrite: Option<HashMap<String, String>>,
+    /// Send this publisher stable, opaque organization and user identifiers.
+    /// X-Seren-Caller-Organization-Id is scoped to publisher and organization;
+    /// X-Seren-Caller-User-Id is scoped to publisher, organization and user.
+    /// Neither value is a raw Seren account ID.
+    /// Defaults to off.
+    #[serde(default)]
+    pub forward_caller_identity: Option<bool>,
     /// Structured endpoint definitions for LLM discoverability and access control
     /// Each endpoint can specify method, path, description, and protection status
     #[serde(default)]
@@ -1730,6 +1737,13 @@ pub struct UpdatePublisherParams {
     /// Use this to map a non-reserved client header to Authorization upstream.
     #[serde(default)]
     pub passthrough_header_rewrite: Option<HashMap<String, String>>,
+    /// Send this publisher stable, opaque organization and user identifiers.
+    /// X-Seren-Caller-Organization-Id is scoped to publisher and organization;
+    /// X-Seren-Caller-User-Id is scoped to publisher, organization and user.
+    /// Neither value is a raw Seren account ID.
+    /// Omit to keep the current setting.
+    #[serde(default)]
+    pub forward_caller_identity: Option<bool>,
     /// Default headers included in upstream requests
     #[serde(default)]
     pub upstream_headers: Option<HashMap<String, String>>,
@@ -5680,6 +5694,21 @@ fn api_error_message(status: reqwest::StatusCode, body: &str, request_id: Option
             truncate_for_client(body, 1200)
         )
     }
+}
+
+/// Fails a publisher write that asked for `forward_caller_identity: true` when the
+/// response doesn't confirm it, as an older Seren server ignores the field.
+fn ensure_forward_caller_identity_saved(
+    requested: Option<bool>,
+    response: &serde_json::Value,
+) -> Result<(), McpError> {
+    if requested == Some(true) && !seren::publisher_response_forwards_caller_identity(response) {
+        return Err(McpError::internal_error(
+            seren::FORWARD_CALLER_IDENTITY_UNCONFIRMED,
+            None,
+        ));
+    }
+    Ok(())
 }
 
 const PUBLISHER_CONFLICT_GUIDANCE: &str = "Publisher request conflicted with existing state. If request_id was reused, provide a new UUID; if the publisher uses OAuth, pass connection_id or set a default connection; otherwise inspect the publisher state before retrying.";
@@ -13564,7 +13593,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Create a new publisher in the agent store. Publishers provide databases or APIs that AI agents can query with micropayments. Requires API key authentication (organization-level).",
+        description = "Create a new publisher in the agent store. Publishers provide databases or APIs that AI agents can query with micropayments. Requires API key authentication (organization-level). Set forward_caller_identity to send opaque organization and user identifiers in X-Seren-Caller-Organization-Id and X-Seren-Caller-User-Id. The organization identifier is scoped to publisher and authenticated organization; the user identifier is scoped to publisher, authenticated organization and authenticated user. Neither value is a raw Seren account ID.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn create_publisher(
@@ -13605,6 +13634,7 @@ API endpoint: {endpoint}",
             upstream_headers,
             allowed_passthrough_headers,
             passthrough_header_rewrite,
+            forward_caller_identity,
             endpoints,
             undocumented_endpoint_policy,
             token_exchange_url,
@@ -13830,7 +13860,7 @@ API endpoint: {endpoint}",
                 .map(serde_json::to_value)
                 .transpose()
                 .map_err(|e| McpError::invalid_params(e.to_string(), None))?,
-            forward_caller_identity: None,
+            forward_caller_identity,
             price_per_call,
             price_per_delete,
             price_per_execution,
@@ -13873,12 +13903,13 @@ API endpoint: {endpoint}",
         let result = self
             .execute_api_json(&extensions, reqwest::Method::POST, url, Some(&body))
             .await?;
+        ensure_forward_caller_identity_saved(forward_caller_identity, &result)?;
 
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
 
     #[tool(
-        description = "Update an existing publisher's details. Supports both API key and OAuth authentication. Only fields provided will be updated.",
+        description = "Update an existing publisher's details. Supports both API key and OAuth authentication. Only fields provided will be updated. Set forward_caller_identity to send opaque organization and user identifiers in X-Seren-Caller-Organization-Id and X-Seren-Caller-User-Id. The organization identifier is scoped to publisher and authenticated organization; the user identifier is scoped to publisher, authenticated organization and authenticated user. Neither value is a raw Seren account ID.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn update_publisher(
@@ -13919,6 +13950,7 @@ API endpoint: {endpoint}",
             api_key_query_param,
             allowed_passthrough_headers,
             passthrough_header_rewrite,
+            forward_caller_identity,
             upstream_headers,
             auth_type,
             oauth2_token_url,
@@ -14100,7 +14132,7 @@ API endpoint: {endpoint}",
                 .map(serde_json::to_value)
                 .transpose()
                 .map_err(|e| McpError::invalid_params(e.to_string(), None))?,
-            forward_caller_identity: None,
+            forward_caller_identity,
             resource_id_response_path: None,
             resource_id_url_pattern: None,
             upstream_cost_response_path,
@@ -14147,6 +14179,7 @@ API endpoint: {endpoint}",
         let result = self
             .execute_api_json(&extensions, reqwest::Method::PUT, url, Some(&body))
             .await?;
+        ensure_forward_caller_identity_saved(forward_caller_identity, &result)?;
 
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
@@ -25922,6 +25955,268 @@ mod tests {
         assert!(
             msg.contains("413") || msg.to_ascii_lowercase().contains("payload too large"),
             "expected 413/payload-too-large in error, got: {msg}"
+        );
+    }
+
+    fn caller_identity_create_params(
+        organization_id: Uuid,
+        forward_caller_identity: Option<bool>,
+    ) -> Parameters<CreatePublisherParams> {
+        let mut params = serde_json::json!({
+            "organization_id": organization_id,
+            "name": "Caller Aware",
+            "slug": "caller-aware",
+            "wallet_address": "0x1111111111111111111111111111111111111111",
+            "wallet_network_id": "eip155:8453",
+            "publisher_category": "integration",
+            "integration_type": "api",
+            "api_url": "https://upstream.example.com"
+        });
+        if let Some(value) = forward_caller_identity {
+            params["forward_caller_identity"] = value.into();
+        }
+        Parameters(serde_json::from_value(params).expect("create_publisher params"))
+    }
+
+    fn caller_identity_update_params(
+        organization_id: Uuid,
+        publisher_id: Uuid,
+        forward_caller_identity: Option<bool>,
+    ) -> Parameters<UpdatePublisherParams> {
+        let mut params = serde_json::json!({
+            "organization_id": organization_id,
+            "publisher_id": publisher_id,
+            "description": "Keeps a watchlist for each hirer."
+        });
+        if let Some(value) = forward_caller_identity {
+            params["forward_caller_identity"] = value.into();
+        }
+        Parameters(serde_json::from_value(params).expect("update_publisher params"))
+    }
+
+    /// A publisher create or update response; an older Core leaves the setting out.
+    fn caller_identity_publisher_response(
+        publisher_id: Uuid,
+        forward_caller_identity: Option<bool>,
+    ) -> serde_json::Value {
+        let mut data = serde_json::json!({
+            "id": publisher_id,
+            "name": "Caller Aware",
+            "slug": "caller-aware"
+        });
+        if let Some(value) = forward_caller_identity {
+            data["forward_caller_identity"] = value.into();
+        }
+        serde_json::json!({ "data": data })
+    }
+
+    async fn publisher_write_server(
+        http_method: &str,
+        route: &str,
+        response: wiremock::ResponseTemplate,
+    ) -> wiremock::MockServer {
+        use wiremock::matchers::{header, method, path};
+        use wiremock::{Mock, MockServer};
+
+        let proxy = MockServer::start().await;
+        Mock::given(method(http_method))
+            .and(path(route))
+            .and(header("Authorization", "Bearer test-key"))
+            .respond_with(response)
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        proxy
+    }
+
+    async fn only_request_body(proxy: &wiremock::MockServer) -> serde_json::Value {
+        let requests = proxy.received_requests().await.expect("recorded requests");
+        assert_eq!(requests.len(), 1);
+        requests[0]
+            .body_json()
+            .expect("publisher request body is JSON")
+    }
+
+    #[tokio::test]
+    async fn create_publisher_sends_forward_caller_identity_only_when_given() {
+        use wiremock::ResponseTemplate;
+
+        let organization_id = Uuid::from_u128(0x7101);
+        let publisher_id = Uuid::from_u128(0x7102);
+        let route = format!("/organizations/{organization_id}/publishers");
+
+        for given in [Some(true), Some(false), None] {
+            let proxy = publisher_write_server(
+                "POST",
+                &route,
+                ResponseTemplate::new(201).set_body_json(caller_identity_publisher_response(
+                    publisher_id,
+                    Some(given.unwrap_or(false)),
+                )),
+            )
+            .await;
+            let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+            server
+                .create_publisher(
+                    caller_identity_create_params(organization_id, given),
+                    extensions_with_headers(&[]),
+                )
+                .await
+                .expect("the publisher is created");
+            let body = only_request_body(&proxy).await;
+            assert_eq!(body["slug"], "caller-aware");
+            assert_eq!(
+                body.get("forward_caller_identity"),
+                given.map(serde_json::Value::Bool).as_ref(),
+                "given {given:?}, sent {body}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn update_publisher_sends_forward_caller_identity_only_when_given() {
+        use wiremock::ResponseTemplate;
+
+        let organization_id = Uuid::from_u128(0x7201);
+        let publisher_id = Uuid::from_u128(0x7202);
+        let route = format!("/organizations/{organization_id}/publishers/{publisher_id}");
+
+        for (given, echoed) in [
+            (Some(true), Some(true)),
+            (Some(false), Some(false)),
+            (None, None),
+        ] {
+            let proxy = publisher_write_server(
+                "PUT",
+                &route,
+                ResponseTemplate::new(200)
+                    .set_body_json(caller_identity_publisher_response(publisher_id, echoed)),
+            )
+            .await;
+            let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+            server
+                .update_publisher(
+                    caller_identity_update_params(organization_id, publisher_id, given),
+                    extensions_with_headers(&[]),
+                )
+                .await
+                .expect("the publisher is updated");
+            let body = only_request_body(&proxy).await;
+            assert_eq!(body["description"], "Keeps a watchlist for each hirer.");
+            assert_eq!(
+                body.get("forward_caller_identity"),
+                given.map(serde_json::Value::Bool).as_ref(),
+                "given {given:?}, sent {body}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn forward_caller_identity_ignored_by_an_older_server_is_an_error() {
+        use wiremock::ResponseTemplate;
+
+        let organization_id = Uuid::from_u128(0x7301);
+        let publisher_id = Uuid::from_u128(0x7302);
+
+        for echoed in [None, Some(false)] {
+            let proxy = publisher_write_server(
+                "POST",
+                &format!("/organizations/{organization_id}/publishers"),
+                ResponseTemplate::new(201)
+                    .set_body_json(caller_identity_publisher_response(publisher_id, echoed)),
+            )
+            .await;
+            let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+            let error = server
+                .create_publisher(
+                    caller_identity_create_params(organization_id, Some(true)),
+                    extensions_with_headers(&[]),
+                )
+                .await
+                .expect_err("a create that drops the setting is not a success");
+            assert_eq!(error.message, seren::FORWARD_CALLER_IDENTITY_UNCONFIRMED);
+
+            let proxy = publisher_write_server(
+                "PUT",
+                &format!("/organizations/{organization_id}/publishers/{publisher_id}"),
+                ResponseTemplate::new(200)
+                    .set_body_json(caller_identity_publisher_response(publisher_id, echoed)),
+            )
+            .await;
+            let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+            let error = server
+                .update_publisher(
+                    caller_identity_update_params(organization_id, publisher_id, Some(true)),
+                    extensions_with_headers(&[]),
+                )
+                .await
+                .expect_err("an update that drops the setting is not a success");
+            assert_eq!(error.message, seren::FORWARD_CALLER_IDENTITY_UNCONFIRMED);
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_publisher_write_response_keeps_its_decode_error() {
+        let organization_id = Uuid::from_u128(0x7501);
+        let proxy = publisher_write_server(
+            "POST",
+            &format!("/organizations/{organization_id}/publishers"),
+            wiremock::ResponseTemplate::new(201).set_body_string("not JSON"),
+        )
+        .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let error = server
+            .create_publisher(
+                caller_identity_create_params(organization_id, Some(true)),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .expect_err("a malformed response is not an ignored opt-in");
+        assert_ne!(error.message, seren::FORWARD_CALLER_IDENTITY_UNCONFIRMED);
+    }
+
+    #[tokio::test]
+    async fn caller_identity_refusal_reaches_the_caller() {
+        use wiremock::matchers::{body_partial_json, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let organization_id = Uuid::from_u128(0x7401);
+        let publisher_id = Uuid::from_u128(0x7402);
+        let proxy = MockServer::start().await;
+        Mock::given(method("PUT"))
+            .and(path(format!(
+                "/organizations/{organization_id}/publishers/{publisher_id}"
+            )))
+            .and(body_partial_json(
+                serde_json::json!({ "forward_caller_identity": true }),
+            ))
+            .respond_with(ResponseTemplate::new(503).set_body_json(serde_json::json!({
+                "error": "caller_identity_unavailable",
+                "message": "Caller identity forwarding is not available on this Seren server yet."
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let error = server
+            .update_publisher(
+                caller_identity_update_params(organization_id, publisher_id, Some(true)),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .expect_err("Core's refusal is an error");
+        assert!(
+            error.message.contains("caller_identity_unavailable")
+                && error.message.contains(
+                    "Caller identity forwarding is not available on this Seren server yet."
+                ),
+            "Core's code and message must reach the caller: {}",
+            error.message
+        );
+        assert_eq!(
+            error.data.as_ref().and_then(|data| data.get("status")),
+            Some(&serde_json::json!(503))
         );
     }
 

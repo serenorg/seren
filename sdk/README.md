@@ -113,6 +113,12 @@ Publication commits before rollout begins. A timeout or transport error can leav
 
 Return values are wrapped in `ResponseValue<T>`. Call `.into_inner()` to get the response body.
 
+### Publisher caller identity
+
+Set `forward_caller_identity: Some(true)` on `CreatePublisherRequest` or `UpdatePublisherRequest` to enable stable, opaque organization and user identifiers in `X-Seren-Caller-Organization-Id` and `X-Seren-Caller-User-Id`. The default is off; omit the field from an update to retain the current setting. Require `PublisherResponse.forward_caller_identity` to be `true` before reporting that enabling the setting succeeded. Older servers may save the other publisher fields while ignoring an unknown setting.
+
+The organization identifier is derived from the immutable publisher ID and authenticated hiring organization. The user identifier is derived from the immutable publisher ID, authenticated hiring organization and authenticated user, so the same user receives different identifiers in different organizations or at different publishers. This feature does not expose raw Seren IDs or send agent, deployment or run identifiers. It grants no permission in Seren and does not change existing wallet or billing behavior. The identifiers are pseudonymous, not anonymous: request content and existing payment headers can still identify or correlate callers. Only API and MCP integration publishers support it; external MCP publishers using passthrough authentication do not. Missing key or required organization or user context is refused rather than forwarded without the scoped identifiers.
+
 ### Updating the API contract
 
 Export the contract from the owning `seren-core` checkout with `make openapi openapi-publishers`. Copy its `openapi.json`, `openapi-seren-db.json`, `openapi-seren-cloud.json`, `openapi-seren-agent.json`, `openapi-seren-models.json`, and `openapi-seren-private-models.json` into `sdk/openapi`, then rebuild the SDK. Do not edit these generated inputs directly. Keep the producer revision stable while syncing the Python SDK, TypeScript SDK, and documentation from the same inputs.

@@ -18,6 +18,14 @@ Seren MCP is the agent-facing control plane for Seren. Once connected, an assist
 | Object storage | List Seren Storage buckets, upload base64 payloads, create presigned uploads, list and download objects, delete by object ID or key, and manage agent grants and workspace snapshots |
 | Payments | Use prepaid balance flows for publisher access, request wallet transfers, or use local x402 wallet signing when running a local MCP server |
 
+## Publisher caller identity
+
+Publisher owners can set `forward_caller_identity: true` on `create_publisher` or `update_publisher` to share stable, opaque organization and user identifiers with their upstream in `X-Seren-Caller-Organization-Id` and `X-Seren-Caller-User-Id`. The setting defaults to off. Omit it from an update to retain the current setting, or send `false` to disable it.
+
+The organization identifier is scoped to the publisher and authenticated hiring organization. The user identifier is scoped to the publisher, authenticated hiring organization and authenticated user, so the same user receives different identifiers in different organizations or at different publishers. Neither value is a raw Seren account ID. This feature sends no agent, deployment or run identifiers and does not grant access to Seren resources. Publishers must authenticate Core delivery and enforce their own authorization; existing wallet and payment behavior remains unchanged. The identifiers are pseudonymous, not anonymous: request content and existing payment headers can still identify or correlate callers.
+
+Only API and MCP integration publishers support the setting; external MCP publishers using passthrough authentication do not. Core refuses a missing key or required organization or user context before dispatch. A successful write must echo `forward_caller_identity: true` when requested; otherwise the tool reports an error. Inspect the publisher before retrying because an older server may have saved the other fields while ignoring this setting.
+
 ## Hosted vs Local
 
 Most users should start with the hosted streamable-HTTP endpoint. It requires no local process and uses OAuth 2.1 for account authorization:

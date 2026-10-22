@@ -1762,6 +1762,16 @@ pub fn parse_integration_type(
     Ok(Some(parsed))
 }
 
+/// Reported when a publisher write does not confirm the requested caller identity opt-in.
+pub const FORWARD_CALLER_IDENTITY_UNCONFIRMED: &str = "This Seren server did not confirm forward_caller_identity: true; caller identity forwarding is not confirmed. Inspect the publisher before retrying.";
+
+/// Whether a publisher create or update response confirms `forward_caller_identity: true`.
+///
+/// An older Seren server ignores the field and leaves it out of the response.
+pub fn publisher_response_forwards_caller_identity(response: &serde_json::Value) -> bool {
+    response.pointer("/data/forward_caller_identity") == Some(&serde_json::Value::Bool(true))
+}
+
 pub fn parse_managed_agent_template(
     value: Option<&str>,
 ) -> Result<Option<crate::ManagedAgentTemplate>, ValidationError> {
@@ -1975,6 +1985,24 @@ pub fn validate_cloud_approval_resume_identity(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn caller_identity_confirmation_requires_a_true_boolean_in_publisher_data() {
+        assert!(publisher_response_forwards_caller_identity(
+            &serde_json::json!({
+                "data": { "forward_caller_identity": true }
+            })
+        ));
+        for response in [
+            serde_json::json!({ "data": {} }),
+            serde_json::json!({ "data": { "forward_caller_identity": false } }),
+            serde_json::json!({ "data": { "forward_caller_identity": null } }),
+            serde_json::json!({ "data": { "forward_caller_identity": "true" } }),
+            serde_json::json!({ "forward_caller_identity": true }),
+        ] {
+            assert!(!publisher_response_forwards_caller_identity(&response));
+        }
+    }
 
     #[test]
     fn prepaid_restriction_uses_checked_fields_without_echoing_unknown_reasons() {

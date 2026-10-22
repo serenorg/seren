@@ -739,6 +739,7 @@ pub async fn create_publisher(
     auth_type: Option<&str>,
     allowed_passthrough_headers: Vec<String>,
     passthrough_header_rewrite_json: Option<&str>,
+    forward_caller_identity: bool,
     oauth2_token_url: Option<&str>,
     oauth2_client_id: Option<&str>,
     oauth2_client_secret: Option<&str>,
@@ -922,7 +923,7 @@ pub async fn create_publisher(
         ownership_tracking_enabled: None,
         passthrough_header_value_format: None,
         passthrough_header_rewrite,
-        forward_caller_identity: None,
+        forward_caller_identity: forward_caller_identity.then_some(true),
         price_per_call: None,
         price_per_delete: None,
         price_per_execution: None,
@@ -956,12 +957,23 @@ pub async fn create_publisher(
         unresolved_fallback_charge: None,
     };
 
-    let response = client
-        .create_publisher(organization_id, &body)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to create publisher: {}", e))?;
+    let publisher = match client.create_publisher(organization_id, &body).await {
+        Ok(response) => response.into_inner(),
+        // An older Seren server leaves forward_caller_identity out, so its response doesn't parse.
+        Err(seren::Error::InvalidResponsePayload(bytes, _))
+            if forward_caller_identity
+                && serde_json::from_slice(&bytes).is_ok_and(|body| {
+                    !seren::publisher_response_forwards_caller_identity(&body)
+                }) =>
+        {
+            return Err(anyhow::anyhow!(seren::FORWARD_CALLER_IDENTITY_UNCONFIRMED));
+        }
+        Err(e) => return Err(anyhow::anyhow!("Failed to create publisher: {}", e)),
+    };
+    if forward_caller_identity && !publisher.data.forward_caller_identity {
+        return Err(anyhow::anyhow!(seren::FORWARD_CALLER_IDENTITY_UNCONFIRMED));
+    }
 
-    let publisher = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&publisher)?,
         OutputFormat::Table => {
@@ -11881,6 +11893,222 @@ mod tests {
                 "updated_at": "2026-09-21T09:00:00Z"
             }
         })
+    }
+
+    /// A publisher create response; an older Core leaves `forward_caller_identity` out.
+    fn created_publisher_body(forward_caller_identity: Option<bool>) -> serde_json::Value {
+        let mut data = serde_json::json!({
+            "id": Uuid::from_u128(0x7502),
+            "name": "Caller Aware",
+            "slug": "caller-aware",
+            "categories": [],
+            "capabilities": [],
+            "use_cases": [],
+            "publisher_type": "organization",
+            "wallet_address": "0x1111111111111111111111111111111111111111",
+            "wallet_network_id": "eip155:8453",
+            "publisher_category": "integration",
+            "billing_model": "x402_per_request",
+            "gateway_fee_percent": "0",
+            "auth_type": "static",
+            "allowed_passthrough_headers": [],
+            "passthrough_header_rewrite": {},
+            "request_content_type": "application/json",
+            "upstream_headers": {},
+            "ownership_tracking_enabled": false,
+            "undocumented_endpoint_policy": "default_allow",
+            "is_active": true,
+            "is_verified": false,
+            "total_queries": 0,
+            "unique_agents_served": 0,
+            "total_revenue_atomic": 0,
+            "created_at": "2026-10-22T00:00:00Z",
+            "updated_at": "2026-10-22T00:00:00Z",
+            "requires_user_oauth": false
+        });
+        if let Some(value) = forward_caller_identity {
+            data["forward_caller_identity"] = value.into();
+        }
+        serde_json::json!({ "data": data })
+    }
+
+    async fn create_publisher_server(
+        response: wiremock::ResponseTemplate,
+    ) -> (wiremock::MockServer, CommandContext) {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer};
+
+        let proxy = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{}/publishers",
+                Uuid::from_u128(0x7501)
+            )))
+            .respond_with(response)
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let context = CommandContext::new(
+            Some(proxy.uri()),
+            Some("test-key".to_string()),
+            OutputFormat::Json,
+        );
+        (proxy, context)
+    }
+
+    async fn create_caller_identity_publisher(
+        forward_caller_identity: bool,
+        context: &CommandContext,
+    ) -> Result<()> {
+        create_publisher(
+            &Uuid::from_u128(0x7501),
+            "Caller Aware",
+            "caller-aware",
+            None,
+            "0x1111111111111111111111111111111111111111",
+            "eip155:8453",
+            "integration",
+            None,
+            Some("api"),
+            None,
+            Some("https://upstream.example.com"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            forward_caller_identity,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            context,
+        )
+        .await
+    }
+
+    async fn only_publisher_request_body(proxy: &wiremock::MockServer) -> serde_json::Value {
+        let requests = proxy.received_requests().await.expect("recorded requests");
+        assert_eq!(requests.len(), 1);
+        requests[0]
+            .body_json()
+            .expect("publisher request body is JSON")
+    }
+
+    #[tokio::test]
+    async fn forward_caller_identity_flag_sets_the_request_field() {
+        use wiremock::ResponseTemplate;
+
+        let (proxy, context) = create_publisher_server(
+            ResponseTemplate::new(201).set_body_json(created_publisher_body(Some(true))),
+        )
+        .await;
+        create_caller_identity_publisher(true, &context)
+            .await
+            .expect("an opted-in publisher is created");
+        let body = only_publisher_request_body(&proxy).await;
+        assert_eq!(body["slug"], "caller-aware");
+        assert_eq!(
+            body.get("forward_caller_identity"),
+            Some(&serde_json::json!(true))
+        );
+
+        let (proxy, context) = create_publisher_server(
+            ResponseTemplate::new(201).set_body_json(created_publisher_body(Some(false))),
+        )
+        .await;
+        create_caller_identity_publisher(false, &context)
+            .await
+            .expect("a publisher is created");
+        let body = only_publisher_request_body(&proxy).await;
+        assert_eq!(body["slug"], "caller-aware");
+        assert!(
+            body.get("forward_caller_identity").is_none(),
+            "without the flag the setting must not be sent: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn forward_caller_identity_ignored_by_an_older_server_fails_plainly() {
+        use wiremock::ResponseTemplate;
+
+        // An older Core omits the field; a server that kept the setting off echoes false.
+        for echoed in [None, Some(false)] {
+            let (_proxy, context) = create_publisher_server(
+                ResponseTemplate::new(201).set_body_json(created_publisher_body(echoed)),
+            )
+            .await;
+            let error = create_caller_identity_publisher(true, &context)
+                .await
+                .expect_err("a create that drops the setting is not a success");
+            assert_eq!(
+                error.to_string(),
+                seren::FORWARD_CALLER_IDENTITY_UNCONFIRMED
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_publisher_response_preserves_the_decode_error() {
+        let (_proxy, context) = create_publisher_server(
+            wiremock::ResponseTemplate::new(201).set_body_string("not JSON"),
+        )
+        .await;
+        let error = create_caller_identity_publisher(true, &context)
+            .await
+            .expect_err("a malformed response is not an ignored opt-in");
+        assert!(error.to_string().starts_with("Failed to create publisher:"));
+        assert_ne!(
+            error.to_string(),
+            seren::FORWARD_CALLER_IDENTITY_UNCONFIRMED
+        );
+    }
+
+    #[tokio::test]
+    async fn caller_identity_refusal_is_an_error_not_a_saved_publisher() {
+        use wiremock::matchers::{body_partial_json, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{}/publishers",
+                Uuid::from_u128(0x7501)
+            )))
+            .and(body_partial_json(
+                serde_json::json!({ "forward_caller_identity": true }),
+            ))
+            .respond_with(ResponseTemplate::new(503).set_body_json(serde_json::json!({
+                "error": "caller_identity_unavailable",
+                "message": "Caller identity forwarding is not available on this Seren server yet."
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let context = CommandContext::new(
+            Some(proxy.uri()),
+            Some("test-key".to_string()),
+            OutputFormat::Json,
+        );
+
+        let error = create_caller_identity_publisher(true, &context)
+            .await
+            .expect_err("Core's refusal is an error");
+        let message = error.to_string();
+        assert!(
+            message.starts_with("Failed to create publisher:"),
+            "Core's refusal must fail like other create errors: {message}"
+        );
+        assert_ne!(message, seren::FORWARD_CALLER_IDENTITY_UNCONFIRMED);
     }
 
     #[tokio::test]

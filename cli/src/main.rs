@@ -1122,6 +1122,12 @@ enum AgentAction {
         /// Example: '{"X-Passthrough-Authorization":"Authorization"}'
         #[arg(long)]
         passthrough_header_rewrite_json: Option<String>,
+        /// Send this publisher stable, opaque organization and user identifiers.
+        /// X-Seren-Caller-Organization-Id is scoped to publisher and organization;
+        /// X-Seren-Caller-User-Id is scoped to publisher, organization and user.
+        /// Neither value is a raw Seren account ID.
+        #[arg(long)]
+        forward_caller_identity: bool,
         /// OAuth2 token endpoint URL for Client Credentials flow (required when auth_type=oauth2_cc)
         #[arg(long)]
         oauth2_token_url: Option<String>,
@@ -7878,6 +7884,7 @@ async fn main() -> anyhow::Result<()> {
                 auth_type,
                 allowed_passthrough_headers,
                 passthrough_header_rewrite_json,
+                forward_caller_identity,
                 oauth2_token_url,
                 oauth2_client_id,
                 oauth2_client_secret,
@@ -7909,6 +7916,7 @@ async fn main() -> anyhow::Result<()> {
                     auth_type.as_deref(),
                     allowed_passthrough_headers,
                     passthrough_header_rewrite_json.as_deref(),
+                    forward_caller_identity,
                     oauth2_token_url.as_deref(),
                     oauth2_client_id.as_deref(),
                     oauth2_client_secret.as_deref(),
@@ -8875,6 +8883,42 @@ mod tests {
             .expect("failed to spawn parser thread")
             .join()
             .expect("parser thread panicked")
+    }
+
+    #[test]
+    fn create_publisher_forwards_caller_identity_only_with_the_flag() {
+        let required = vec![
+            "seren",
+            "agent",
+            "create-publisher",
+            "--organization-id",
+            "550e8400-e29b-41d4-a716-446655440000",
+            "--name",
+            "Caller Aware",
+            "--slug",
+            "caller-aware",
+            "--wallet-address",
+            "0x1111111111111111111111111111111111111111",
+            "--wallet-network-id",
+            "eip155:8453",
+            "--publisher-category",
+            "integration",
+        ];
+        for (flag, expected) in [(None, false), (Some("--forward-caller-identity"), true)] {
+            let mut args = required.clone();
+            args.extend(flag);
+            let Commands::Agent { action } = parse_cli_with_large_stack(args).command else {
+                panic!("agent command");
+            };
+            let AgentAction::CreatePublisher {
+                forward_caller_identity,
+                ..
+            } = *action
+            else {
+                panic!("create-publisher command");
+            };
+            assert_eq!(forward_caller_identity, expected, "flag {flag:?}");
+        }
     }
 
     #[test]
