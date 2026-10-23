@@ -563,6 +563,36 @@ seren -o json agent cloud approvals list --limit 20
 
 Advanced managed-agent deploys can also use `--agent-config <path>` to supply fields such as `capability_policy` and `runtime_policy`. Managed deployments derive runtime tools from `tool_presets` and typed `tool_refs`; resolved `tool_definitions` are read-only deployment detail and are not accepted in deploy or update requests. Browser-enabled employees use `capability_policy.browser` to select the managed browser profile and `runtime_policy.network` to declare the hostnames the browser may reach.
 
+### Limit Employee tools before apply
+
+An omitted `tool_presets` uses the template defaults; `tool_presets: []` selects no presets. An empty preset list alone does not isolate tools. Without `tool_allowlist`, the eight default tools remain available: `system_time`, `seren_publishers_suggest`, `seren_publishers_get`, `seren_mcp_list_tools`, `seren_mcp_read_resource`, `seren_publisher_request`, `seren_mcp_call_tool`, and `seren_schedule_run`. Memory and capability settings can also make the runtime add tools, such as memory and knowledge tools. Without an allowlist, `resolved_tools` names only declared tools, not those runtime additions.
+
+`tool_allowlist` selects exact names, each listed once, from the tools the deployment would otherwise receive, including default and runtime-added tools; `resolved_tools` then also names each listed runtime tool. `[]` offers no tools. An allowlist requires an `always_on` deployment on the managed seren-agent runtime without a Codex model connection; deployments on the `cloudflare_worker` or `daytona` compute backend are refused. Connector tools cannot be listed. An omitted allowlist gives a new deployment every tool its configuration enables and keeps the current allowlist on update. Clearing it restores every tool the rest of the configuration enables. The allowlist limits which tools the model is offered; it is not a sandbox, and approved workload file and network access remain separate settings.
+
+A skill's `allowed-tools` frontmatter is metadata describing pre-approved tools in the Agent Skills format. It does not restrict the Employee's callable tools. Check the server's resolved preview before applying a deployment; instructions asking the model to avoid tools are not a tool restriction.
+
+On `deploy-prompt`, `managed-preview`, and `managed-update`, use `--no-tool-presets` to send `[]`, `--tool-allowlist system_time` to select a tool, or `--no-tools` to send an empty allowlist. `--no-tool-presets` conflicts with `--tool-preset`; `--tool-allowlist` conflicts with `--no-tools`. These flags replace the same fields from `--agent-config`. Updates and update previews also accept `--clear-tool-allowlist`, which conflicts with either allowlist selection flag and with a `tool_allowlist` in `--agent-config`. `deploy-prompt` creates and starts the deployment immediately, so use onboarding to review a restriction before anything runs.
+
+For an isolated onboarding test, set these fields in the draft's `deployment`, retaining its other required configuration:
+
+```json
+{"mode":"always_on","tool_presets":[],"tool_allowlist":["system_time"]}
+```
+
+```bash
+seren agent onboarding create --entry-mode additional-employee \
+  --draft isolated-employee.json --idempotency-key <uuid>
+seren -o json agent onboarding preview <onboarding-id>
+# Before apply, confirm data.effective_policy.resolved_tools is ["system_time"]
+# and data.effective_policy.allowed_publisher_operations is [].
+seren agent onboarding apply <onboarding-id> \
+  --expected-revision <preview-source-revision> --idempotency-key <uuid>
+# Preview restoring the full tool set without changing the deployment.
+seren agent managed-preview <deployment-id> --clear-tool-allowlist
+```
+
+Onboarding and update previews do not apply the proposed change. Update previews report the filtered list in `data.proposed.resolved_tools`; onboarding previews use `data.effective_policy.resolved_tools`. Table previews show `Tool Allowlist`, `Resolved Tools`, and `Publisher Ops` as names, `none` for an empty list, or an em dash when the allowlist is absent; deployment detail shows `Tool Allowlist` the same way. In table output the complete JSON preview follows the table; JSON output is unchanged. A refused preview returns an API error instead of a preview. Applying an `always_on` deployment starts it, so inspect the preview first.
+
 To attach an existing SerenDB database, add `external_databases` to the skill's `orchestration.json` for `agent deploy`, or to the JSON supplied through `--agent-config` for managed-agent deploys and updates. Omit `access` for read-only access, or request `read_write` when the deployment's approval policy permits mutations.
 
 ```json

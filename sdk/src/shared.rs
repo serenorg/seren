@@ -1805,6 +1805,8 @@ pub fn parse_managed_agent_model_policy(
     })
 }
 
+/// Parse a supplied preset list, preserving an empty list as an explicit selection.
+/// Optional callers leave an omitted argument unparsed so omission stays distinct from `[]`.
 pub fn parse_managed_agent_tool_presets<I, S>(
     values: I,
 ) -> Result<Option<Vec<crate::ManagedAgentToolPreset>>, ValidationError>
@@ -1823,10 +1825,6 @@ where
                 "Invalid tool_presets entry. Expected values from: live_data, publisher_actions, database",
             )
         })?);
-    }
-
-    if parsed.is_empty() {
-        return Ok(None);
     }
 
     Ok(Some(parsed))
@@ -4668,6 +4666,21 @@ mod tests {
                 proposal.id,
             )
             .is_err()
+        );
+    }
+    #[test]
+    fn explicit_empty_managed_tool_presets_selects_no_presets() {
+        assert_eq!(
+            parse_managed_agent_tool_presets([] as [&str; 0]).unwrap(),
+            Some(vec![])
+        );
+        assert!(parse_managed_agent_tool_presets(["not_a_preset"]).is_err());
+        let parsed = parse_managed_agent_tool_presets(["live_data"])
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(parsed).unwrap(),
+            serde_json::json!(["live_data"])
         );
     }
 }

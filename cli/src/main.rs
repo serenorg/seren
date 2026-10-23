@@ -1415,6 +1415,16 @@ enum AgentAction {
             value_delimiter = ','
         )]
         tool_presets: Vec<String>,
+        /// Select no preset tools; conflicts with --tool-preset.
+        #[arg(long, conflicts_with = "tool_presets")]
+        no_tool_presets: bool,
+        /// Exact tool names to offer. Requires always-on on the managed seren-agent runtime
+        /// (not the cloudflare_worker or daytona backend) without a Codex model connection.
+        #[arg(long, value_delimiter = ',', conflicts_with = "no_tools")]
+        tool_allowlist: Vec<String>,
+        /// Offer no tools, including built-in and runtime tools.
+        #[arg(long, conflicts_with = "tool_allowlist")]
+        no_tools: bool,
         /// Access mode (read_only or allow_mutations).
         #[arg(long, visible_alias = "access-mode")]
         approval_policy: Option<String>,
@@ -1799,6 +1809,19 @@ enum AgentAction {
             value_delimiter = ','
         )]
         tool_presets: Vec<String>,
+        /// Select no preset tools; conflicts with --tool-preset.
+        #[arg(long, conflicts_with = "tool_presets")]
+        no_tool_presets: bool,
+        /// Exact tool names to offer. Requires always-on on the managed seren-agent runtime
+        /// (not the cloudflare_worker or daytona backend) without a Codex model connection.
+        #[arg(long, value_delimiter = ',', conflicts_with = "no_tools")]
+        tool_allowlist: Vec<String>,
+        /// Offer no tools, including built-in and runtime tools.
+        #[arg(long, conflicts_with = "tool_allowlist")]
+        no_tools: bool,
+        /// Remove the allowlist and restore every tool enabled by the deployment.
+        #[arg(long, conflicts_with_all = ["tool_allowlist", "no_tools"])]
+        clear_tool_allowlist: bool,
         /// Access mode (read_only or allow_mutations)
         #[arg(long, visible_alias = "access-mode")]
         approval_policy: Option<String>,
@@ -1874,6 +1897,19 @@ enum AgentAction {
             value_delimiter = ','
         )]
         tool_presets: Vec<String>,
+        /// Select no preset tools; conflicts with --tool-preset.
+        #[arg(long, conflicts_with = "tool_presets")]
+        no_tool_presets: bool,
+        /// Exact tool names to offer. Requires always-on on the managed seren-agent runtime
+        /// (not the cloudflare_worker or daytona backend) without a Codex model connection.
+        #[arg(long, value_delimiter = ',', conflicts_with = "no_tools")]
+        tool_allowlist: Vec<String>,
+        /// Offer no tools, including built-in and runtime tools.
+        #[arg(long, conflicts_with = "tool_allowlist")]
+        no_tools: bool,
+        /// Remove the allowlist and restore every tool enabled by the deployment.
+        #[arg(long, conflicts_with_all = ["tool_allowlist", "no_tools"])]
+        clear_tool_allowlist: bool,
         /// Access mode (read_only or allow_mutations)
         #[arg(long, visible_alias = "access-mode")]
         approval_policy: Option<String>,
@@ -8107,6 +8143,9 @@ async fn main() -> anyhow::Result<()> {
                 compute_backend,
                 template,
                 tool_presets,
+                no_tool_presets,
+                tool_allowlist,
+                no_tools,
                 approval_policy,
                 model_policy,
                 allowed_remote_agent_origins,
@@ -8131,6 +8170,9 @@ async fn main() -> anyhow::Result<()> {
                         compute_backend: compute_backend.as_deref(),
                         template: template.as_deref(),
                         tool_presets: &tool_presets,
+                        no_tool_presets,
+                        tool_allowlist: &tool_allowlist,
+                        no_tools,
                         approval_policy: approval_policy.as_deref(),
                         model_policy: model_policy.as_deref(),
                         allowed_remote_agent_origins: &allowed_remote_agent_origins,
@@ -8557,6 +8599,10 @@ async fn main() -> anyhow::Result<()> {
                 clear_eval_gate,
                 template,
                 tool_presets,
+                no_tool_presets,
+                tool_allowlist,
+                no_tools,
+                clear_tool_allowlist,
                 approval_policy,
                 model_policy,
                 allowed_remote_agent_origins,
@@ -8583,6 +8629,10 @@ async fn main() -> anyhow::Result<()> {
                         clear_eval_gate,
                         template: template.as_deref(),
                         tool_presets: &tool_presets,
+                        no_tool_presets,
+                        tool_allowlist: &tool_allowlist,
+                        no_tools,
+                        clear_tool_allowlist,
                         approval_policy: approval_policy.as_deref(),
                         model_policy: model_policy.as_deref(),
                         allowed_remote_agent_origins: &allowed_remote_agent_origins,
@@ -8612,6 +8662,10 @@ async fn main() -> anyhow::Result<()> {
                 clear_eval_gate,
                 template,
                 tool_presets,
+                no_tool_presets,
+                tool_allowlist,
+                no_tools,
+                clear_tool_allowlist,
                 approval_policy,
                 model_policy,
                 allowed_remote_agent_origins,
@@ -8638,6 +8692,10 @@ async fn main() -> anyhow::Result<()> {
                         clear_eval_gate,
                         template: template.as_deref(),
                         tool_presets: &tool_presets,
+                        no_tool_presets,
+                        tool_allowlist: &tool_allowlist,
+                        no_tools,
+                        clear_tool_allowlist,
                         approval_policy: approval_policy.as_deref(),
                         model_policy: model_policy.as_deref(),
                         allowed_remote_agent_origins: &allowed_remote_agent_origins,
@@ -12255,6 +12313,73 @@ mod tests {
                 _ => panic!("unexpected mcp action parsed"),
             },
             _ => panic!("unexpected command parsed"),
+        }
+    }
+    #[test]
+    fn managed_tool_selection_flags_are_available_and_conflicts_are_rejected() {
+        let id = "11111111-1111-1111-1111-111111111111";
+        for command in ["deploy-prompt", "managed-preview", "managed-update"] {
+            let mut base = vec!["seren", "agent", command];
+            if command == "deploy-prompt" {
+                base.extend(["--name", "Clock", "--prompt", "Call system_time once."]);
+            } else {
+                base.push(id);
+            }
+            let mut args = base.clone();
+            args.extend(["--no-tool-presets", "--tool-allowlist", "system_time"]);
+            let Commands::Agent { action } = parse_cli_with_large_stack(args).command else {
+                panic!("agent command")
+            };
+            match *action {
+                AgentAction::DeployPrompt {
+                    no_tool_presets,
+                    tool_allowlist,
+                    no_tools,
+                    ..
+                }
+                | AgentAction::ManagedPreview {
+                    no_tool_presets,
+                    tool_allowlist,
+                    no_tools,
+                    ..
+                }
+                | AgentAction::ManagedUpdate {
+                    no_tool_presets,
+                    tool_allowlist,
+                    no_tools,
+                    ..
+                } => {
+                    assert!(no_tool_presets);
+                    assert_eq!(tool_allowlist, vec!["system_time"]);
+                    assert!(!no_tools);
+                }
+                _ => panic!("tool selection command"),
+            }
+            for conflict in [
+                vec!["--no-tool-presets", "--tool-preset", "live_data"],
+                vec!["--tool-allowlist", "system_time", "--no-tools"],
+            ] {
+                let mut args = base.clone();
+                args.extend(conflict);
+                assert!(try_parse_cli_with_large_stack(args).is_err());
+            }
+            let mut args = base.clone();
+            args.push("--no-tools");
+            assert!(try_parse_cli_with_large_stack(args).is_ok());
+            let mut clear = base.clone();
+            clear.push("--clear-tool-allowlist");
+            assert_eq!(
+                try_parse_cli_with_large_stack(clear).is_ok(),
+                command != "deploy-prompt"
+            );
+            if command != "deploy-prompt" {
+                for conflict in [vec!["--no-tools"], vec!["--tool-allowlist", "system_time"]] {
+                    let mut args = base.clone();
+                    args.push("--clear-tool-allowlist");
+                    args.extend(conflict);
+                    assert!(try_parse_cli_with_large_stack(args).is_err());
+                }
+            }
         }
     }
 }

@@ -2430,6 +2430,9 @@ pub struct CloudDeployPromptOptions<'a> {
     pub compute_backend: Option<&'a str>,
     pub template: Option<&'a str>,
     pub tool_presets: &'a [String],
+    pub no_tool_presets: bool,
+    pub tool_allowlist: &'a [String],
+    pub no_tools: bool,
     pub approval_policy: Option<&'a str>,
     pub model_policy: Option<&'a str>,
     pub allowed_remote_agent_origins: &'a [String],
@@ -2453,6 +2456,10 @@ pub struct ManagedAgentUpdateOptions<'a> {
     pub clear_eval_gate: bool,
     pub template: Option<&'a str>,
     pub tool_presets: &'a [String],
+    pub no_tool_presets: bool,
+    pub tool_allowlist: &'a [String],
+    pub no_tools: bool,
+    pub clear_tool_allowlist: bool,
     pub approval_policy: Option<&'a str>,
     pub model_policy: Option<&'a str>,
     pub allowed_remote_agent_origins: &'a [String],
@@ -2500,6 +2507,7 @@ const MANAGED_AGENT_CONFIG_FIELDS: &[&str] = &[
     "prompt",
     "template",
     "tool_presets",
+    "tool_allowlist",
     "approval_policy",
     "model_policy",
     "allowed_remote_agent_origins",
@@ -3111,6 +3119,10 @@ async fn submit_cloud_deploy_request(
             if !tool_presets.is_empty() {
                 println!("  Tool Presets: {}", tool_presets.join(", "));
             }
+            println!(
+                "  Tool Allowlist: {}",
+                tool_allowlist_display(managed_agent)
+            );
             if let Some(approval_policy) = managed_agent
                 .get("approval_policy")
                 .and_then(|v| v.as_str())
@@ -3824,6 +3836,59 @@ fn json_array_join_field(value: &serde_json::Value, key: &str) -> String {
         .join(", ")
 }
 
+/// Render a tool name list: its names, `none` for `[]`, or an em dash when absent.
+fn tool_name_list_display(policy: &serde_json::Value, key: &str) -> String {
+    match policy.get(key).and_then(serde_json::Value::as_array) {
+        Some(tools) if tools.is_empty() => "none".to_string(),
+        Some(tools) => tools
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .collect::<Vec<_>>()
+            .join(", "),
+        None => "—".to_string(),
+    }
+}
+
+fn tool_allowlist_display(policy: &serde_json::Value) -> String {
+    tool_name_list_display(policy, "tool_allowlist")
+}
+
+/// Tool policy rows from an update preview's `proposed` detail or an onboarding preview's
+/// `effective_policy`.
+fn managed_tool_policy_preview_rows(payload: &serde_json::Value) -> Vec<(&'static str, String)> {
+    let data = payload.get("data").unwrap_or(payload);
+    let policy = data
+        .get("proposed")
+        .or_else(|| data.get("effective_policy"))
+        .unwrap_or(data);
+    vec![
+        ("Tool Allowlist", tool_allowlist_display(policy)),
+        (
+            "Resolved Tools",
+            tool_name_list_display(policy, "resolved_tools"),
+        ),
+        (
+            "Publisher Ops",
+            tool_name_list_display(policy, "allowed_publisher_operations"),
+        ),
+    ]
+}
+
+fn print_managed_tool_policy_preview<T: serde::Serialize>(
+    payload: &T,
+    format: OutputFormat,
+) -> Result<()> {
+    if matches!(format, OutputFormat::Table) {
+        let value = serde_json::to_value(payload)?;
+        output::print_key_value_table(
+            Some("Proposed Tool Policy"),
+            &managed_tool_policy_preview_rows(&value),
+        );
+    }
+    // Keep the complete preview, including every field outside the tool policy.
+    output::print_json(payload)
+}
+
 fn print_managed_agent_detail_table(payload: &serde_json::Value) {
     let detail = payload.get("data").unwrap_or(payload);
     let tool_presets = json_string_list(detail, "tool_presets");
@@ -3899,6 +3964,7 @@ fn print_managed_agent_detail_table(payload: &serde_json::Value) {
                 tool_presets.join(", ")
             },
         ),
+        ("Tool Allowlist", tool_allowlist_display(detail)),
         (
             "Publisher Ops",
             if publisher_ops.is_empty() {
@@ -4149,6 +4215,44 @@ pub async fn cloud_deploy(
     submit_cloud_deploy_request(deploy_publisher, body, ctx).await
 }
 
+/// Apply explicit tool selection flags after any agent-config merge.
+///
+/// An explicit flag replaces the file's value; an empty selection is sent as `[]`, and an
+/// omitted one leaves the template default or current deployment value in place.
+fn apply_managed_tool_options(
+    body: &mut serde_json::Map<String, serde_json::Value>,
+    tool_presets: &[String],
+    no_tool_presets: bool,
+    tool_allowlist: &[String],
+    no_tools: bool,
+    clear_tool_allowlist: bool,
+) -> Result<()> {
+    if no_tool_presets && !tool_presets.is_empty() {
+        anyhow::bail!("Provide either --tool-preset or --no-tool-presets.");
+    }
+    if no_tools && !tool_allowlist.is_empty() {
+        anyhow::bail!("Provide either --tool-allowlist or --no-tools.");
+    }
+    if no_tool_presets || !tool_presets.is_empty() {
+        body.insert("tool_presets".into(), serde_json::json!(tool_presets));
+    }
+    if no_tools || !tool_allowlist.is_empty() {
+        body.insert("tool_allowlist".into(), serde_json::json!(tool_allowlist));
+    }
+    if clear_tool_allowlist {
+        if body
+            .get("tool_allowlist")
+            .is_some_and(|value| !value.is_null())
+        {
+            anyhow::bail!(
+                "Provide either a tool allowlist (--tool-allowlist, --no-tools, or tool_allowlist in --agent-config) or --clear-tool-allowlist."
+            );
+        }
+        body.insert("clear_tool_allowlist".into(), serde_json::json!(true));
+    }
+    Ok(())
+}
+
 /// Deploy a managed prompt-based agent through seren-agent.
 pub async fn cloud_deploy_prompt(
     options: CloudDeployPromptOptions<'_>,
@@ -4165,6 +4269,9 @@ pub async fn cloud_deploy_prompt(
         compute_backend,
         template,
         tool_presets,
+        no_tool_presets,
+        tool_allowlist,
+        no_tools,
         approval_policy,
         model_policy,
         allowed_remote_agent_origins,
@@ -4253,9 +4360,6 @@ pub async fn cloud_deploy_prompt(
     if let Some(template) = template.map(str::trim).filter(|value| !value.is_empty()) {
         body.insert("template".to_string(), serde_json::json!(template));
     }
-    if !tool_presets.is_empty() {
-        body.insert("tool_presets".to_string(), serde_json::json!(tool_presets));
-    }
     if let Some(approval_policy) = approval_policy
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -4304,6 +4408,14 @@ pub async fn cloud_deploy_prompt(
     if let Some(agent_config) = agent_config {
         merge_managed_agent_config(&mut body, agent_config)?;
     }
+    apply_managed_tool_options(
+        &mut body,
+        tool_presets,
+        no_tool_presets,
+        tool_allowlist,
+        no_tools,
+        false,
+    )?;
     if let Some(capability_policy) = capability_policy {
         body.insert("capability_policy".to_string(), capability_policy);
     }
@@ -4619,7 +4731,7 @@ pub async fn managed_agent_onboarding_preview(
             .await);
         }
     };
-    output::print_json(&response)
+    print_managed_tool_policy_preview(&response, ctx.format)
 }
 
 /// Apply an exact reviewed onboarding revision through Core's fenced operation.
@@ -6737,6 +6849,10 @@ fn build_managed_agent_update_request(
         clear_eval_gate,
         template,
         tool_presets,
+        no_tool_presets,
+        tool_allowlist,
+        no_tools,
+        clear_tool_allowlist,
         approval_policy,
         model_policy,
         allowed_remote_agent_origins,
@@ -6816,9 +6932,6 @@ fn build_managed_agent_update_request(
     if let Some(template) = template.map(str::trim).filter(|value| !value.is_empty()) {
         body.insert("template".to_string(), serde_json::json!(template));
     }
-    if !tool_presets.is_empty() {
-        body.insert("tool_presets".to_string(), serde_json::json!(tool_presets));
-    }
     if let Some(approval_policy) = approval_policy
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -6849,6 +6962,14 @@ fn build_managed_agent_update_request(
     if let Some(agent_config) = agent_config {
         merge_managed_agent_config(&mut body, agent_config)?;
     }
+    apply_managed_tool_options(
+        &mut body,
+        tool_presets,
+        no_tool_presets,
+        tool_allowlist,
+        no_tools,
+        clear_tool_allowlist,
+    )?;
     apply_requirements_txt_clear(&mut body, clear_requirements_txt)?;
     if capability_policy.is_some() && clear_capability_policy {
         return Err(anyhow::anyhow!(
@@ -6945,7 +7066,7 @@ pub async fn managed_agent_preview(
             .await);
         }
     };
-    output::print_json(&response.into_inner())?;
+    print_managed_tool_policy_preview(&response.into_inner(), ctx.format)?;
     Ok(())
 }
 
@@ -13530,6 +13651,9 @@ mod tests {
                 compute_backend: None,
                 template: None,
                 tool_presets: &[],
+                no_tool_presets: false,
+                tool_allowlist: &[],
+                no_tools: false,
                 approval_policy: None,
                 model_policy: None,
                 allowed_remote_agent_origins: &[],
@@ -13556,6 +13680,122 @@ mod tests {
             .body_json::<serde_json::Value>()
             .expect("deploy request body is JSON")["memory_policy"]
             .clone()
+    }
+
+    /// Captures the deploy request sent for one tool selection at its HTTP boundary.
+    async fn managed_agent_create_tool_selection(
+        tool_presets: &[String],
+        no_tool_presets: bool,
+        tool_allowlist: &[String],
+        no_tools: bool,
+        agent_config_path: Option<&str>,
+    ) -> serde_json::Value {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/publishers/seren-agent/deploy"))
+            .respond_with(
+                ResponseTemplate::new(202)
+                    .set_body_json(cloud_deployment_body(Uuid::new_v4(), Some("seren-agent"))),
+            )
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let context = CommandContext::new(
+            Some(proxy.uri()),
+            Some("test-key".to_string()),
+            OutputFormat::Json,
+        );
+        cloud_deploy_prompt(
+            CloudDeployPromptOptions {
+                name: "Clock",
+                agent_slug: None,
+                mode: "always-on",
+                cron_schedule: None,
+                cron_timezone: None,
+                eval_gate_set_id: None,
+                eval_gate_max_age_seconds: None,
+                compute_backend: None,
+                template: None,
+                tool_presets,
+                no_tool_presets,
+                tool_allowlist,
+                no_tools,
+                approval_policy: None,
+                model_policy: None,
+                allowed_remote_agent_origins: &[],
+                config_path: None,
+                env_path: None,
+                agent_config_path,
+                capability_policy_json: None,
+                capability_policy_path: None,
+                prompt: Some("Call system_time once."),
+                model_id: None,
+                visibility: None,
+            },
+            &context,
+        )
+        .await
+        .expect("managed agent create should reach the deploy route");
+        let requests = proxy
+            .received_requests()
+            .await
+            .expect("recorded deploy request");
+        assert_eq!(requests.len(), 1);
+        requests[0]
+            .body_json::<serde_json::Value>()
+            .expect("deploy request body is JSON")
+    }
+
+    #[tokio::test]
+    async fn managed_agent_create_sends_omitted_empty_and_exact_tool_selection() {
+        let omitted = managed_agent_create_tool_selection(&[], false, &[], false, None).await;
+        assert!(omitted.get("tool_presets").is_none());
+        assert!(omitted.get("tool_allowlist").is_none());
+
+        let clock = managed_agent_create_tool_selection(
+            &[],
+            true,
+            &["system_time".to_string()],
+            false,
+            None,
+        )
+        .await;
+        assert_eq!(clock["tool_presets"], serde_json::json!([]));
+        assert_eq!(clock["tool_allowlist"], serde_json::json!(["system_time"]));
+        assert!(clock.get("clear_tool_allowlist").is_none());
+        assert!(clock["workload"].get("tool_allowlist").is_none());
+
+        let none = managed_agent_create_tool_selection(&[], false, &[], true, None).await;
+        assert!(none.get("tool_presets").is_none());
+        assert_eq!(none["tool_allowlist"], serde_json::json!([]));
+
+        // Explicit flags replace the agent config's selection, including with an empty list.
+        let temp = tempfile::tempdir().expect("temporary agent config");
+        let config = temp.path().join("agent.json");
+        std::fs::write(
+            &config,
+            serde_json::json!({
+                "tool_presets": ["live_data"],
+                "tool_allowlist": ["seren_publisher_request"]
+            })
+            .to_string(),
+        )
+        .expect("write agent config");
+        let config = config.to_str().expect("UTF-8 agent config path");
+        let from_file =
+            managed_agent_create_tool_selection(&[], false, &[], false, Some(config)).await;
+        assert_eq!(from_file["tool_presets"], serde_json::json!(["live_data"]));
+        assert_eq!(
+            from_file["tool_allowlist"],
+            serde_json::json!(["seren_publisher_request"])
+        );
+        let overridden =
+            managed_agent_create_tool_selection(&[], true, &[], true, Some(config)).await;
+        assert_eq!(overridden["tool_presets"], serde_json::json!([]));
+        assert_eq!(overridden["tool_allowlist"], serde_json::json!([]));
     }
 
     #[tokio::test]
@@ -14293,5 +14533,134 @@ mod tests {
                 .expect("owner price union decodes and renders");
         }
         proxy.verify().await;
+    }
+
+    fn empty_tool_update_options() -> ManagedAgentUpdateOptions<'static> {
+        ManagedAgentUpdateOptions {
+            name: None,
+            agent_slug: None,
+            cron_schedule: None,
+            cron_timezone: None,
+            eval_gate_set_id: None,
+            eval_gate_max_age_seconds: None,
+            clear_eval_gate: false,
+            template: None,
+            tool_presets: &[],
+            no_tool_presets: false,
+            tool_allowlist: &[],
+            no_tools: false,
+            clear_tool_allowlist: false,
+            approval_policy: None,
+            model_policy: None,
+            allowed_remote_agent_origins: &[],
+            config_path: None,
+            env_path: None,
+            agent_config_path: None,
+            capability_policy_json: None,
+            capability_policy_path: None,
+            clear_capability_policy: false,
+            clear_requirements_txt: false,
+            prompt: None,
+            model_id: None,
+            visibility: None,
+        }
+    }
+
+    #[test]
+    fn managed_tool_update_builder_preserves_empty_selection_and_clear() {
+        let mut omitted = empty_tool_update_options();
+        omitted.name = Some("Clock");
+        let omitted =
+            serde_json::to_value(build_managed_agent_update_request(omitted).unwrap()).unwrap();
+        assert!(omitted.get("tool_presets").is_none());
+        assert!(omitted.get("tool_allowlist").is_none());
+        let mut empty = empty_tool_update_options();
+        empty.no_tool_presets = true;
+        empty.no_tools = true;
+        let empty =
+            serde_json::to_value(build_managed_agent_update_request(empty).unwrap()).unwrap();
+        assert_eq!(empty["tool_presets"], serde_json::json!([]));
+        assert_eq!(empty["tool_allowlist"], serde_json::json!([]));
+        let mut clear = empty_tool_update_options();
+        clear.clear_tool_allowlist = true;
+        let clear =
+            serde_json::to_value(build_managed_agent_update_request(clear).unwrap()).unwrap();
+        assert_eq!(clear["clear_tool_allowlist"], true);
+        assert!(clear.get("tool_allowlist").is_none());
+        let mut conflict = empty_tool_update_options();
+        conflict.clear_tool_allowlist = true;
+        conflict.no_tools = true;
+        assert!(build_managed_agent_update_request(conflict).is_err());
+    }
+
+    #[test]
+    fn explicit_tool_flags_override_file_selections_without_dropping_empty_lists() {
+        let mut body = serde_json::json!({"tool_presets":["live_data"],"tool_allowlist":["seren_publisher_request"]}).as_object().unwrap().clone();
+        apply_managed_tool_options(&mut body, &[], true, &["system_time".into()], false, false)
+            .unwrap();
+        assert_eq!(body["tool_presets"], serde_json::json!([]));
+        assert_eq!(body["tool_allowlist"], serde_json::json!(["system_time"]));
+        assert!(apply_managed_tool_options(&mut body, &[], false, &[], false, true).is_err());
+    }
+
+    #[test]
+    fn tool_policy_preview_rows_preserve_none_empty_and_exact_resolved_tools() {
+        for (allowlist, expected) in [
+            (None, "—"),
+            (Some(serde_json::json!([])), "none"),
+            (Some(serde_json::json!(["system_time"])), "system_time"),
+            (
+                Some(serde_json::json!(["system_time", "seren_mcp_call_tool"])),
+                "system_time, seren_mcp_call_tool",
+            ),
+        ] {
+            let mut policy = serde_json::json!({
+                "resolved_tools": ["system_time"],
+                "allowed_publisher_operations": []
+            });
+            if let Some(value) = &allowlist {
+                policy["tool_allowlist"] = value.clone();
+            }
+            // An update preview shows the proposed policy, not the current one.
+            let update = serde_json::json!({"data": {
+                "current": {"tool_allowlist": ["seren_publisher_request"], "resolved_tools": []},
+                "proposed": policy.clone()
+            }});
+            let onboarding = serde_json::json!({"data": {"effective_policy": policy}});
+            for payload in [update, onboarding] {
+                assert_eq!(
+                    managed_tool_policy_preview_rows(&payload),
+                    vec![
+                        ("Tool Allowlist", expected.to_string()),
+                        ("Resolved Tools", "system_time".to_string()),
+                        ("Publisher Ops", "none".to_string()),
+                    ]
+                );
+            }
+        }
+        let no_tools = serde_json::json!({"data": {"proposed": {
+            "tool_allowlist": [],
+            "resolved_tools": [],
+            "allowed_publisher_operations": []
+        }}});
+        assert!(
+            managed_tool_policy_preview_rows(&no_tools)
+                .iter()
+                .all(|(_, value)| value == "none")
+        );
+    }
+
+    #[test]
+    fn onboarding_draft_retains_empty_presets_and_exact_tool_allowlist() {
+        let mut wire = onboarding_draft_body();
+        wire["deployment"]["tool_presets"] = serde_json::json!([]);
+        wire["deployment"]["tool_allowlist"] = serde_json::json!(["system_time"]);
+        let draft: seren::ManagedAgentOnboardingDraft = serde_json::from_value(wire).unwrap();
+        let encoded = serde_json::to_value(draft).unwrap();
+        assert_eq!(encoded["deployment"]["tool_presets"], serde_json::json!([]));
+        assert_eq!(
+            encoded["deployment"]["tool_allowlist"],
+            serde_json::json!(["system_time"])
+        );
     }
 }

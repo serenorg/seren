@@ -3022,6 +3022,12 @@ pub struct UpdateSerenAgentDeploymentParams {
     /// Alias for `tool_presets`
     #[serde(default)]
     pub capabilities: Option<Vec<String>>,
+    /// Exact tools to offer, including built-in/runtime tools; [] offers none. Requires always_on on the managed seren-agent runtime (not the cloudflare_worker or daytona backend) without a Codex model connection. Connector tools cannot be listed.
+    #[serde(default)]
+    pub tool_allowlist: Option<Vec<String>>,
+    /// Remove the allowlist; conflicts with tool_allowlist.
+    #[serde(default)]
+    pub clear_tool_allowlist: bool,
     /// Typed tool refs for scoped publisher, connector, MCP, or remote tools.
     #[serde(default)]
     pub tool_refs: Option<Vec<seren::AgentToolRef>>,
@@ -3147,6 +3153,12 @@ fn resolve_guided_list_alias(
 fn build_update_seren_agent_deployment_request(
     params: &UpdateSerenAgentDeploymentParams,
 ) -> Result<seren::AgentSpecUpdate, McpError> {
+    if params.tool_allowlist.is_some() && params.clear_tool_allowlist {
+        return Err(McpError::invalid_params(
+            "Provide either tool_allowlist or clear_tool_allowlist, not both.",
+            None,
+        ));
+    }
     let template = resolve_guided_string_alias(
         params.template.as_ref(),
         params.agent_style.as_ref(),
@@ -3291,7 +3303,7 @@ fn build_update_seren_agent_deployment_request(
         clear_secret_resolution_result_id: params.clear_secret_resolution_result_id.then_some(true),
         clear_session_database: None,
         clear_tool_approvals: None,
-        clear_tool_allowlist: None,
+        clear_tool_allowlist: params.clear_tool_allowlist.then_some(true),
         clear_tool_refs: params.clear_tool_refs.then_some(true),
         credentials: params.credentials.clone(),
         cron_schedule: params.cron_schedule.clone(),
@@ -3313,7 +3325,7 @@ fn build_update_seren_agent_deployment_request(
         template,
         tool_approvals: None,
         tool_presets,
-        tool_allowlist: None,
+        tool_allowlist: params.tool_allowlist.clone(),
         tool_refs: params.tool_refs.clone(),
         visibility: params.visibility.clone(),
         workload_limits,
@@ -3579,6 +3591,9 @@ pub struct DeploySerenAgentParams {
     /// Alias for `tool_presets`
     #[serde(default)]
     pub capabilities: Option<Vec<String>>,
+    /// Exact tools to offer, including built-in/runtime tools; [] offers none. Requires always_on on the managed seren-agent runtime (not the cloudflare_worker or daytona backend) without a Codex model connection. Connector tools cannot be listed.
+    #[serde(default)]
+    pub tool_allowlist: Option<Vec<String>>,
     /// Typed tool refs for scoped publisher, connector, MCP, or remote tools.
     #[serde(default)]
     pub tool_refs: Option<Vec<seren::AgentToolRef>>,
@@ -3745,7 +3760,7 @@ fn build_deploy_seren_agent_request(
         template,
         tool_approvals: None,
         tool_presets,
-        tool_allowlist: None,
+        tool_allowlist: params.tool_allowlist,
         tool_refs: params.tool_refs,
         visibility: params.visibility,
         workload: seren::WorkloadSpec {
@@ -26729,6 +26744,8 @@ mod tests {
             agent_style: None,
             tool_presets: None,
             capabilities: None,
+            tool_allowlist: None,
+            clear_tool_allowlist: false,
             tool_refs: Some(vec![tool_ref]),
             clear_tool_refs: true,
             approval_policy: None,
@@ -26784,6 +26801,8 @@ mod tests {
             agent_style: None,
             tool_presets: None,
             capabilities: None,
+            tool_allowlist: None,
+            clear_tool_allowlist: false,
             tool_refs: None,
             clear_tool_refs: false,
             approval_policy: None,
@@ -31261,5 +31280,125 @@ mod tests {
             }
         }
         proxy.verify().await;
+    }
+
+    #[test]
+    fn managed_update_tool_selection_preserves_omitted_empty_and_clear() {
+        let omitted = base_update_agent_params();
+        let encoded =
+            serde_json::to_value(build_update_seren_agent_deployment_request(&omitted).unwrap())
+                .unwrap();
+        assert!(encoded.get("tool_presets").is_none());
+        assert!(encoded.get("tool_allowlist").is_none());
+        assert!(encoded.get("clear_tool_allowlist").is_none());
+        for alias in [false, true] {
+            let mut params = base_update_agent_params();
+            if alias {
+                params.capabilities = Some(vec![]);
+            } else {
+                params.tool_presets = Some(vec![]);
+            }
+            params.tool_allowlist = Some(vec!["system_time".into()]);
+            let encoded =
+                serde_json::to_value(build_update_seren_agent_deployment_request(&params).unwrap())
+                    .unwrap();
+            assert_eq!(encoded["tool_presets"], serde_json::json!([]));
+            assert_eq!(
+                encoded["tool_allowlist"],
+                serde_json::json!(["system_time"])
+            );
+        }
+        let mut params = base_update_agent_params();
+        params.tool_allowlist = Some(vec![]);
+        let encoded =
+            serde_json::to_value(build_update_seren_agent_deployment_request(&params).unwrap())
+                .unwrap();
+        assert_eq!(encoded["tool_allowlist"], serde_json::json!([]));
+        params.clear_tool_allowlist = true;
+        assert!(build_update_seren_agent_deployment_request(&params).is_err());
+        params.tool_allowlist = None;
+        let encoded =
+            serde_json::to_value(build_update_seren_agent_deployment_request(&params).unwrap())
+                .unwrap();
+        assert_eq!(encoded["clear_tool_allowlist"], true);
+        params.tool_presets = Some(vec![]);
+        params.capabilities = Some(vec!["live_data".into()]);
+        assert!(build_update_seren_agent_deployment_request(&params).is_err());
+    }
+
+    #[test]
+    fn managed_deploy_tool_selection_reaches_the_typed_request() {
+        for selection in [
+            serde_json::json!({}),
+            serde_json::json!({"tool_presets":[],"tool_allowlist":["system_time"]}),
+            serde_json::json!({"capabilities":[],"tool_allowlist":[]}),
+        ] {
+            let mut wire = serde_json::json!({"name":"Clock","mode":"always_on","prompt":"Call system_time once."});
+            wire.as_object_mut()
+                .unwrap()
+                .extend(selection.as_object().unwrap().clone());
+            let params: DeploySerenAgentParams = serde_json::from_value(wire).unwrap();
+            let encoded =
+                serde_json::to_value(build_deploy_seren_agent_request(params).unwrap()).unwrap();
+            if selection.as_object().unwrap().is_empty() {
+                assert!(encoded.get("tool_presets").is_none());
+                assert!(encoded.get("tool_allowlist").is_none());
+            } else {
+                assert_eq!(encoded["tool_presets"], serde_json::json!([]));
+                assert_eq!(encoded["tool_allowlist"], selection["tool_allowlist"]);
+            }
+        }
+    }
+
+    #[test]
+    fn managed_tool_selection_is_advertised_only_where_it_applies() {
+        let server = server_with_http_client(reqwest::Client::new());
+        let tools = server.tool_router.list_all();
+        let schema = |name: &str| {
+            let tool = tools
+                .iter()
+                .find(|tool| tool.name.as_ref() == name)
+                .unwrap_or_else(|| panic!("missing MCP tool {name}"));
+            serde_json::Value::Object((*tool.input_schema).clone())
+        };
+        for name in [
+            "deploy_seren_agent",
+            "update_seren_agent_deployment",
+            "preview_seren_agent_deployment_update",
+        ] {
+            assert!(
+                schema(name).pointer("/properties/tool_allowlist").is_some(),
+                "{name} must accept tool_allowlist"
+            );
+        }
+        for name in [
+            "update_seren_agent_deployment",
+            "preview_seren_agent_deployment_update",
+        ] {
+            assert!(
+                schema(name)
+                    .pointer("/properties/clear_tool_allowlist")
+                    .is_some()
+            );
+        }
+        assert!(
+            schema("deploy_seren_agent")
+                .pointer("/properties/clear_tool_allowlist")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn onboarding_draft_passes_through_an_exact_tool_allowlist() {
+        let mut wire = serde_json::to_value(managed_agent_onboarding_draft()).unwrap();
+        wire["deployment"]["tool_presets"] = serde_json::json!([]);
+        wire["deployment"]["tool_allowlist"] = serde_json::json!(["system_time"]);
+        let draft: seren::ManagedAgentOnboardingDraft = serde_json::from_value(wire).unwrap();
+        let encoded = serde_json::to_value(draft).unwrap();
+        assert_eq!(encoded["deployment"]["tool_presets"], serde_json::json!([]));
+        assert_eq!(
+            encoded["deployment"]["tool_allowlist"],
+            serde_json::json!(["system_time"])
+        );
     }
 }

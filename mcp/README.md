@@ -376,6 +376,24 @@ Example `deploy_seren_agent` parameters:
 
 Managed deployments derive runtime tools from `tool_presets` and typed `tool_refs`. The `tool_definitions` returned by deployment detail are resolved read-only output and are not accepted in deploy or update requests.
 
+### Limit Employee tools
+
+An omitted `tool_presets` uses the template defaults; `tool_presets: []` selects no presets. An empty preset list alone does not isolate tools. Without `tool_allowlist`, the eight default tools remain available: `system_time`, `seren_publishers_suggest`, `seren_publishers_get`, `seren_mcp_list_tools`, `seren_mcp_read_resource`, `seren_publisher_request`, `seren_mcp_call_tool`, and `seren_schedule_run`. Memory and capability settings can also make the runtime add tools, such as memory and knowledge tools. Without an allowlist, `resolved_tools` names only declared tools, not those runtime additions.
+
+`tool_allowlist` selects exact names, each listed once, from the tools the deployment would otherwise receive, including default and runtime-added tools; `resolved_tools` then also names each listed runtime tool. `[]` offers no tools. An allowlist requires an `always_on` deployment on the managed seren-agent runtime without a Codex model connection; deployments on the `cloudflare_worker` or `daytona` compute backend are refused. Connector tools cannot be listed. An omitted allowlist gives a new deployment every tool its configuration enables and keeps the current allowlist on update. Clearing it restores every tool the rest of the configuration enables. The allowlist limits which tools the model is offered; it is not a sandbox, and approved workload file and network access remain separate settings.
+
+A skill's `allowed-tools` frontmatter is metadata describing pre-approved tools in the Agent Skills format. It does not restrict the Employee's callable tools. Check the server's resolved preview before applying a deployment; instructions asking the model to avoid tools are not a tool restriction.
+
+`deploy_seren_agent` and `update_seren_agent_deployment` preserve an explicit `tool_presets: []` and accept `tool_allowlist`. The update tool accepts `clear_tool_allowlist: true` to remove the current restriction; it cannot be combined with `tool_allowlist`, including `[]`. The `capabilities` alias for `tool_presets` keeps the same empty-list semantics, and supplying both with different values is still refused.
+
+For a `system_time`-only onboarding, put `tool_presets: []` and `tool_allowlist: ["system_time"]` in the typed draft's `deployment`, with `mode: "always_on"` and its required workload. Use `create_managed_agent_onboarding`, then `preview_managed_agent_onboarding` and confirm `data.effective_policy.resolved_tools` is `["system_time"]` and `data.effective_policy.allowed_publisher_operations` is `[]` before apply. The draft and preview preserve the authored allowlist. `test_seren_agent_draft_run` performs a real run rather than a policy preview.
+
+```json
+{"name":"Isolated clock","mode":"always_on","prompt":"Call system_time once.","tool_presets":[],"tool_allowlist":["system_time"]}
+```
+
+The JSON above is a `deploy_seren_agent` example that creates and starts a deployment. Use onboarding and its preview when the restriction must be checked before anything runs. To offer no tools during an update, send `tool_allowlist: []`. To restore the deployment's enabled tools, send `clear_tool_allowlist: true` instead. `preview_seren_agent_deployment_update` accepts the same fields and returns `data.proposed.tool_allowlist` and `data.proposed.resolved_tools` without changing the deployment. Read back `tool_allowlist` and `resolved_tools` with `get_seren_agent_deployment` to inspect the current configuration; an absent `tool_allowlist` means no allowlist is set.
+
 Example `update_seren_agent_deployment` parameters for an eval gate:
 
 ```json
