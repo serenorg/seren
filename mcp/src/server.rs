@@ -3291,6 +3291,7 @@ fn build_update_seren_agent_deployment_request(
         clear_secret_resolution_result_id: params.clear_secret_resolution_result_id.then_some(true),
         clear_session_database: None,
         clear_tool_approvals: None,
+        clear_tool_allowlist: None,
         clear_tool_refs: params.clear_tool_refs.then_some(true),
         credentials: params.credentials.clone(),
         cron_schedule: params.cron_schedule.clone(),
@@ -3312,6 +3313,7 @@ fn build_update_seren_agent_deployment_request(
         template,
         tool_approvals: None,
         tool_presets,
+        tool_allowlist: None,
         tool_refs: params.tool_refs.clone(),
         visibility: params.visibility.clone(),
         workload_limits,
@@ -3743,6 +3745,7 @@ fn build_deploy_seren_agent_request(
         template,
         tool_approvals: None,
         tool_presets,
+        tool_allowlist: None,
         tool_refs: params.tool_refs,
         visibility: params.visibility,
         workload: seren::WorkloadSpec {
@@ -29098,6 +29101,7 @@ mod tests {
                 "id": deployment_id,
                 "organization_id": Uuid::from_u128(1),
                 "name": "Hired Employee",
+                "spend_limits": {"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":[{"key":"run","name":"Run","charge":"fee","triggers":["hire_cron","schedule","chat","webhook","api"],"amount":{"atomic":500000,"usd":"$0.50"},"expected_cost_atomic":300000}]},
                 "skill_slug": "managed-hire-00000000000000000000000000009003",
                 "mode": "cron",
                 "platform_managed": true,
@@ -29111,7 +29115,8 @@ mod tests {
                 "run_kinds": [{
                     "key": "run", "name": "Run", "charge": "fee",
                     "triggers": ["hire_cron", "schedule", "chat", "webhook", "api"],
-                    "amount": {"atomic": 500000, "usd": "$0.50"}, "changed_at": null
+                    "amount": {"atomic": 500000, "usd": "$0.50"}, "changed_at": null,
+                    "expected_cost_atomic": 300000
                 }],
                 "created_at": "2026-09-01T00:00:00Z",
                 "updated_at": "2026-09-01T00:00:00Z"
@@ -31209,5 +31214,52 @@ mod tests {
             "unexpected error message: {}",
             error.message
         );
+    }
+    #[tokio::test]
+    async fn managed_get_preserves_fee_and_cost_owner_prices() {
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{method, path},
+        };
+        let proxy = MockServer::start().await;
+        let deployment_id = Uuid::from_u128(42);
+        let prices = serde_json::json!([{"key":"work","name":"Work","charge":"fee","amount":{"atomic":1000000,"usd":"$1.00"},"changed_at":null,"triggers":["chat"],"expected_cost_atomic":300000},{"key":"care","name":"Care","charge":"cost","triggers":["hire_cron","schedule","webhook","api"],"expected_cost_atomic":300000}]);
+        let owner = serde_json::json!({"id":deployment_id,"organization_id":Uuid::from_u128(1),"name":"Pricing contract","skill_slug":"pricing-contract","mode":"always_on","platform_managed":true,"status":"running","desired_lifecycle_state":"running","template":{"slug":"pricing-contract","display_name":"Pricing contract","revision":1},"run_kinds":prices.clone(),"spend_limits":{"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":prices.clone()},"created_at":"2026-10-23T00:00:00Z","updated_at":"2026-10-23T00:00:00Z"});
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/managed"
+            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"data":owner})),
+            )
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let result = server
+            .get_seren_agent_deployment(
+                Parameters(GetSerenAgentDeploymentParams { deployment_id }),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .expect("owner price union reaches MCP");
+        assert!(!result.is_error.unwrap_or(false));
+        let decoded: serde_json::Value =
+            serde_json::from_str(&result.content[0].as_text().unwrap().text).unwrap();
+        for list in [
+            &decoded["data"]["run_kinds"],
+            &decoded["data"]["spend_limits"]["run_kinds"],
+        ] {
+            assert_eq!(list[0]["amount"], prices[0]["amount"]);
+            assert_eq!(list[1]["charge"], "cost");
+            assert_eq!(list[1]["expected_cost_atomic"], 300000);
+            assert!(list[1].get("amount").is_none());
+            assert!(list[1].get("changed_at").is_none());
+            for price in list.as_array().unwrap() {
+                assert!(price.get("promotional_per_run_atomic").is_none());
+                assert!(price.get("cost_only_promotional_per_run_atomic").is_none());
+            }
+        }
+        proxy.verify().await;
     }
 }

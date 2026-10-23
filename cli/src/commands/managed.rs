@@ -823,10 +823,12 @@ mod tests {
                         "hire_id": Uuid::new_v4(),
                         "created": true,
                         "bonus": {"status": "ineligible"},
+                        "spend_limits": {"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":[{"key":"run","name":"Run","charge":"fee","triggers":["hire_cron","schedule","chat","webhook","api"],"amount":{"atomic":300000,"usd":"$0.30"},"expected_cost_atomic":300000}]},
                         "run_kinds": [{
                             "key": "run", "name": "Run", "charge": "fee",
                             "triggers": ["hire_cron", "schedule", "chat", "webhook", "api"],
-                            "amount": {"atomic": 300000, "usd": "$0.30"}
+                            "amount": {"atomic": 300000, "usd": "$0.30"},
+                            "expected_cost_atomic": 300000
                         }]
                     }
                 })))

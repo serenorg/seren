@@ -5324,7 +5324,7 @@
           "managed-agent-templates"
         ],
         "summary": "Move part of the organization's available earnings into the calling Owner's wallet as credit.",
-        "description": "The credit can be spent like purchased credit but can never be withdrawn as\ncash, and it does not count toward the cash payout limit. Requires an\n`Idempotency-Key` header. Repeating a key with the same caller,\norganization and amount returns the original payout without granting again.",
+        "description": "Purchased-funded earnings become spend-only credit. Promotional-funded earnings\nretain their original expiry and publisher eligibility and cannot become cash.\nCredit payouts do not count toward the cash payout limit. Requires an\n`Idempotency-Key` header. Repeating a key with the same caller,\norganization and amount returns the original payout without granting again.",
         "operationId": "create_managed_agent_earnings_credit",
         "parameters": [
           {
@@ -9202,7 +9202,7 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Read a published run kind's configured amount and expected cost. Fee kinds must cover that expected cost; cost kinds use the amount as their default promotional allowance.",
+        "summary": "Read a fee run kind's service price and expected cost. Cost-only kinds have no fee resource.",
         "operationId": "get_managed_agent_run_fee",
         "parameters": [
           {
@@ -9252,7 +9252,7 @@
             "description": "An unrestricted direct Owner credential of the organization is required, the organization does not publish the managed agent, or the managed agent is suspended"
           },
           "404": {
-            "description": "Managed agent not found, or its current release has no such run kind (`managed_agent_run_kind_not_found`)"
+            "description": "Managed agent or run kind not found, or the kind has no service fee (`managed_agent_run_fee_not_applicable`)"
           }
         },
         "security": [
@@ -9265,7 +9265,7 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Set one run kind's amount for future runs of every hire: a fee kind's additive service fee, or a cost kind's default promotional allowance. Runs already admitted keep the kind and amount they were admitted with.",
+        "summary": "Set a fee run kind's additive service price for future admissions. Cost-only kinds have no editable service fee.",
         "operationId": "set_managed_agent_run_fee",
         "parameters": [
           {
@@ -9328,7 +9328,7 @@
             "description": "An unrestricted direct Owner credential of the organization is required, the organization does not publish the managed agent, or the managed agent is suspended"
           },
           "404": {
-            "description": "Managed agent not found, or its current release has no such run kind (`managed_agent_run_kind_not_found`)"
+            "description": "Managed agent or run kind not found, or the kind has no service fee (`managed_agent_run_fee_not_applicable`)"
           },
           "409": {
             "description": "A service fee is below the run kind's minimum (`run_fee_below_minimum`); the error details carry the kind and its minimum"
@@ -20585,7 +20585,7 @@
               "atomic": {
                 "type": "integer",
                 "format": "int64",
-                "description": "The service fee for fee kinds, or the default promotional allowance for cost kinds."
+                "description": "The additive service fee for a fee kind."
               },
               "charge": {
                 "$ref": "#/components/schemas/ManagedAgentRunKindCharge"
@@ -30737,7 +30737,10 @@
           "paid_out_usdc_atomic",
           "taken_as_credit_atomic",
           "pending_atomic",
-          "available_atomic"
+          "available_atomic",
+          "withdrawable_atomic",
+          "promotional_earned_atomic",
+          "promotional_available_atomic"
         ],
         "properties": {
           "available_atomic": {
@@ -30764,9 +30767,24 @@
             "example": "490000",
             "pattern": "^(0|-?[1-9][0-9]*)$"
           },
+          "promotional_available_atomic": {
+            "type": "string",
+            "description": "Unexpired promotional earnings still available as source-preserving credit only.",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "promotional_earned_atomic": {
+            "type": "string",
+            "description": "Owner shares funded by promotional credit, including collected or expired shares.",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
           "taken_as_credit_atomic": {
             "type": "string",
             "example": "490000",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "withdrawable_atomic": {
+            "type": "string",
+            "description": "Available earnings funded by purchased credit that may be paid as USDC.",
             "pattern": "^(0|-?[1-9][0-9]*)$"
           }
         }
@@ -31055,7 +31073,7 @@
           "atomic": {
             "type": "integer",
             "format": "int64",
-            "description": "The service fee for fee kinds, or the default promotional allowance for cost kinds."
+            "description": "The additive service fee for a fee kind."
           },
           "charge": {
             "$ref": "#/components/schemas/ManagedAgentRunKindCharge"
@@ -31829,6 +31847,10 @@
             "items": {
               "$ref": "#/components/schemas/ManagedAgentTemplateScriptPublisherGrant"
             }
+          },
+          "workload_egress": {
+            "type": "boolean",
+            "description": "Whether every hired copy's trusted runtime may also reach the hostname\ndestinations in `network_egress`. Requires at least one hostname rule.\nDefaults to false when omitted."
           }
         },
         "additionalProperties": false
@@ -37609,7 +37631,7 @@
           "run_fee_atomic": {
             "type": "integer",
             "format": "int64",
-            "description": "USD atomic units, in whole cents (multiples of 10,000), at or above the\nrun kind's minimum for fee kinds; cost kinds use it as their default promotional allowance.",
+            "description": "USD atomic units, in whole cents (multiples of 10,000), at or above the\nrun kind's minimum. Cost-only kinds have no service fee resource.",
             "multipleOf": 10000,
             "minimum": 0
           }

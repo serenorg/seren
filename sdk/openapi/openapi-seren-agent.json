@@ -4490,7 +4490,7 @@
           "seren-agent"
         ],
         "summary": "List tools currently visible to a managed seren-agent deployment.",
-        "description": "Returns the declared tool catalog for a managed seren-agent deployment, including source, approval, and side-effect metadata. This endpoint is a managed-agent projection; use seren-cloud run APIs for runtime execution.",
+        "description": "Returns the declared tool catalog for a managed seren-agent deployment, including source, approval, and side-effect metadata. This endpoint is a managed-agent projection; use seren-cloud run APIs for runtime execution. Tools the runtime adds from memory and capability settings have no declared descriptor; when a tool allow-list names one, the deployment's resolved_tools lists it.",
         "operationId": "seren_agent_list_deployment_tools",
         "parameters": [
           {
@@ -4550,7 +4550,7 @@
           "seren-agent"
         ],
         "summary": "Describe one tool currently visible to a managed seren-agent deployment.",
-        "description": "Returns one declared tool descriptor for a managed seren-agent deployment, including source, approval, and side-effect metadata. This endpoint is a managed-agent projection; use seren-cloud run APIs for runtime execution.",
+        "description": "Returns one declared tool descriptor for a managed seren-agent deployment, including source, approval, and side-effect metadata. This endpoint is a managed-agent projection; use seren-cloud run APIs for runtime execution. Tools the runtime adds from memory and capability settings have no declared descriptor; when a tool allow-list names one, the deployment's resolved_tools lists it.",
         "operationId": "seren_agent_describe_deployment_tool",
         "parameters": [
           {
@@ -7729,7 +7729,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Optional tool allowlist carried by skill metadata."
+            "description": "Agent Skills `allowed-tools` metadata: the tools the skill names as\npre-approved to run (https://agentskills.io/specification, experimental).\nStored as written; it neither limits nor approves tools. A deployment's\n`tool_allowlist` is the restriction."
           },
           "content": {
             "type": "string",
@@ -8629,6 +8629,16 @@
               }
             ]
           },
+          "tool_allowlist": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Exact names of the tools this agent may use. When present, the agent is\noffered only the listed tools, including built-in and runtime tools it\nwould otherwise always receive; an empty list offers no tools. Each name\nmust be a tool the deployment would otherwise receive. Requires an\n`always_on` deployment without a Codex model connection. Connector tools\ncannot be listed. A task's organization knowledge\nsearch is offered only when `search_knowledge` is listed. When omitted,\nthe agent receives every tool its configuration enables."
+          },
           "tool_approvals": {
             "type": [
               "array",
@@ -8647,7 +8657,7 @@
             "items": {
               "$ref": "#/components/schemas/ManagedAgentToolPreset"
             },
-            "description": "Managed tool preset configuration. Defaults to `live_data`. Presets are\ncompact config inputs, not resolved display groups."
+            "description": "Managed tool preset configuration. When omitted, the template's default\npresets apply. An empty list selects no presets. Presets are compact\nconfig inputs, not resolved display groups."
           },
           "tool_refs": {
             "type": [
@@ -8774,6 +8784,10 @@
           "clear_session_database": {
             "type": "boolean",
             "description": "Clear any existing external session database configuration."
+          },
+          "clear_tool_allowlist": {
+            "type": "boolean",
+            "description": "Remove the tool allow-list so the agent again receives every tool its\nconfiguration enables. Cannot be combined with `tool_allowlist`."
           },
           "clear_tool_approvals": {
             "type": "boolean",
@@ -8920,6 +8934,16 @@
               }
             ]
           },
+          "tool_allowlist": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Updated exact names of the tools this agent may use. Replaces the\nprevious allow-list when present; an empty list offers no tools. When\nomitted, the deployment keeps its current allow-list. Requires an\n`always_on` deployment without a Codex model connection. Cannot be\ncombined with `clear_tool_allowlist`."
+          },
           "tool_approvals": {
             "type": [
               "array",
@@ -8938,7 +8962,7 @@
             "items": {
               "$ref": "#/components/schemas/ManagedAgentToolPreset"
             },
-            "description": "Updated managed tool preset configuration. Presets are compact config\ninputs, not resolved display groups."
+            "description": "Updated managed tool preset configuration. Replaces the previous list\nwhen present; an empty list selects no presets. When omitted, the\ndeployment keeps its current presets. Presets are compact config inputs,\nnot resolved display groups."
           },
           "tool_refs": {
             "type": [
@@ -10782,7 +10806,7 @@
                 "items": {
                   "$ref": "#/components/schemas/ManagedAgentRunKindPrice"
                 },
-                "description": "Every run kind states its applicable promotional allowance and expected cost."
+                "description": "Every kind states its expected cost; only fee kinds state a service price."
               }
             }
           },
@@ -15254,7 +15278,7 @@
             "items": {
               "$ref": "#/components/schemas/ManagedAgentRunKindPrice"
             },
-            "description": "Every run kind states its applicable promotional allowance and expected cost."
+            "description": "Every kind states its expected cost; only fee kinds state a service price."
           }
         }
       },
@@ -16066,7 +16090,8 @@
             "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "description": "Names of the declared tools the agent is offered. With a\n`tool_allowlist`, it also names each listed tool the runtime adds from\nmemory and capability settings, which has no declared descriptor."
           },
           "routing_reason": {
             "type": "string"
@@ -16127,6 +16152,16 @@
           },
           "template": {
             "$ref": "#/components/schemas/ManagedAgentTemplate"
+          },
+          "tool_allowlist": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "The authored tool allow-list, or `null` when the agent receives every\ntool its configuration enables. `resolved_tools` already reflects it.\nA run for an organization task omits the agent's own memory and\nknowledge tools, and offers that task's organization knowledge search\nonly when the list names `search_knowledge`."
           },
           "tool_definitions": {
             "type": "array",
@@ -18574,14 +18609,6 @@
           }
         }
       },
-      "ManagedAgentRunKindCharge": {
-        "type": "string",
-        "description": "What a run kind charges a hirer outside the Owner's organization.",
-        "enum": [
-          "fee",
-          "cost"
-        ]
-      },
       "ManagedAgentRunKindKey": {
         "type": "string",
         "description": "A run kind's key: lowercase ASCII letters, digits and underscores, starting\nwith a letter, at most 64 characters.",
@@ -18589,59 +18616,89 @@
         "pattern": "^[a-z][a-z0-9_]{0,63}$"
       },
       "ManagedAgentRunKindPrice": {
-        "type": "object",
-        "description": "A run kind with its service fee and expected metered cost.",
-        "required": [
-          "key",
-          "name",
-          "charge",
-          "triggers",
-          "amount",
-          "expected_cost_atomic",
-          "promotional_per_run_atomic",
-          "cost_only_promotional_per_run_atomic"
-        ],
-        "properties": {
-          "amount": {
-            "$ref": "#/components/schemas/ManagedAgentRunFeeAmount",
-            "description": "The service fee for fee kinds, or the default promotional allowance for cost kinds."
-          },
-          "changed_at": {
-            "type": [
-              "string",
-              "null"
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "key",
+              "name",
+              "amount",
+              "triggers",
+              "expected_cost_atomic",
+              "charge"
             ],
-            "format": "date-time",
-            "description": "When the amount last changed; null if it never has."
+            "properties": {
+              "amount": {
+                "$ref": "#/components/schemas/ManagedAgentRunFeeAmount"
+              },
+              "changed_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time",
+                "description": "When the amount last changed; null if it never has."
+              },
+              "charge": {
+                "type": "string",
+                "enum": [
+                  "fee"
+                ]
+              },
+              "expected_cost_atomic": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "key": {
+                "$ref": "#/components/schemas/ManagedAgentRunKindKey"
+              },
+              "name": {
+                "type": "string"
+              },
+              "triggers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentRunTrigger"
+                }
+              }
+            }
           },
-          "charge": {
-            "$ref": "#/components/schemas/ManagedAgentRunKindCharge"
-          },
-          "cost_only_promotional_per_run_atomic": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "expected_cost_atomic": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "key": {
-            "$ref": "#/components/schemas/ManagedAgentRunKindKey"
-          },
-          "name": {
-            "type": "string"
-          },
-          "promotional_per_run_atomic": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "triggers": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ManagedAgentRunTrigger"
+          {
+            "type": "object",
+            "required": [
+              "key",
+              "name",
+              "triggers",
+              "expected_cost_atomic",
+              "charge"
+            ],
+            "properties": {
+              "charge": {
+                "type": "string",
+                "enum": [
+                  "cost"
+                ]
+              },
+              "expected_cost_atomic": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "key": {
+                "$ref": "#/components/schemas/ManagedAgentRunKindKey"
+              },
+              "name": {
+                "type": "string"
+              },
+              "triggers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentRunTrigger"
+                }
+              }
             }
           }
-        }
+        ],
+        "description": "Only a fee kind has an editable service price. Cost kinds bill recorded usage."
       },
       "ManagedAgentRunTrigger": {
         "type": "string",
@@ -19624,7 +19681,8 @@
             "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "description": "Names of the declared tools the agent is offered. With a\n`tool_allowlist`, it also names each listed tool the runtime adds from\nmemory and capability settings, which has no declared descriptor."
           },
           "routing_reason": {
             "type": "string"
@@ -19637,6 +19695,16 @@
           },
           "template": {
             "$ref": "#/components/schemas/ManagedAgentTemplate"
+          },
+          "tool_allowlist": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "The authored tool allow-list, or `null` when the agent receives every\ntool its configuration enables. `resolved_tools` already reflects it.\nA run for an organization task omits the agent's own memory and\nknowledge tools, and offers that task's organization knowledge search\nonly when the list names `search_knowledge`."
           },
           "tool_presets": {
             "type": "array",
@@ -22942,14 +23010,6 @@
           "per_task_atomic": {
             "type": "integer",
             "format": "int64"
-          },
-          "promotional_per_run_atomic": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64",
-            "description": "Null preserves each kind's promotional allowance; a value sets a fixed cap for every kind."
           }
         },
         "additionalProperties": false
@@ -23085,6 +23145,29 @@
               },
               "rule": {
                 "$ref": "#/components/schemas/ManagedAgentTemplateEgressRule"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Whether the trusted runtime may reach the network hosts.",
+            "required": [
+              "before",
+              "after",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "type": "boolean"
+              },
+              "before": {
+                "type": "boolean"
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "workload_egress_changed"
+                ]
               }
             }
           },

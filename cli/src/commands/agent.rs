@@ -14266,4 +14266,32 @@ mod tests {
             Some(&serde_json::json!(900))
         );
     }
+    #[tokio::test]
+    async fn managed_get_accepts_fee_and_cost_owner_prices_in_both_output_modes() {
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{method, path},
+        };
+        let proxy = MockServer::start().await;
+        let deployment_id = Uuid::from_u128(42);
+        let prices = serde_json::json!([{"key":"work","name":"Work","charge":"fee","amount":{"atomic":1000000,"usd":"$1.00"},"changed_at":null,"triggers":["chat"],"expected_cost_atomic":300000},{"key":"care","name":"Care","charge":"cost","triggers":["hire_cron","schedule","webhook","api"],"expected_cost_atomic":300000}]);
+        let owner = serde_json::json!({"id":deployment_id,"organization_id":Uuid::from_u128(1),"name":"Pricing contract","skill_slug":"pricing-contract","mode":"always_on","platform_managed":true,"status":"running","desired_lifecycle_state":"running","template":{"slug":"pricing-contract","display_name":"Pricing contract","revision":1},"run_kinds":prices.clone(),"spend_limits":{"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":prices.clone()},"created_at":"2026-10-23T00:00:00Z","updated_at":"2026-10-23T00:00:00Z"});
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/managed"
+            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"data":owner})),
+            )
+            .expect(2)
+            .mount(&proxy)
+            .await;
+        for format in [OutputFormat::Json, OutputFormat::Table] {
+            let ctx = CommandContext::new(Some(proxy.uri()), Some("test-key".into()), format);
+            managed_agent_get(deployment_id, &ctx)
+                .await
+                .expect("owner price union decodes and renders");
+        }
+        proxy.verify().await;
+    }
 }

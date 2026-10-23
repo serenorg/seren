@@ -429,12 +429,14 @@ mod tests {
                 "display_name": "Release test",
                 "publisher": {"organization_id": organization_id, "name": "Acme Studio"},
                 "owner_connection": "mail_and_files",
+                "spend_limit_defaults": {"per_task_atomic":2000000,"per_day_atomic":10000000},
                 "published_at": "2026-10-07T12:34:56Z",
                 "capabilities": ["Research"],
                 "run_kinds": [{
                     "key": "run", "name": "Run", "charge": "fee",
                     "triggers": ["hire_cron", "schedule", "chat", "webhook", "api"],
-                    "amount": {"atomic": 500000, "usd": "$0.50"}, "changed_at": null
+                    "amount": {"atomic": 500000, "usd": "$0.50"}, "changed_at": null,
+                    "expected_cost_atomic": 300000
                 }]
             }]
         });
@@ -456,13 +458,19 @@ mod tests {
             response.data[0].published_at,
             "2026-10-07T12:34:56Z".parse::<jiff::Timestamp>().unwrap()
         );
-        assert!(response.data[0].run_kinds[0].changed_at.is_none());
-        let mut serialized = wire;
-        serialized["data"][0]["run_kinds"][0]
-            .as_object_mut()
-            .unwrap()
-            .remove("changed_at");
-        assert_eq!(serde_json::to_value(response).unwrap(), serialized);
+        // An absent optional timestamp and an explicit null have the same contract meaning.
+        let mut expected = wire;
+        let mut actual = serde_json::to_value(response).unwrap();
+        for value in [&mut expected, &mut actual] {
+            let price = value["data"][0]["run_kinds"][0].as_object_mut().unwrap();
+            if price
+                .get("changed_at")
+                .is_some_and(serde_json::Value::is_null)
+            {
+                price.remove("changed_at");
+            }
+        }
+        assert_eq!(actual, expected);
     }
 
     #[tokio::test]

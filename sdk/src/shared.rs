@@ -2292,6 +2292,7 @@ mod tests {
                     "id": deployment_id,
                     "organization_id": uuid::Uuid::from_u128(1),
                     "name": "Platform Template",
+                    "spend_limits": {"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":[{"key":"run","name":"Run","charge":"fee","triggers":["hire_cron","schedule","chat","webhook","api"],"amount":{"atomic":500000,"usd":"$0.50"},"expected_cost_atomic":300000}]},
                     "skill_slug": "platform-template",
                     "created_at": "2026-09-01T00:00:00Z",
                     "desired_lifecycle_state": "running",
@@ -2307,7 +2308,8 @@ mod tests {
                     "run_kinds": [{
                         "key": "run", "name": "Run", "charge": "fee",
                         "triggers": ["hire_cron", "schedule", "chat", "webhook", "api"],
-                        "amount": {"atomic": 500000, "usd": "$0.50"}, "changed_at": null
+                        "amount": {"atomic": 500000, "usd": "$0.50"}, "changed_at": null,
+                        "expected_cost_atomic": 300000
                     }]
                 }
             }))
@@ -2822,6 +2824,7 @@ mod tests {
                     "id": uuid::Uuid::from_u128(0x9002),
                     "organization_id": uuid::Uuid::from_u128(1),
                     "name": "Hired Employee",
+                    "spend_limits": {"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":[{"key":"run","name":"Run","charge":"fee","triggers":["hire_cron","schedule","chat","webhook","api"],"amount":{"atomic":500000,"usd":"$0.50"},"expected_cost_atomic":300000}]},
                     "skill_slug": "managed-hire-0000000000000000000000000000900a",
                     "mode": "cron",
                     "platform_managed": true,
@@ -2835,7 +2838,8 @@ mod tests {
                     "run_kinds": [{
                         "key": "run", "name": "Run", "charge": "fee",
                         "triggers": ["hire_cron", "schedule", "chat", "webhook", "api"],
-                        "amount": {"atomic": 500000, "usd": "$0.50"}, "changed_at": null
+                        "amount": {"atomic": 500000, "usd": "$0.50"}, "changed_at": null,
+                        "expected_cost_atomic": 300000
                     }],
                     "created_at": "2026-09-01T00:00:00Z",
                     "updated_at": "2026-09-01T00:00:00Z"
