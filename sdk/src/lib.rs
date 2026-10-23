@@ -587,6 +587,119 @@ mod tests {
         }
     }
 
+    /// Run events carry `kind` as one scalar from the taxonomy or budget-action
+    /// union, and budget actions keep their envelope metadata. Both event routes
+    /// decode and re-encode each event exactly, and refuse a value outside the
+    /// union, a non-string kind, a missing required field, or invalid metadata.
+    #[tokio::test]
+    async fn run_events_preserve_scalar_kind_unions_and_refuse_invalid_kinds() {
+        let run_id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
+        let events = json!([
+            {
+                "sequence_number": 1, "event_type": "response.output_text.done",
+                "kind": "text", "type": "text", "text": "hello from the employee"
+            },
+            {
+                "sequence_number": 2, "event_type": "response.output_item.done",
+                "kind": "tool_call_completed", "type": "tool_result", "id": "call_123",
+                "content": "Provider rate limit exceeded", "is_error": true,
+                "code": "tool_rate_limited", "retryable": true
+            },
+            {
+                "sequence_number": 3, "event_type": "error", "kind": "error", "type": "error",
+                "code": "conversation_busy", "cause": "session",
+                "message": "The conversation cannot accept this turn.", "retryable": true
+            },
+            {
+                "sequence_number": 4, "output_index": 0, "kind": "raise_task_limit",
+                "type": "action", "scope": "task", "suggested_atomic": 1000000
+            },
+            {
+                "sequence_number": 5, "event_type": "response.output_item.done",
+                "item_id": "action_1", "producer_id": "runtime", "kind": "top_up",
+                "type": "action"
+            }
+        ]);
+        for (data, valid) in [
+            (events, true),
+            (json!([{"type": "text", "text": "without a kind"}]), true),
+            (
+                json!([{"type": "text", "kind": "future_unknown", "text": "unknown"}]),
+                false,
+            ),
+            (
+                json!([{"type": "text", "kind": {"subtype_0": "text"}, "text": "object"}]),
+                false,
+            ),
+            (
+                json!([{"type": "text", "kind": ["text"], "text": "array kind"}]),
+                false,
+            ),
+            (json!([{"type": "text", "kind": "text"}]), false),
+            (json!([{"type": "action", "kind": "text"}]), false),
+            (json!([{"type": "action"}]), false),
+            (
+                json!([{"type": "action", "kind": "raise_task_limit", "scope": "task"}]),
+                false,
+            ),
+            (
+                json!([{
+                    "type": "action", "kind": "raise_task_limit",
+                    "scope": "week", "suggested_atomic": 1000000
+                }]),
+                false,
+            ),
+            (
+                json!([{"type": "action", "kind": "top_up", "sequence_number": "5"}]),
+                false,
+            ),
+        ] {
+            let server = MockServer::start().await;
+            let wire = json!({"data": data});
+            for endpoint in [
+                format!("/publishers/seren-cloud/runs/{run_id}/events"),
+                format!("/publishers/seren-cloud/deployments/{deployment_id}/runs/{run_id}/events"),
+            ] {
+                Mock::given(method("GET"))
+                    .and(path(endpoint))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(wire.clone()))
+                    .expect(1)
+                    .mount(&server)
+                    .await;
+            }
+            let client = Client::new(&server.uri());
+            let global = client
+                .seren_cloud_run_events(&run_id, None, None, None, None, None)
+                .await;
+            let deployment = client
+                .seren_cloud_deployment_run_events(
+                    &deployment_id,
+                    &run_id,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .await;
+            for result in [global, deployment] {
+                if valid {
+                    let decoded = result
+                        .expect("valid scalar event kinds decode")
+                        .into_inner();
+                    assert_eq!(serde_json::to_value(decoded).unwrap()["data"], wire["data"]);
+                } else {
+                    assert!(
+                        matches!(result, Err(crate::Error::InvalidResponsePayload(_, _))),
+                        "{result:?}"
+                    );
+                }
+            }
+            server.verify().await;
+        }
+    }
+
     #[tokio::test]
     async fn publisher_credential_create_preserves_replay_acceptance_and_validation_responses() {
         let deployment_id = Uuid::new_v4();

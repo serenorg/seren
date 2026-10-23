@@ -366,6 +366,249 @@ fn downconvert_31_to_30(value: &mut serde_json::Value) {
     }
 }
 
+/// Returns the exact values of an `anyOf` whose every branch is a closed string
+/// enum, or `None` when any other keyword could change what the union accepts.
+fn closed_string_enum_union(
+    schema: &serde_json::Map<String, serde_json::Value>,
+) -> Option<Vec<serde_json::Value>> {
+    const UNION_KEYS: &[&str] = &["anyOf", "title", "description"];
+    const BRANCH_KEYS: &[&str] = &["type", "enum", "title", "description"];
+    if !schema.keys().all(|key| UNION_KEYS.contains(&key.as_str())) {
+        return None;
+    }
+    let branches = schema.get("anyOf")?.as_array()?;
+    if branches.is_empty() {
+        return None;
+    }
+    let mut values = Vec::new();
+    for branch in branches {
+        let branch = branch.as_object()?;
+        if !branch.keys().all(|key| BRANCH_KEYS.contains(&key.as_str()))
+            || branch.get("type")?.as_str()? != "string"
+        {
+            return None;
+        }
+        let branch_values = branch.get("enum")?.as_array()?;
+        if branch_values.is_empty() || !branch_values.iter().all(serde_json::Value::is_string) {
+            return None;
+        }
+        for value in branch_values {
+            if !values.contains(value) {
+                values.push(value.clone());
+            }
+        }
+    }
+    Some(values)
+}
+
+/// Rewrites an `anyOf` of closed string enums as one string enum holding the
+/// union of their values, which accepts exactly the same documents.
+///
+/// Typify models a string `anyOf` as an object of flattened optional subtypes,
+/// which cannot decode the scalar these unions carry on the wire. Nullable,
+/// referenced, constrained, object, and open-string unions keep their schema.
+fn normalize_string_enum_unions(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for child in map.values_mut() {
+                normalize_string_enum_unions(child);
+            }
+            if let Some(values) = closed_string_enum_union(map) {
+                map.remove("anyOf");
+                map.insert("type".into(), serde_json::json!("string"));
+                map.insert("enum".into(), serde_json::Value::Array(values));
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for child in values {
+                normalize_string_enum_unions(child);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn has_only_keys(schema: &serde_json::Map<String, serde_json::Value>, allowed: &[&str]) -> bool {
+    schema.keys().all(|key| allowed.contains(&key.as_str()))
+}
+
+/// Component name of a schema that is nothing but a local component `$ref`.
+fn component_ref_name(schema: &serde_json::Value) -> Option<&str> {
+    let schema = schema.as_object()?;
+    if schema.len() != 1 {
+        return None;
+    }
+    schema
+        .get("$ref")?
+        .as_str()?
+        .strip_prefix("#/components/schemas/")
+}
+
+/// Branches of a component that is nothing but an annotated `oneOf`.
+fn component_one_of<'a>(
+    components: &'a serde_json::Map<String, serde_json::Value>,
+    name: &str,
+) -> Option<&'a [serde_json::Value]> {
+    let schema = components.get(name)?.as_object()?;
+    if !has_only_keys(schema, &["oneOf", "title", "description"]) {
+        return None;
+    }
+    let branches = schema.get("oneOf")?.as_array()?;
+    (!branches.is_empty()).then_some(branches.as_slice())
+}
+
+/// Splits an annotated `allOf` of one component `$ref` and one sibling schema.
+fn component_and_sibling(
+    schema: &serde_json::Map<String, serde_json::Value>,
+) -> Option<(&str, &serde_json::Value)> {
+    if !has_only_keys(schema, &["allOf", "title", "description"]) {
+        return None;
+    }
+    match schema.get("allOf")?.as_array()?.as_slice() {
+        [first, second] => match (component_ref_name(first), component_ref_name(second)) {
+            (Some(name), None) => Some((name, second)),
+            (None, Some(name)) => Some((name, first)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Values of a property a branch requires and declares as a closed string enum.
+fn required_string_enum<'a>(
+    branch: &'a serde_json::Map<String, serde_json::Value>,
+    property: &str,
+) -> Option<&'a [serde_json::Value]> {
+    let required = branch.get("required")?.as_array()?;
+    if !required.iter().any(|name| name.as_str() == Some(property)) {
+        return None;
+    }
+    let schema = branch.get("properties")?.get(property)?.as_object()?;
+    if !has_only_keys(schema, &["type", "enum", "title", "description"])
+        || schema.get("type")?.as_str()? != "string"
+    {
+        return None;
+    }
+    let values = schema.get("enum")?.as_array()?;
+    (!values.is_empty() && values.iter().all(serde_json::Value::is_string))
+        .then_some(values.as_slice())
+}
+
+/// Returns union branches that are plain objects kept mutually exclusive by one
+/// required closed string property, so no document can match two of them.
+fn exclusive_object_branches(
+    branches: &[serde_json::Value],
+) -> Option<Vec<&serde_json::Map<String, serde_json::Value>>> {
+    const OBJECT_KEYS: &[&str] = &["type", "required", "properties", "title", "description"];
+    let mut objects = Vec::new();
+    for branch in branches {
+        let branch = branch.as_object()?;
+        if !has_only_keys(branch, OBJECT_KEYS) || branch.get("type")?.as_str()? != "object" {
+            return None;
+        }
+        objects.push(branch);
+    }
+    let candidates = branches.first()?.get("required")?.as_array()?;
+    let exclusive = candidates
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .any(|property| {
+            let mut seen = Vec::new();
+            objects.iter().all(|branch| {
+                required_string_enum(branch, property).is_some_and(|values| {
+                    values.iter().all(|value| {
+                        let unseen = !seen.contains(&value);
+                        seen.push(value);
+                        unseen
+                    })
+                })
+            })
+        });
+    exclusive.then_some(objects)
+}
+
+/// One alternative per member when a `oneOf` branch is an annotated
+/// `allOf: [{"$ref": union}, sibling]` over an exclusive object union.
+fn exclusive_union_members(
+    components: &serde_json::Map<String, serde_json::Value>,
+    branch: &serde_json::Value,
+    outer_sibling: &serde_json::Value,
+) -> Option<Vec<serde_json::Value>> {
+    let branch = branch.as_object()?;
+    let (name, inner_sibling) = component_and_sibling(branch)?;
+    let members = exclusive_object_branches(component_one_of(components, name)?)?;
+    let annotations = branch
+        .iter()
+        .filter(|(key, _)| key.as_str() != "allOf")
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect::<serde_json::Map<_, _>>();
+    let alternatives = members
+        .into_iter()
+        .map(|member| {
+            let mut alternative = annotations.clone();
+            alternative.insert(
+                "allOf".into(),
+                serde_json::json!([member, inner_sibling, outer_sibling]),
+            );
+            serde_json::Value::Object(alternative)
+        })
+        .collect();
+    Some(alternatives)
+}
+
+/// Alternatives for an annotated `allOf: [{"$ref": union}, sibling]` whose
+/// union has a branch nesting another exclusive object union.
+fn distributed_union_alternatives(
+    schema: &serde_json::Map<String, serde_json::Value>,
+    components: &serde_json::Map<String, serde_json::Value>,
+) -> Option<Vec<serde_json::Value>> {
+    let (name, sibling) = component_and_sibling(schema)?;
+    let mut nested = false;
+    let mut alternatives = Vec::new();
+    for branch in component_one_of(components, name)? {
+        match exclusive_union_members(components, branch, sibling) {
+            Some(members) => {
+                nested = true;
+                alternatives.extend(members);
+            }
+            None => alternatives.push(serde_json::json!({ "allOf": [branch, sibling] })),
+        }
+    }
+    nested.then_some(alternatives)
+}
+
+/// Distributes a sibling schema over a referenced `oneOf` whose branch nests an
+/// exclusive object union, joining that union's members to the outer `oneOf`.
+///
+/// `allOf[oneOf[b..], s]` accepts exactly the documents `oneOf[allOf[b, s]..]`
+/// does, and members of an exclusive union never match together, so each can
+/// stand as its own outer alternative. Typify would otherwise intersect the
+/// sibling with the nested union and with every excluded branch, and reduce
+/// the nesting branch to an uninhabited type. The referenced components keep
+/// their schemas, and schemas without such a nested union are unchanged.
+fn distribute_over_nested_exclusive_unions(
+    value: &mut serde_json::Value,
+    components: &serde_json::Map<String, serde_json::Value>,
+) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for child in map.values_mut() {
+                distribute_over_nested_exclusive_unions(child, components);
+            }
+            if let Some(alternatives) = distributed_union_alternatives(map, components) {
+                map.remove("allOf");
+                map.insert("oneOf".into(), serde_json::Value::Array(alternatives));
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for child in values {
+                distribute_over_nested_exclusive_unions(child, components);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn source_wrapper_to_inner_name(source_wrapper: &str) -> Option<String> {
     if let Some(rest) = source_wrapper.strip_prefix("DataResponse_Vec_") {
         return Some(rest.to_string());
@@ -911,6 +1154,13 @@ fn main() -> anyhow::Result<()> {
     // Normalize OpenAPI 3.1 nullable syntax before deserializing with openapiv3.
     normalize_nullable_parameters(&mut raw_json);
     downconvert_31_to_30(&mut raw_json);
+    normalize_string_enum_unions(&mut raw_json);
+    let components = raw_json
+        .pointer("/components/schemas")
+        .and_then(serde_json::Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    distribute_over_nested_exclusive_unions(&mut raw_json, &components);
     raw_json["openapi"] = serde_json::json!("3.0.3");
 
     strip_error_response_content(&mut raw_json);
