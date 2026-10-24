@@ -2161,7 +2161,7 @@
             "description": "Resource not found"
           },
           "409": {
-            "description": "Conflicting update or account connection required"
+            "description": "Conflicting update, account connection required, or the publisher is already provided by the managed agent's template. A sign-in grant may still serve a template publisher whose template operations are all reads with no fixed connection."
           }
         },
         "security": [
@@ -4675,7 +4675,7 @@
         "tags": [
           "seren-agent"
         ],
-        "description": "The hire's template updates: the version it runs, the newest version, whether an update waits for the Employer's decision, what the update changes (each access change itemized, and the template files added, changed and removed), the Owner's release note, the update setting in effect and where it comes from, and the last outcome. Access changes always wait for the Employer's approval. Content changes follow the setting: `automatic` applies them between tasks, `ask_first` waits for approval and `stay` keeps the current version.",
+        "description": "The hire's template updates: the saved template version and its runtime activation, the newest version, whether an update waits for the Employer's decision, what the update changes (each access change itemized, and the template files added, changed and removed), the Owner's release note, the update setting in effect and where it comes from, and the last outcome. Access changes always wait for the Employer's approval. Content changes follow the setting: `automatic` applies them between tasks, `ask_first` waits for approval and `stay` keeps the current version.",
         "operationId": "seren_agent_get_managed_agent_template_update",
         "parameters": [
           {
@@ -6962,6 +6962,42 @@
           }
         },
         "additionalProperties": false
+      },
+      "ActivationAvailability": {
+        "type": "string",
+        "enum": [
+          "stopped",
+          "pending",
+          "ready",
+          "unverified"
+        ]
+      },
+      "ActivationObstruction": {
+        "type": "string",
+        "enum": [
+          "missing_action",
+          "revision_binding_invalid",
+          "binding_superseded",
+          "incomplete_evidence",
+          "terminal_failure",
+          "deadline_exceeded",
+          "submission_lease_expired",
+          "submission_unconfirmed",
+          "observation_unavailable",
+          "runtime_not_ready",
+          "runtime_evidence_invalid"
+        ]
+      },
+      "ActivationProgress": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "applied",
+          "staged_next_start",
+          "failed",
+          "superseded",
+          "unverified"
+        ]
       },
       "AddManagedAgentPublisherGrant": {
         "oneOf": [
@@ -9337,7 +9373,7 @@
           "current_revision": {
             "type": "integer",
             "format": "int64",
-            "description": "The template version the hire ran when the Employer reviewed the update."
+            "description": "The saved template choice when the Employer reviewed the update."
           },
           "revision": {
             "type": "integer",
@@ -12604,6 +12640,17 @@
               "setting_source"
             ],
             "properties": {
+              "activation": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/TemplateUpdateActivation",
+                    "description": "Exact activation evidence for the recorded or most recently saved move."
+                  }
+                ]
+              },
               "applying": {
                 "oneOf": [
                   {
@@ -12611,14 +12658,14 @@
                   },
                   {
                     "$ref": "#/components/schemas/ManagedAgentTemplateUpdateApplying",
-                    "description": "A recorded move that applies when the current task ends."
+                    "description": "A recorded choice awaiting persistence or verified activation, without starting a stopped hire."
                   }
                 ]
               },
               "current_revision": {
                 "type": "integer",
                 "format": "int64",
-                "description": "Template version the hire runs."
+                "description": "The saved template choice. This does not establish runtime activation."
               },
               "decision_needed": {
                 "type": "boolean",
@@ -12697,7 +12744,7 @@
                   "null"
                 ],
                 "format": "int64",
-                "description": "The version a rollback returns to."
+                "description": "The previous saved choice a rollback restores; it need not have run."
               },
               "setting": {
                 "$ref": "#/components/schemas/TemplateUpdateSetting",
@@ -20202,6 +20249,17 @@
           "setting_source"
         ],
         "properties": {
+          "activation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TemplateUpdateActivation",
+                "description": "Exact activation evidence for the recorded or most recently saved move."
+              }
+            ]
+          },
           "applying": {
             "oneOf": [
               {
@@ -20209,14 +20267,14 @@
               },
               {
                 "$ref": "#/components/schemas/ManagedAgentTemplateUpdateApplying",
-                "description": "A recorded move that applies when the current task ends."
+                "description": "A recorded choice awaiting persistence or verified activation, without starting a stopped hire."
               }
             ]
           },
           "current_revision": {
             "type": "integer",
             "format": "int64",
-            "description": "Template version the hire runs."
+            "description": "The saved template choice. This does not establish runtime activation."
           },
           "decision_needed": {
             "type": "boolean",
@@ -20295,7 +20353,7 @@
               "null"
             ],
             "format": "int64",
-            "description": "The version a rollback returns to."
+            "description": "The previous saved choice a rollback restores; it need not have run."
           },
           "setting": {
             "$ref": "#/components/schemas/TemplateUpdateSetting",
@@ -21642,6 +21700,22 @@
           "unavailable"
         ]
       },
+      "ManagedRuntimeControllerRefusal": {
+        "type": "object",
+        "description": "Public status for the exact runtime action created with a managed revision.",
+        "required": [
+          "code",
+          "kind"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/RuntimeReconcileRejectionKind"
+          }
+        }
+      },
       "ManagedRuntimeObservationSource": {
         "type": "string",
         "enum": [
@@ -21741,6 +21815,16 @@
           "control_generation": {
             "type": "integer",
             "format": "int64"
+          },
+          "controller_refusal": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedRuntimeControllerRefusal"
+              }
+            ]
           },
           "deferral": {
             "oneOf": [
@@ -22307,11 +22391,14 @@
       },
       "PublisherAccessContinuationError": {
         "type": "string",
-        "description": "The last failure before the continuation started. Core retries `payment_required` and\n`start_failed` with increasing delays for a limited time; `conversation_unavailable` and\n`request_changed` end the continuation.",
+        "description": "The last failure before the continuation started. Core retries `payment_required` and\n`start_failed` with increasing delays for a limited number of admission attempts.\nSetup blocks recheck without consuming that budget; `conversation_unavailable` and\n`request_changed` end the continuation.",
         "enum": [
           "payment_required",
           "conversation_unavailable",
           "request_changed",
+          "setup_pending",
+          "setup_failed",
+          "stopped",
           "start_failed"
         ]
       },
@@ -22846,6 +22933,17 @@
           }
         },
         "additionalProperties": false
+      },
+      "RuntimeReconcileRejectionKind": {
+        "type": "string",
+        "enum": [
+          "invalid_request",
+          "workload_rejected",
+          "secrets_gateway_material",
+          "deployment_strategy_transition",
+          "runtime_intent_mismatch",
+          "unknown"
+        ]
       },
       "RuntimeVaultProvisioningProposal": {
         "type": "object",
@@ -23413,7 +23511,7 @@
           },
           {
             "type": "object",
-            "description": "A skill specification, which declares the skill's publishers and storage.",
+            "description": "A skill specification whose declared publishers changed, or that could not be read.",
             "required": [
               "path",
               "file_change",
@@ -23522,6 +23620,80 @@
           "template_suspended",
           "internal"
         ]
+      },
+      "TemplateUpdateActivation": {
+        "type": "object",
+        "description": "Activation of one exact saved template choice, distinct from its persisted pin.",
+        "required": [
+          "progress",
+          "availability"
+        ],
+        "properties": {
+          "action_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "applied_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "availability": {
+            "$ref": "#/components/schemas/ActivationAvailability"
+          },
+          "controller_refusal_kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RuntimeReconcileRejectionKind",
+                "description": "Typed category of the runtime platform's refusal; never upstream text."
+              }
+            ]
+          },
+          "failure": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedRuntimeReconciliationFailure"
+              }
+            ]
+          },
+          "is_current_revision": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "obstruction": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ActivationObstruction"
+              }
+            ]
+          },
+          "progress": {
+            "$ref": "#/components/schemas/ActivationProgress"
+          },
+          "revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
       },
       "TemplateUpdateApplyOrigin": {
         "type": "string",

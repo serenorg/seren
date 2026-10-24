@@ -1873,6 +1873,70 @@ mod tests {
             .map(|(_, v)| v.to_string())
     }
 
+    fn current_user_response_fixture(
+        user_id: Uuid,
+        organization_id: Uuid,
+        email_verified: bool,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "data": {
+                "id": user_id,
+                "email": "user@example.com",
+                "name": "Test User",
+                "status": "active",
+                "email_verified": email_verified,
+                "created_at": "2026-01-01T00:00:00Z",
+                "default_organization_id": organization_id,
+            }
+        })
+    }
+
+    #[tokio::test]
+    async fn current_user_fixture_requires_email_verified() {
+        let user_id = Uuid::from_u128(1);
+        let organization_id = Uuid::from_u128(2);
+        for email_verified in [false, true] {
+            let upstream = MockServer::start().await;
+            let wire = current_user_response_fixture(user_id, organization_id, email_verified);
+            Mock::given(method("GET"))
+                .and(path("/auth/me"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(wire.clone()))
+                .expect(1)
+                .mount(&upstream)
+                .await;
+            let response = seren::Client::new(&upstream.uri())
+                .get_current_user()
+                .await
+                .expect("the complete upstream user fixture must decode")
+                .into_inner();
+            assert_eq!(serde_json::to_value(response).unwrap(), wire);
+        }
+
+        let upstream = MockServer::start().await;
+        let mut wire = current_user_response_fixture(user_id, organization_id, true);
+        wire["data"]
+            .as_object_mut()
+            .unwrap()
+            .remove("email_verified");
+        Mock::given(method("GET"))
+            .and(path("/auth/me"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(wire))
+            .expect(1)
+            .mount(&upstream)
+            .await;
+        let error = seren::Client::new(&upstream.uri())
+            .get_current_user()
+            .await
+            .expect_err("a user fixture missing email_verified must not decode");
+        match error {
+            seren::Error::InvalidResponsePayload(_, error) => assert!(
+                error.to_string().contains("missing field `email_verified`"),
+                "unexpected response decode error: {error}"
+            ),
+            other => panic!("expected a missing required-field decode error, got {other:?}"),
+        }
+    }
+
     #[tokio::test]
     async fn oauth_full_flow_consent_token_and_refresh() {
         if !integration_tests_enabled() {
@@ -1922,16 +1986,13 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/auth/me"))
             .and(wm_header("authorization", "Bearer up_access_1"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": {
-                    "id": user_id,
-                    "email": "user@example.com",
-                    "name": "Test User",
-                    "status": "active",
-                    "created_at": "2026-01-01T00:00:00Z",
-                    "default_organization_id": Uuid::new_v4(),
-                }
-            })))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(current_user_response_fixture(
+                    user_id,
+                    Uuid::new_v4(),
+                    true,
+                )),
+            )
             .mount(&upstream)
             .await;
 

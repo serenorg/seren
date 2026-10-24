@@ -213,6 +213,9 @@
           },
           "404": {
             "description": "User not found"
+          },
+          "429": {
+            "description": "Too many requests"
           }
         },
         "security": [
@@ -262,6 +265,9 @@
           "409": {
             "description": "Address unavailable or another change still undoable"
           },
+          "429": {
+            "description": "Too many requests or password verification temporarily locked"
+          },
           "503": {
             "description": "Confirmation could not be sent"
           }
@@ -303,6 +309,9 @@
           },
           "400": {
             "description": "Invalid request"
+          },
+          "429": {
+            "description": "Too many requests"
           }
         }
       }
@@ -339,10 +348,13 @@
             "description": "Invalid request"
           },
           "401": {
-            "description": "Invalid credentials"
+            "description": "Sign-in refused: invalid credentials or temporarily unavailable password sign-in"
           },
           "403": {
             "description": "Email verification required"
+          },
+          "429": {
+            "description": "Too many requests"
           }
         }
       }
@@ -404,6 +416,116 @@
             "bearer_auth": []
           }
         ]
+      }
+    },
+    "/auth/microsoft": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "GET /auth/microsoft\nInitiate Microsoft OAuth flow",
+        "description": "Starts signing in with Microsoft. When the Microsoft account is not yet linked to a Seren account, sign-in finishes only after the person confirms a link emailed to the address their Microsoft account uses. The app that started the sign-in then receives an OAuth authorization error on its redirect URI with `error=check_inbox` and a human-readable `error_description`; a client sign-in started with `cli_state` also receives its `state`. Match the `check_inbox` code, not the description text. Ask the person to confirm the emailed link and then sign in with Microsoft again. Every Microsoft account that is not yet linked receives the same response.",
+        "operationId": "microsoft_login",
+        "parameters": [
+          {
+            "name": "cli_state",
+            "in": "query",
+            "description": "State of a pending client authorization; the sign-in returns to that client's redirect URI",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "redirect_uri",
+            "in": "query",
+            "description": "Allowed external URL that receives the sign-in result",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "referral_code",
+            "in": "query",
+            "description": "Referral code recorded when the sign-in creates an account",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "307": {
+            "description": "Redirect to Microsoft sign-in"
+          },
+          "400": {
+            "description": "Invalid redirect URI or referral code"
+          },
+          "401": {
+            "description": "Invalid or expired client authorization state"
+          }
+        }
+      }
+    },
+    "/auth/microsoft/callback": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "GET /auth/microsoft/callback\nHandle Microsoft OAuth callback",
+        "description": "Completes a Microsoft sign-in started at `/auth/microsoft`. A linked Microsoft account signs in and returns to the app that started the sign-in. Any other Microsoft account must first confirm a link emailed to its address: a client sign-in is redirected to its redirect URI with `error=check_inbox`, `error_description` and `state`; a sign-in started with an allowed `redirect_uri` is redirected there with `error=check_inbox` and `error_description` as query parameters; otherwise an HTML page shows the same description. The response is the same for every Microsoft account that is not yet linked. Provider authorization errors also return to the requesting app with an error code and a human-readable description.",
+        "operationId": "microsoft_callback",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "query",
+            "description": "Authorization code from Microsoft, absent when the provider returns an error",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "description": "OAuth authorization error from Microsoft, instead of an authorization code",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "description": "State parameter for CSRF verification",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Check-inbox page, when no app is waiting for the result",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "303": {
+            "description": "Redirect to the app with the sign-in result or error"
+          },
+          "400": {
+            "description": "Callback contains neither an authorization code nor an error"
+          },
+          "401": {
+            "description": "Invalid or expired sign-in state"
+          }
+        }
       }
     },
     "/auth/recovery-email": {
@@ -598,6 +720,9 @@
           },
           "400": {
             "description": "Invalid request"
+          },
+          "429": {
+            "description": "Too many requests"
           }
         }
       }
@@ -621,7 +746,7 @@
         },
         "responses": {
           "200": {
-            "description": "Password reset successfully",
+            "description": "Password reset successfully and any password-attempt lock cleared",
             "content": {
               "application/json": {
                 "schema": {
@@ -635,6 +760,9 @@
           },
           "404": {
             "description": "Token not found"
+          },
+          "429": {
+            "description": "Too many requests"
           }
         }
       }
@@ -672,6 +800,9 @@
           },
           "409": {
             "description": "Email already registered"
+          },
+          "429": {
+            "description": "Too many requests"
           }
         }
       }
@@ -2783,6 +2914,53 @@
           },
           "400": {
             "description": "Invalid callback parameters"
+          }
+        }
+      }
+    },
+    "/oauth2/login": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "operationId": "login_form",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginFormData"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "303": {
+            "description": "Continue to the application",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Application callback"
+              }
+            }
+          },
+          "401": {
+            "description": "Sign-in refused: invalid credentials or temporarily unavailable password sign-in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Email confirmation required. Browsers receive the sign-in form with instructions; JSON callers receive the email_verification_required error."
+          },
+          "429": {
+            "description": "Too many requests"
           }
         }
       }
@@ -14693,6 +14871,42 @@
           }
         }
       },
+      "ActivationAvailability": {
+        "type": "string",
+        "enum": [
+          "stopped",
+          "pending",
+          "ready",
+          "unverified"
+        ]
+      },
+      "ActivationObstruction": {
+        "type": "string",
+        "enum": [
+          "missing_action",
+          "revision_binding_invalid",
+          "binding_superseded",
+          "incomplete_evidence",
+          "terminal_failure",
+          "deadline_exceeded",
+          "submission_lease_expired",
+          "submission_unconfirmed",
+          "observation_unavailable",
+          "runtime_not_ready",
+          "runtime_evidence_invalid"
+        ]
+      },
+      "ActivationProgress": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "applied",
+          "staged_next_start",
+          "failed",
+          "superseded",
+          "unverified"
+        ]
+      },
       "ActiveIntroVideo": {
         "type": "object",
         "description": "The live intro video.",
@@ -14772,6 +14986,16 @@
           "outcome"
         ],
         "properties": {
+          "activation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TemplateUpdateActivation"
+              }
+            ]
+          },
           "deployment_id": {
             "type": "string",
             "format": "uuid"
@@ -16626,6 +16850,10 @@
           "pkce_required": {
             "type": "boolean"
           },
+          "revocation_auth": {
+            "$ref": "#/components/schemas/RevocationAuth",
+            "description": "How the access token is sent to `revocation_url`: `form_token` (the default, a form field\nnamed `token`) or `bearer` (a Bearer header with no body)."
+          },
           "revocation_url": {
             "type": [
               "string",
@@ -16647,13 +16875,34 @@
           "token_url": {
             "type": "string"
           },
+          "userinfo_email_path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where the account email is in the lookup reply, as a JSON Pointer (RFC 6901) of at most\n256 characters. When omitted, the email is read from `email`.",
+            "example": "/email"
+          },
+          "userinfo_id_path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where the account ID is in the lookup reply, as a JSON Pointer (RFC 6901) of at most 256\ncharacters. When omitted, the ID is read from `sub` or `id`.",
+            "example": "/account_id"
+          },
+          "userinfo_method": {
+            "$ref": "#/components/schemas/UserinfoMethod",
+            "description": "How the account lookup is sent to `userinfo_url`: `get` (the default) or `post`. A `post`\ncarries the access token as a Bearer header with no body."
+          },
           "userinfo_url": {
             "type": [
               "string",
               "null"
             ]
           }
-        }
+        },
+        "additionalProperties": false
       },
       "CreateOrganizationCustomSkillRequest": {
         "type": "object",
@@ -21089,6 +21338,8 @@
               "scopes",
               "pkce_required",
               "token_endpoint_auth_method",
+              "userinfo_method",
+              "revocation_auth",
               "is_active",
               "created_at",
               "updated_at"
@@ -21136,6 +21387,11 @@
               "pkce_required": {
                 "type": "boolean"
               },
+              "revocation_auth": {
+                "type": "string",
+                "description": "How the access token is sent to `revocation_url`: `form_token` or `bearer`.",
+                "example": "bearer"
+              },
               "revocation_url": {
                 "type": [
                   "string",
@@ -21160,6 +21416,27 @@
               "updated_at": {
                 "type": "string",
                 "format": "date-time"
+              },
+              "userinfo_email_path": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "JSON Pointer to the account email in the lookup reply; null reads `email`.",
+                "example": "/email"
+              },
+              "userinfo_id_path": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "JSON Pointer to the account ID in the lookup reply; null reads `sub` or `id`.",
+                "example": "/account_id"
+              },
+              "userinfo_method": {
+                "type": "string",
+                "description": "How the account lookup is sent: `get` or `post`.",
+                "example": "post"
               },
               "userinfo_url": {
                 "type": [
@@ -25421,6 +25698,8 @@
                 "scopes",
                 "pkce_required",
                 "token_endpoint_auth_method",
+                "userinfo_method",
+                "revocation_auth",
                 "is_active",
                 "created_at",
                 "updated_at"
@@ -25468,6 +25747,11 @@
                 "pkce_required": {
                   "type": "boolean"
                 },
+                "revocation_auth": {
+                  "type": "string",
+                  "description": "How the access token is sent to `revocation_url`: `form_token` or `bearer`.",
+                  "example": "bearer"
+                },
                 "revocation_url": {
                   "type": [
                     "string",
@@ -25492,6 +25776,27 @@
                 "updated_at": {
                   "type": "string",
                   "format": "date-time"
+                },
+                "userinfo_email_path": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "JSON Pointer to the account email in the lookup reply; null reads `email`.",
+                  "example": "/email"
+                },
+                "userinfo_id_path": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "JSON Pointer to the account ID in the lookup reply; null reads `sub` or `id`.",
+                  "example": "/account_id"
+                },
+                "userinfo_method": {
+                  "type": "string",
+                  "description": "How the account lookup is sent: `get` or `post`.",
+                  "example": "post"
                 },
                 "userinfo_url": {
                   "type": [
@@ -30297,6 +30602,26 @@
           }
         }
       },
+      "LoginFormData": {
+        "type": "object",
+        "description": "POST /oauth2/login\nHandle login form submission from the authorize page",
+        "required": [
+          "email",
+          "password",
+          "state"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
       "LoginRequest": {
         "type": "object",
         "required": [
@@ -32150,6 +32475,17 @@
         },
         "additionalProperties": false
       },
+      "ManagedRuntimeReconciliationFailure": {
+        "type": "string",
+        "description": "Stable redacted reason for the latest managed runtime reconciliation failure.",
+        "enum": [
+          "runtime_unavailable",
+          "runtime_rejected",
+          "runtime_evidence_invalid",
+          "revision_superseded",
+          "deadline_exceeded"
+        ]
+      },
       "ManagedSecretsApplyTarget": {
         "oneOf": [
           {
@@ -32400,6 +32736,8 @@
           "scopes",
           "pkce_required",
           "token_endpoint_auth_method",
+          "userinfo_method",
+          "revocation_auth",
           "is_active",
           "created_at",
           "updated_at"
@@ -32447,6 +32785,11 @@
           "pkce_required": {
             "type": "boolean"
           },
+          "revocation_auth": {
+            "type": "string",
+            "description": "How the access token is sent to `revocation_url`: `form_token` or `bearer`.",
+            "example": "bearer"
+          },
           "revocation_url": {
             "type": [
               "string",
@@ -32471,6 +32814,27 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "userinfo_email_path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "JSON Pointer to the account email in the lookup reply; null reads `email`.",
+            "example": "/email"
+          },
+          "userinfo_id_path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "JSON Pointer to the account ID in the lookup reply; null reads `sub` or `id`.",
+            "example": "/account_id"
+          },
+          "userinfo_method": {
+            "type": "string",
+            "description": "How the account lookup is sent: `get` or `post`.",
+            "example": "post"
           },
           "userinfo_url": {
             "type": [
@@ -37521,6 +37885,14 @@
           }
         }
       },
+      "RevocationAuth": {
+        "type": "string",
+        "description": "How Core presents the access token to a provider's `revocation_url`.",
+        "enum": [
+          "form_token",
+          "bearer"
+        ]
+      },
       "RevokeResponse": {
         "type": "object",
         "required": [
@@ -37535,6 +37907,17 @@
             "type": "boolean"
           }
         }
+      },
+      "RuntimeReconcileRejectionKind": {
+        "type": "string",
+        "enum": [
+          "invalid_request",
+          "workload_rejected",
+          "secrets_gateway_material",
+          "deployment_strategy_transition",
+          "runtime_intent_mismatch",
+          "unknown"
+        ]
       },
       "Session": {
         "type": "object",
@@ -38006,6 +38389,10 @@
         "type": "string",
         "enum": [
           "updated",
+          "applying",
+          "staged",
+          "superseded",
+          "unverified",
           "already_current",
           "hire_incomplete",
           "pending_approval",
@@ -38100,6 +38487,80 @@
           "newest",
           "oldest"
         ]
+      },
+      "TemplateUpdateActivation": {
+        "type": "object",
+        "description": "Activation of one exact saved template choice, distinct from its persisted pin.",
+        "required": [
+          "progress",
+          "availability"
+        ],
+        "properties": {
+          "action_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "applied_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "availability": {
+            "$ref": "#/components/schemas/ActivationAvailability"
+          },
+          "controller_refusal_kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RuntimeReconcileRejectionKind",
+                "description": "Typed category of the runtime platform's refusal; never upstream text."
+              }
+            ]
+          },
+          "failure": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedRuntimeReconciliationFailure"
+              }
+            ]
+          },
+          "is_current_revision": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "obstruction": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ActivationObstruction"
+              }
+            ]
+          },
+          "progress": {
+            "$ref": "#/components/schemas/ActivationProgress"
+          },
+          "revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
       },
       "TemplateUpdateSetting": {
         "type": "string",
@@ -38478,6 +38939,17 @@
               "null"
             ]
           },
+          "revocation_auth": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RevocationAuth",
+                "description": "Revocation request shape, `form_token` or `bearer`. If omitted, leave unchanged. If null,\nreset to `form_token`."
+              }
+            ]
+          },
           "revocation_url": {
             "type": [
               "string",
@@ -38516,6 +38988,33 @@
               "null"
             ]
           },
+          "userinfo_email_path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "JSON Pointer (RFC 6901) to the account email in the lookup reply. If omitted, leave\nunchanged. If null, clear it so the email is read from `email`.",
+            "example": "/email"
+          },
+          "userinfo_id_path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "JSON Pointer (RFC 6901) to the account ID in the lookup reply. If omitted, leave\nunchanged. If null, clear it so the ID is read from `sub` or `id`.",
+            "example": "/account_id"
+          },
+          "userinfo_method": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UserinfoMethod",
+                "description": "Account lookup method, `get` or `post`. If omitted, leave unchanged. If null, reset to `get`."
+              }
+            ]
+          },
           "userinfo_url": {
             "type": [
               "string",
@@ -38523,7 +39022,8 @@
             ],
             "description": "If omitted, leave unchanged. If null, clear."
           }
-        }
+        },
+        "additionalProperties": false
       },
       "UpdateOrganizationCustomSkillRequest": {
         "type": "object",
@@ -40103,6 +40603,14 @@
           "deleted",
           "disabled",
           "paused"
+        ]
+      },
+      "UserinfoMethod": {
+        "type": "string",
+        "description": "How Core sends the account lookup to a provider's `userinfo_url`.",
+        "enum": [
+          "get",
+          "post"
         ]
       },
       "VaultProvisioningBinding": {

@@ -149,6 +149,10 @@ pub async fn create(
         .map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
 
     let request = CreateOAuthProviderRequest {
+        userinfo_method: None,
+        userinfo_id_path: None,
+        userinfo_email_path: None,
+        revocation_auth: None,
         slug: slug.to_string(),
         name: name.to_string(),
         description: description.map(String::from),
@@ -212,6 +216,10 @@ pub async fn update(
         Uuid::parse_str(provider_id).map_err(|e| anyhow::anyhow!("Invalid provider ID: {}", e))?;
 
     let request = UpdateOAuthProviderRequest {
+        userinfo_method: None,
+        userinfo_id_path: None,
+        userinfo_email_path: None,
+        revocation_auth: None,
         slug: None, // Slug cannot be changed after creation
         name: name.map(String::from),
         description: description.map(String::from),

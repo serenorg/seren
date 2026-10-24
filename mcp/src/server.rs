@@ -20325,6 +20325,148 @@ mod tests {
         }
     }
 
+    fn flat_oauth_provider_update(body: serde_json::Value) -> serde_json::Value {
+        let mut wire = body;
+        wire["organization_id"] = serde_json::json!(Uuid::from_u128(1));
+        wire["provider_id"] = serde_json::json!(Uuid::from_u128(2));
+        wire
+    }
+
+    #[test]
+    fn oauth_provider_update_flat_params_preserve_presence() {
+        for body in [
+            serde_json::json!({}),
+            serde_json::json!({"userinfo_method": null, "userinfo_id_path": null,
+                "userinfo_email_path": null, "revocation_auth": null}),
+            serde_json::json!({"userinfo_method": "post", "userinfo_id_path": "/id",
+                "userinfo_email_path": "/email", "revocation_auth": "bearer", "is_active": false}),
+        ] {
+            let wire = flat_oauth_provider_update(body.clone());
+            let params: UpdateOrgOAuthProviderParams =
+                serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(&params).unwrap(), wire);
+            assert_eq!(serde_json::to_value(params.body).unwrap(), body);
+        }
+        for body in [
+            serde_json::json!({"userinfo_method": "put"}),
+            serde_json::json!({"revocation_auth": "basic"}),
+            serde_json::json!({"userinfo_id_path": false}),
+        ] {
+            assert!(
+                serde_json::from_value::<UpdateOrgOAuthProviderParams>(flat_oauth_provider_update(
+                    body
+                ))
+                .is_err()
+            );
+        }
+        // Route IDs bind the path and are not forwarded in the PATCH body.
+        let params: UpdateOrgOAuthProviderParams = serde_json::from_value(
+            flat_oauth_provider_update(serde_json::json!({"userinfo_method": "post"})),
+        )
+        .unwrap();
+        assert_eq!(params.organization_id, Uuid::from_u128(1));
+        assert_eq!(params.provider_id, Uuid::from_u128(2));
+        assert_eq!(
+            serde_json::to_value(params.body).unwrap(),
+            serde_json::json!({"userinfo_method": "post"})
+        );
+    }
+
+    #[test]
+    fn oauth_provider_update_tool_schema_keeps_presence_fields_optional() {
+        let server = server_with_http_client(reqwest::Client::new());
+        let tool = server
+            .tool_router
+            .list_all()
+            .into_iter()
+            .find(|tool| tool.name == "update_org_oauth_provider")
+            .expect("missing MCP tool update_org_oauth_provider");
+        let schema = serde_json::Value::Object((*tool.input_schema).clone());
+        let required = schema["required"]
+            .as_array()
+            .expect("the update tool requires its route IDs")
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            required,
+            ["organization_id", "provider_id"].into_iter().collect()
+        );
+        for field in [
+            "userinfo_method",
+            "userinfo_id_path",
+            "userinfo_email_path",
+            "revocation_auth",
+        ] {
+            assert!(
+                schema["properties"].get(field).is_some(),
+                "{field} must be advertised"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn oauth_provider_update_tool_sends_flat_nulls_and_values() {
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{body_json, header, method, path},
+        };
+
+        for body in [
+            serde_json::json!({"name": "Changed name"}),
+            serde_json::json!({"userinfo_method": null, "userinfo_id_path": null,
+                "userinfo_email_path": null, "revocation_auth": null}),
+            serde_json::json!({"userinfo_method": "post", "userinfo_id_path": "/id",
+                "userinfo_email_path": "/email", "revocation_auth": "bearer", "is_active": false}),
+        ] {
+            let proxy = MockServer::start().await;
+            let organization_id = Uuid::from_u128(1);
+            let provider_id = Uuid::from_u128(2);
+            Mock::given(method("PATCH"))
+                .and(path(format!(
+                    "/organizations/{organization_id}/oauth/providers/{provider_id}"
+                )))
+                .and(header("authorization", "Bearer test-key"))
+                .and(body_json(body.clone()))
+                .respond_with(ResponseTemplate::new(409))
+                .expect(1)
+                .mount(&proxy)
+                .await;
+            let params: UpdateOrgOAuthProviderParams =
+                serde_json::from_value(flat_oauth_provider_update(body.clone())).unwrap();
+            let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+            let result = server
+                .update_org_oauth_provider(Parameters(params), extensions_with_headers(&[]))
+                .await;
+            assert!(result.is_err(), "the test upstream refuses the update");
+            let received = proxy.received_requests().await.unwrap();
+            assert_eq!(received.len(), 1);
+            assert_eq!(received[0].body_json::<serde_json::Value>().unwrap(), body);
+        }
+    }
+
+    #[tokio::test]
+    async fn oauth_provider_update_tool_blocks_read_only_before_http() {
+        let proxy = wiremock::MockServer::start().await;
+        let params: UpdateOrgOAuthProviderParams =
+            serde_json::from_value(flat_oauth_provider_update(serde_json::json!({
+                "userinfo_method": null, "userinfo_id_path": null,
+                "userinfo_email_path": null, "revocation_auth": null
+            })))
+            .unwrap();
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let error = server
+            .update_org_oauth_provider(
+                Parameters(params),
+                extensions_with_headers(&[("x-read-only", "true")]),
+            )
+            .await
+            .expect_err("read-only mode refuses the update");
+        assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_REQUEST);
+        assert!(error.message.contains("Read-only"), "{}", error.message);
+        assert!(proxy.received_requests().await.unwrap().is_empty());
+    }
+
     fn managed_agent_detail_fixture(deployment_id: Uuid) -> serde_json::Value {
         serde_json::json!({
             "data": {

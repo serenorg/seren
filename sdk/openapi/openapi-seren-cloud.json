@@ -11409,7 +11409,9 @@
           "startup_failed",
           "platform_error",
           "stopped",
-          "authority"
+          "authority",
+          "setup_pending",
+          "setup_failed"
         ]
       },
       "CloudConversationTaskMoveResponse": {
@@ -25126,6 +25128,22 @@
           "superseded"
         ]
       },
+      "ManagedRuntimeControllerRefusal": {
+        "type": "object",
+        "description": "Public status for the exact runtime action created with a managed revision.",
+        "required": [
+          "code",
+          "kind"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/RuntimeReconcileRejectionKind"
+          }
+        }
+      },
       "ManagedRuntimeReconciliationDeferral": {
         "type": "string",
         "description": "Why a pending managed runtime action is waiting rather than actively applying.\n\nA deferral is distinct from a failure: the action is durable and admitted,\nbut its runtime cannot accept the material yet. It resolves on its own once\nthe named precondition clears (the Employee restarts, the build completes),\nso the operator sees a specific reason instead of an opaque `pending`.",
@@ -25186,6 +25204,16 @@
           "control_generation": {
             "type": "integer",
             "format": "int64"
+          },
+          "controller_refusal": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedRuntimeControllerRefusal"
+              }
+            ]
           },
           "deferral": {
             "oneOf": [
@@ -25901,7 +25929,9 @@
         "enum": [
           "not_waiting_head",
           "wake_timeout",
-          "admission_retry"
+          "admission_retry",
+          "setup_pending",
+          "setup_failed"
         ]
       },
       "ReferenceEnvCredentialProposalPreview": {
@@ -26036,6 +26066,17 @@
       "RunFileContent": {
         "type": "string",
         "format": "binary"
+      },
+      "RuntimeReconcileRejectionKind": {
+        "type": "string",
+        "enum": [
+          "invalid_request",
+          "workload_rejected",
+          "secrets_gateway_material",
+          "deployment_strategy_transition",
+          "runtime_intent_mismatch",
+          "unknown"
+        ]
       },
       "SideEffectPolicy": {
         "type": "object",

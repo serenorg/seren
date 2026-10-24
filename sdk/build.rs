@@ -686,13 +686,19 @@ fn schema_fingerprint(value: &serde_json::Value) -> Option<String> {
     serde_json::to_string(&normalize_schema_for_fingerprint(value)).ok()
 }
 
-/// Composed schemas the SDK defines in `src/models.rs`. Progenitor flattens
-/// `ManagedDeploymentReadResponse` into anonymous variants, so the SDK keeps
-/// the named deployment view beside its nullable stop refusal instead.
-const SDK_SCHEMA_REPLACEMENTS: &[(&str, &str)] = &[(
-    "ManagedDeploymentReadResponse",
-    "crate::ManagedDeploymentReadResponse",
-)];
+/// Wire models the SDK owns in `src/models.rs`. Deployment reads retain their
+/// named view and nullable stop refusal. Provider updates distinguish omitted
+/// settings from explicit null resets instead of collapsing both into None.
+const SDK_SCHEMA_REPLACEMENTS: &[(&str, &str)] = &[
+    (
+        "ManagedDeploymentReadResponse",
+        "crate::ManagedDeploymentReadResponse",
+    ),
+    (
+        "UpdateOAuthProviderRequest",
+        "crate::UpdateOAuthProviderRequest",
+    ),
+];
 
 /// Replace inline schemas in DataResponse wrappers with `$ref` to named schemas.
 ///
