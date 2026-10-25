@@ -6769,18 +6769,20 @@ pub async fn managed_agent_stop(deployment_id: Uuid, ctx: &CommandContext) -> Re
 /// Delete a managed seren-agent deployment.
 pub async fn managed_agent_delete(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
-    match client
+    let response = match client
         .seren_agent_delete_managed_deployment(&deployment_id)
         .await
     {
-        Ok(response) => {
-            let _ = response.into_inner();
-        }
+        Ok(response) => response.into_inner(),
         Err(err) => {
             return Err(
                 anyhow_from_seren_error("Failed to delete managed agent deployment", err).await,
             );
         }
+    };
+    if let OutputFormat::Json = ctx.format {
+        output::print_json(&response)?;
+        return Ok(());
     }
     println!(
         "{} Managed deployment {} deleted.",
@@ -7258,6 +7260,11 @@ pub async fn cloud_environment_list(ctx: &CommandContext) -> Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
         .into_inner();
+
+    if let OutputFormat::Json = ctx.format {
+        output::print_json(&response)?;
+        return Ok(());
+    }
 
     let environments = &response.data;
     if environments.is_empty() {
@@ -8156,6 +8163,10 @@ pub async fn cloud_run(
         Ok(response) => response.into_inner(),
         Err(e) => return Err(anyhow_from_seren_error("Failed to trigger run", e).await),
     };
+    if let OutputFormat::Json = ctx.format {
+        output::print_json(&response_body)?;
+        return Ok(());
+    }
     let response_json = serde_json::to_value(&response_body)?;
     let (run_id, execution_id) = extract_run_identifiers(&response_json);
 
@@ -10568,10 +10579,15 @@ pub async fn cloud_deployment_audit(
 /// Destroy a cloud agent deployment.
 pub async fn cloud_destroy(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
-    client
+    let response = client
         .seren_cloud_delete(&deployment_id)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+    if let OutputFormat::Json = ctx.format {
+        output::print_json(&response)?;
+        return Ok(());
+    }
     println!("{} Deployment {} destroyed.", "✓".green(), deployment_id);
     Ok(())
 }
@@ -11322,10 +11338,16 @@ pub async fn cloud_update_config(
         eval_gate,
         visibility: None,
     };
-    client
+    let response = client
         .seren_cloud_update_config(&deployment_id, &request)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+
+    if let OutputFormat::Json = ctx.format {
+        output::print_json(&response)?;
+        return Ok(());
+    }
 
     println!(
         "{} Deployment settings updated for {}.",
