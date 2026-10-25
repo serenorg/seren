@@ -555,13 +555,36 @@ fn desired_egress_label(state: &seren::DesiredEgressState) -> &'static str {
     }
 }
 
+#[derive(Clone, Copy)]
+enum LifecycleStatusTarget {
+    Managed,
+    Cloud,
+}
+
+impl LifecycleStatusTarget {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Managed => "Managed deployment",
+            Self::Cloud => "Deployment",
+        }
+    }
+
+    fn command(self) -> &'static str {
+        match self {
+            Self::Managed => "seren agent managed-get",
+            Self::Cloud => "seren agent cloud deployment status",
+        }
+    }
+}
+
 fn render_lifecycle_status(
-    entity_label: &str,
+    target: LifecycleStatusTarget,
     transition: LifecycleTransition,
     deployment_id: Uuid,
     status: &seren::CloudDeploymentActionStatusResponse,
     request_id: Option<&str>,
 ) -> String {
+    let entity_label = target.label();
     let converged = status
         .status
         .eq_ignore_ascii_case(transition.converged_status());
@@ -598,7 +621,8 @@ fn render_lifecycle_status(
     }
     if !converged {
         lines.push(format!(
-            "  poll `seren agent get {deployment_id}` until it reports {}.",
+            "  poll `{} {deployment_id}` until it reports {}.",
+            target.command(),
             transition.converged_status()
         ));
     }
@@ -6695,7 +6719,7 @@ pub async fn managed_agent_start(deployment_id: Uuid, ctx: &CommandContext) -> R
         OutputFormat::Table => println!(
             "{}",
             render_lifecycle_status(
-                "Managed deployment",
+                LifecycleStatusTarget::Managed,
                 LifecycleTransition::Start,
                 deployment_id,
                 &payload.data,
@@ -6731,7 +6755,7 @@ pub async fn managed_agent_stop(deployment_id: Uuid, ctx: &CommandContext) -> Re
         OutputFormat::Table => println!(
             "{}",
             render_lifecycle_status(
-                "Managed deployment",
+                LifecycleStatusTarget::Managed,
                 LifecycleTransition::Stop,
                 deployment_id,
                 &payload.data,
@@ -7697,7 +7721,7 @@ pub async fn cloud_start(deployment_id: Uuid, ctx: &CommandContext) -> Result<()
         OutputFormat::Table => println!(
             "{}",
             render_lifecycle_status(
-                "Deployment",
+                LifecycleStatusTarget::Cloud,
                 LifecycleTransition::Start,
                 deployment_id,
                 &payload.data,
@@ -7734,7 +7758,7 @@ pub async fn cloud_stop(deployment_id: Uuid, ctx: &CommandContext) -> Result<()>
         OutputFormat::Table => println!(
             "{}",
             render_lifecycle_status(
-                "Deployment",
+                LifecycleStatusTarget::Cloud,
                 LifecycleTransition::Stop,
                 deployment_id,
                 &payload.data,
@@ -13510,7 +13534,7 @@ mod tests {
     fn lifecycle_status_distinguishes_accepted_from_converged_start() {
         let deployment_id = Uuid::from_u128(1);
         let accepted = render_lifecycle_status(
-            "Managed deployment",
+            LifecycleStatusTarget::Managed,
             LifecycleTransition::Start,
             deployment_id,
             &action_status("building"),
@@ -13519,10 +13543,10 @@ mod tests {
         assert!(accepted.contains("accepted; not yet converged"));
         assert!(accepted.contains("status: building"));
         assert!(accepted.contains("action request id: req-abc"));
-        assert!(accepted.contains("poll `seren agent get"));
+        assert!(accepted.contains("poll `seren agent managed-get"));
 
         let converged = render_lifecycle_status(
-            "Managed deployment",
+            LifecycleStatusTarget::Managed,
             LifecycleTransition::Start,
             deployment_id,
             &action_status("running"),
@@ -13530,14 +13554,14 @@ mod tests {
         );
         assert!(converged.contains("converged (status: running)"));
         assert!(!converged.contains("not yet converged"));
-        assert!(!converged.contains("poll `seren agent get"));
+        assert!(!converged.contains("poll `seren agent managed-get"));
     }
 
     #[test]
     fn lifecycle_status_distinguishes_accepted_from_converged_stop() {
         let deployment_id = Uuid::from_u128(2);
         let accepted = render_lifecycle_status(
-            "Managed deployment",
+            LifecycleStatusTarget::Managed,
             LifecycleTransition::Stop,
             deployment_id,
             &action_status("stopping"),
@@ -13547,7 +13571,7 @@ mod tests {
         assert!(accepted.contains("status: stopping"));
 
         let converged = render_lifecycle_status(
-            "Managed deployment",
+            LifecycleStatusTarget::Managed,
             LifecycleTransition::Stop,
             deployment_id,
             &action_status("stopped"),
