@@ -5,6 +5,38 @@ use uuid::Uuid;
 
 use crate::{CommandContext, OutputFormat, output};
 
+/// Change only the supplied organization fields.
+pub async fn update(
+    organization_id: &str,
+    name: Option<&str>,
+    public_handle: Option<&str>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let org_uuid = Uuid::parse_str(organization_id)
+        .map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
+    if name.is_none() && public_handle.is_none() {
+        anyhow::bail!("Provide --name or --public-handle.");
+    }
+    let mut body = serde_json::Map::new();
+    if let Some(name) = name {
+        body.insert("name".into(), serde_json::json!(name));
+    }
+    if let Some(handle) = public_handle {
+        body.insert("public_handle".into(), serde_json::json!(handle));
+    }
+    let request: seren::RenameOrganizationRequest =
+        serde_json::from_value(serde_json::Value::Object(body))
+            .map_err(|e| anyhow::anyhow!("Invalid organization update: {}", e))?;
+    let response = ctx
+        .client()
+        .await?
+        .rename_organization(&org_uuid, &request)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to update organization: {}", e))?
+        .into_inner();
+    super::managed::print_response(&response, ctx)
+}
+
 pub async fn list_members(organization_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
     let org_uuid = Uuid::parse_str(organization_id)
@@ -282,4 +314,40 @@ fn option_to_string<T: std::fmt::Display>(value: Option<&T>) -> String {
     value
         .map(ToString::to_string)
         .unwrap_or_else(|| "-".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn organization_update_forwards_handle_without_inventing_a_name() {
+        use wiremock::matchers::{body_json, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        let id = Uuid::from_u128(42);
+        Mock::given(method("PATCH")).and(path(format!("/organizations/{id}")))
+            .and(header("Authorization", "Bearer test-key"))
+            .and(body_json(serde_json::json!({"public_handle": "example-store"})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {
+                "id": id, "name": "Example", "slug": "example", "created_by": id, "is_personal": false, "public_handle": "example-store", "created_at": "2026-10-25T00:00:00Z", "updated_at": "2026-10-25T00:00:00Z"
+            }}))).expect(1).mount(&server).await;
+        let ctx = CommandContext::new(
+            Some(server.uri()),
+            Some("test-key".into()),
+            OutputFormat::Json,
+        );
+        update(&id.to_string(), None, Some("example-store"), &ctx)
+            .await
+            .unwrap();
+        server.verify().await;
+        assert!(
+            update(&id.to_string(), None, None, &ctx)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("--name or --public-handle")
+        );
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
 }

@@ -183,6 +183,7 @@ mod tests {
             let wire = json!({
                 "task_id": Uuid::new_v4(), "conversation_id": "setup-conversation",
                 "state": "waiting", "files": [], "created_at": "2026-10-24T01:00:00Z",
+                "serving_fallback": false,
                 "hold_reason": reason,
                 "queue_state": {"state": "waiting", "since": "2026-10-24T01:00:00Z",
                     "attempts": 0, "reason": reason}
@@ -195,6 +196,76 @@ mod tests {
                 assert!(serde_json::from_value::<crate::CloudConversationTask>(invalid).is_err());
             }
         }
+    }
+
+    #[test]
+    fn conversation_tasks_preserve_retry_refusals_and_require_serving_evidence() {
+        for end_reason in ["retry_refused", "retry_limit", "hold_expired"] {
+            let wire = json!({"task_id": Uuid::new_v4(), "conversation_id": "held-conversation",
+                "state": "removed", "files": [], "created_at": "2026-10-24T01:00:00Z",
+                "serving_fallback": true, "desired_revision": 9, "serving_revision": 8,
+                "end_reason": end_reason, "retry_refusal": "admission_refused",
+                "retry_refused_at": "2026-10-24T01:02:00Z",
+                "queue_state": {"state": "waiting", "since": "2026-10-24T01:02:00Z", "attempts": 2}});
+            let task: crate::CloudConversationTask = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(task).unwrap(), wire);
+            for (field, value) in [
+                ("end_reason", json!("unknown")),
+                ("retry_refusal", json!("unknown")),
+                ("retry_refused_at", json!("not-a-timestamp")),
+                ("serving_fallback", json!(null)),
+            ] {
+                let mut malformed = wire.clone();
+                malformed[field] = value;
+                assert!(serde_json::from_value::<crate::CloudConversationTask>(malformed).is_err());
+            }
+            let mut missing = wire;
+            missing.as_object_mut().unwrap().remove("serving_fallback");
+            assert!(serde_json::from_value::<crate::CloudConversationTask>(missing).is_err());
+        }
+    }
+
+    #[test]
+    fn managed_owner_and_update_views_preserve_serving_revisions() {
+        let owner_wire = json!({"id": Uuid::new_v4(), "organization_id": Uuid::new_v4(),
+            "name": "Researcher", "skill_slug": "research", "mode": "cron", "platform_managed": true,
+            "status": "running", "desired_lifecycle_state": "running",
+            "template": {"slug": "research", "display_name": "Researcher", "revision": 9},
+            "desired_revision": 9, "serving_revision": 8, "serving_fallback": true,
+            "run_kinds": [], "spend_limits": {"per_task_atomic": 2000000, "per_day_atomic": 10000000,
+                "day_timezone": "UTC", "defaults": {"per_task_atomic": 2000000, "per_day_atomic": 10000000}, "run_kinds": []},
+            "created_at": "2026-10-24T01:00:00Z", "updated_at": "2026-10-24T01:00:00Z"});
+        let owner: crate::ManagedAgentOwnerView =
+            serde_json::from_value(owner_wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(owner).unwrap(), owner_wire);
+        let mut update_wire = template_update_with_activation(
+            json!({"progress": "pending", "availability": "pending"}),
+        );
+        update_wire["desired_revision"] = json!(9);
+        update_wire["serving_revision"] = json!(8);
+        update_wire["serving_fallback"] = json!(true);
+        let update: crate::ManagedAgentTemplateUpdate =
+            serde_json::from_value(update_wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(update).unwrap(), update_wire);
+        for mut wire in [owner_wire, update_wire] {
+            wire.as_object_mut().unwrap().remove("serving_fallback");
+            if wire.get("template_slug").is_some() {
+                assert!(serde_json::from_value::<crate::ManagedAgentTemplateUpdate>(wire).is_err());
+            } else {
+                assert!(serde_json::from_value::<crate::ManagedAgentOwnerView>(wire).is_err());
+            }
+        }
+        for state in ["pending", "delivered", "failed", "unconfigured"] {
+            let decoded: crate::ManagedAgentHealthIncidentDeliveryState =
+                serde_json::from_value(json!(state)).unwrap();
+            assert_eq!(serde_json::to_value(decoded).unwrap(), state);
+        }
+        assert!(
+            serde_json::from_value::<crate::ManagedAgentHealthIncidentDeliveryState>(json!(
+                "unknown"
+            ))
+            .is_err()
+        );
     }
 
     #[test]
@@ -216,7 +287,7 @@ mod tests {
     fn template_update_with_activation(activation: serde_json::Value) -> serde_json::Value {
         json!({
             "template_slug": "release-test", "current_revision": 8, "newest_revision": 9,
-            "state": "applying", "decision_needed": false,
+            "state": "applying", "decision_needed": false, "serving_fallback": false,
             "setting": "ask_first", "setting_source": "hire", "activation": activation
         })
     }
@@ -490,6 +561,7 @@ mod tests {
     fn template_release_request_wire() -> serde_json::Value {
         json!({
             "display_name": "Release test",
+            "listed": true,
             "source_bundle_id": Uuid::new_v4(),
             "source_commit_sha": "a".repeat(40),
             "deploy_defaults": {
@@ -510,6 +582,7 @@ mod tests {
             let server = MockServer::start().await;
             let organization_id = Uuid::new_v4();
             let mut request_wire = template_release_request_wire();
+            request_wire["listed"] = json!(rollout != Some(false));
             if let Some(rollout) = rollout {
                 request_wire["rollout"] = json!(rollout);
             }
@@ -522,7 +595,7 @@ mod tests {
             assert_eq!(serde_json::to_value(&request).unwrap(), request_wire);
             let mut response_wire = json!({"data": {
                 "slug": "release-test", "revision": 7, "created": false,
-                "revision_added": false, "active": true,
+                "revision_added": false, "active": true, "listed": false, "review_state": "pending",
                 "providers": ["google", "microsoft"]
             }});
             if rollout == Some(false) {
@@ -608,7 +681,7 @@ mod tests {
         for providers in [json!([]), json!(["google"]), json!(["google", "microsoft"])] {
             let wire = json!({
                 "slug": "release-test", "revision": 7, "created": false,
-                "revision_added": false, "active": true, "providers": providers
+                "revision_added": false, "active": true, "listed": false, "review_state": "pending", "providers": providers
             });
             let release: crate::ManagedAgentTemplateRelease =
                 serde_json::from_value(wire.clone()).unwrap();
@@ -620,12 +693,37 @@ mod tests {
         for providers in [None, Some(json!(["other"]))] {
             let mut wire = json!({
                 "slug": "release-test", "revision": 7, "created": false,
-                "revision_added": false, "active": true
+                "revision_added": false, "active": true, "listed": false, "review_state": "pending"
             });
             if let Some(providers) = providers {
                 wire["providers"] = providers;
             }
             assert!(serde_json::from_value::<crate::ManagedAgentTemplateRelease>(wire).is_err());
+        }
+    }
+
+    #[test]
+    fn template_release_requires_listing_and_review_evidence() {
+        for field in ["listed", "review_state"] {
+            for value in [None, Some(json!(null)), Some(json!("unknown"))] {
+                let mut wire = json!({"slug": "research", "revision": 7, "created": false,
+                    "revision_added": false, "active": true, "listed": false,
+                    "review_state": "rejected", "review_reason": "Clarify the description.", "providers": []});
+                if let Some(value) = value {
+                    wire[field] = value;
+                } else {
+                    wire.as_object_mut().unwrap().remove(field);
+                }
+                assert!(
+                    serde_json::from_value::<crate::ManagedAgentTemplateRelease>(wire).is_err()
+                );
+            }
+        }
+        for listed in [true, false] {
+            let wire = json!({"deployment_id": Uuid::new_v4(), "display_name": "Researcher", "listed": listed});
+            let request: crate::PublishManagedAgentDeploymentRequest =
+                serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(request).unwrap(), wire);
         }
     }
 
@@ -709,19 +807,21 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn public_template_list_decodes_each_template_with_its_publisher() {
-        let server = MockServer::start().await;
-        let organization_id = Uuid::new_v4();
-        let wire = json!({
+    fn public_template_list_wire(organization_id: Uuid) -> serde_json::Value {
+        json!({
             "data": [{
                 "slug": "release-test",
                 "display_name": "Release test",
-                "publisher": {"organization_id": organization_id, "name": "Acme Studio"},
+                "publisher": {"organization_id": organization_id, "name": "Acme Studio",
+                    "handle": "acme-studio", "made_by_seren": false, "verified": true},
                 "owner_connection": "mail_and_files",
                 "spend_limit_defaults": {"per_task_atomic":2000000,"per_day_atomic":10000000},
                 "published_at": "2026-10-07T12:34:56Z",
-                "capabilities": ["Research"],
+                "capabilities": ["Research"], "example_tasks": ["Summarize the latest report"],
+                "works_in": ["1password", "google-drive", "slack"], "pronouns": "they/them",
+                "job_title": "Researcher", "tagline": "Research made clear",
+                "description": "Find primary sources.", "activity_url": "https://example.com/activity",
+                "avatar_url": "https://example.com/avatar.png",
                 "run_kinds": [{
                     "key": "run", "name": "Run", "charge": "fee",
                     "triggers": ["hire_cron", "schedule", "chat", "webhook", "api"],
@@ -729,7 +829,14 @@ mod tests {
                     "expected_cost_atomic": 300000
                 }]
             }]
-        });
+        })
+    }
+
+    #[tokio::test]
+    async fn public_template_list_decodes_each_template_with_its_publisher() {
+        let server = MockServer::start().await;
+        let organization_id = Uuid::new_v4();
+        let wire = public_template_list_wire(organization_id);
         Mock::given(method("GET"))
             .and(path("/publishers/seren-agent/templates"))
             .respond_with(ResponseTemplate::new(200).set_body_json(wire.clone()))
@@ -763,6 +870,354 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
+    fn template_profile_wire() -> serde_json::Value {
+        json!({"avatar_url": "https://example.com/avatar.png", "capabilities": ["Research"],
+            "description": "Find primary sources.", "example_tasks": ["Summarize a report"],
+            "job_title": "Researcher", "pronouns": "they/them", "tagline": "Research made clear",
+            "works_in": ["1password", "google-drive", "slack"]})
+    }
+
+    #[tokio::test]
+    async fn template_profile_patch_http_preserves_partial_requests_and_complete_profiles() {
+        for wire in [
+            json!({}),
+            json!({"tagline": null, "description": null, "job_title": null}),
+            json!({"capabilities": [], "example_tasks": [], "works_in": []}),
+            json!({"job_title": "Researcher", "pronouns": "she/her", "works_in": ["gmail"]}),
+        ] {
+            let server = MockServer::start().await;
+            let organization_id = Uuid::new_v4();
+            let request: crate::PutManagedAgentTemplateProfile =
+                serde_json::from_value(wire.clone()).unwrap();
+            let response_wire = json!({"data": template_profile_wire()});
+            Mock::given(method("PUT"))
+                .and(path(format!(
+                    "/organizations/{organization_id}/templates/research/profile"
+                )))
+                .and(body_json(wire))
+                .respond_with(ResponseTemplate::new(200).set_body_json(response_wire.clone()))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let response = Client::new(&server.uri())
+                .put_managed_agent_template_profile(&organization_id, "research", &request)
+                .await
+                .unwrap()
+                .into_inner();
+            assert_eq!(serde_json::to_value(response).unwrap(), response_wire);
+            server.verify().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn template_profile_http_rejects_missing_required_fields_and_unknown_values() {
+        let mutations = [
+            ("capabilities", None),
+            ("example_tasks", None),
+            ("works_in", None),
+            ("pronouns", None),
+            ("capabilities", Some(json!(null))),
+            ("pronouns", Some(json!("unknown"))),
+            ("works_in", Some(json!(["unknown"]))),
+            ("example_tasks", Some(json!([null]))),
+        ];
+        for (field, value) in mutations {
+            let mut profile = template_profile_wire();
+            if let Some(value) = value {
+                profile[field] = value;
+            } else {
+                profile.as_object_mut().unwrap().remove(field);
+            }
+            let server = MockServer::start().await;
+            let organization_id = Uuid::new_v4();
+            Mock::given(method("GET"))
+                .and(path(format!(
+                    "/organizations/{organization_id}/templates/research/profile"
+                )))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": profile})))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let error = Client::new(&server.uri())
+                .get_managed_agent_template_profile(&organization_id, "research")
+                .await
+                .expect_err("malformed profile must reject the typed response");
+            assert!(
+                matches!(error, crate::Error::InvalidResponsePayload(_, _)),
+                "{field}: {error:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn public_template_http_rejects_missing_card_and_publisher_fields() {
+        for pointer in [
+            "/data/0/example_tasks",
+            "/data/0/works_in",
+            "/data/0/pronouns",
+            "/data/0/publisher/made_by_seren",
+            "/data/0/publisher/verified",
+        ] {
+            let mut wire = public_template_list_wire(Uuid::new_v4());
+            let (parent, field) = pointer.rsplit_once('/').unwrap();
+            wire.pointer_mut(parent)
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .remove(field);
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/publishers/seren-agent/templates"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(wire))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let error = Client::new(&server.uri())
+                .seren_agent_list_managed_agent_templates()
+                .await
+                .expect_err("incomplete card must reject the typed response");
+            assert!(
+                matches!(error, crate::Error::InvalidResponsePayload(_, _)),
+                "{pointer}: {error:?}"
+            );
+        }
+        for (pointer, value) in [
+            ("/data/0/pronouns", json!("unknown")),
+            ("/data/0/works_in", json!(["unknown"])),
+            ("/data/0/publisher/verified", json!("true")),
+        ] {
+            let mut wire = public_template_list_wire(Uuid::new_v4());
+            *wire.pointer_mut(pointer).unwrap() = value;
+            assert!(
+                serde_json::from_value::<crate::ManagedAgentTemplateListing>(
+                    wire["data"][0].clone()
+                )
+                .is_err()
+            );
+        }
+    }
+
+    fn organization_template_wire(review_state: &str) -> serde_json::Value {
+        let mut wire = json!({"slug": "research", "display_name": "Researcher", "active": true,
+            "listed": false, "current_revision": 7, "review_state": review_state,
+            "source_deployment_id": Uuid::new_v4()});
+        if review_state == "rejected" {
+            wire["review_reason"] = json!("Add a clearer job description.");
+        }
+        wire
+    }
+
+    #[tokio::test]
+    async fn template_listing_and_review_http_preserve_owner_decisions() {
+        for review_state in ["pending", "approved", "rejected"] {
+            let server = MockServer::start().await;
+            let organization_id = Uuid::new_v4();
+            let response_wire = json!({"data": organization_template_wire(review_state)});
+            Mock::given(method("PUT"))
+                .and(path(format!(
+                    "/organizations/{organization_id}/templates/research/listing"
+                )))
+                .and(body_json(json!({"listed": false})))
+                .respond_with(ResponseTemplate::new(200).set_body_json(response_wire.clone()))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let review_wire = json!({"data": organization_template_wire("pending")});
+            Mock::given(method("POST"))
+                .and(path(format!(
+                    "/organizations/{organization_id}/templates/research/reviews"
+                )))
+                .respond_with(ResponseTemplate::new(200).set_body_json(review_wire.clone()))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let client = Client::new(&server.uri());
+            let request: crate::PutManagedAgentTemplateListing =
+                serde_json::from_value(json!({"listed": false})).unwrap();
+            let listing = client
+                .put_managed_agent_template_listing(&organization_id, "research", &request)
+                .await
+                .unwrap()
+                .into_inner();
+            let review = client
+                .request_managed_agent_template_review(&organization_id, "research")
+                .await
+                .unwrap()
+                .into_inner();
+            assert_eq!(serde_json::to_value(listing).unwrap(), response_wire);
+            assert_eq!(serde_json::to_value(review).unwrap(), review_wire);
+            server.verify().await;
+        }
+        for field in ["listed", "review_state"] {
+            for malformed in [None, Some(json!(null)), Some(json!("unknown"))] {
+                let mut wire = organization_template_wire("pending");
+                if let Some(value) = malformed {
+                    wire[field] = value;
+                } else {
+                    wire.as_object_mut().unwrap().remove(field);
+                }
+                assert!(
+                    serde_json::from_value::<crate::OrganizationManagedAgentTemplate>(wire)
+                        .is_err()
+                );
+            }
+        }
+        for wire in [
+            json!({}),
+            json!({"listed": null}),
+            json!({"listed": true, "active": true}),
+        ] {
+            assert!(serde_json::from_value::<crate::PutManagedAgentTemplateListing>(wire).is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn organization_update_http_accepts_a_store_address_without_a_name() {
+        let server = MockServer::start().await;
+        let organization_id = Uuid::new_v4();
+        let request_wire = json!({"public_handle": "acme-studio"});
+        let request: crate::RenameOrganizationRequest =
+            serde_json::from_value(request_wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&request).unwrap(), request_wire);
+        let response_wire = json!({"data": {"id": organization_id, "name": "Acme Studio",
+            "slug": "acme-studio", "public_handle": "acme-studio", "created_by": Uuid::new_v4(),
+            "is_personal": false, "created_at": "2026-10-24T01:00:00Z", "updated_at": "2026-10-24T01:00:00Z"}});
+        Mock::given(method("PATCH"))
+            .and(path(format!("/organizations/{organization_id}")))
+            .and(body_json(request_wire))
+            .respond_with(ResponseTemplate::new(200).set_body_json(response_wire.clone()))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let response = Client::new(&server.uri())
+            .rename_organization(&organization_id, &request)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(serde_json::to_value(response).unwrap(), response_wire);
+        assert!(
+            serde_json::from_value::<crate::RenameOrganizationRequest>(
+                json!({"handle": "acme-studio"})
+            )
+            .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn login_form_http_preserves_explicit_modes_callbacks_and_refusals() {
+        use wiremock::matchers::{body_string_contains, header};
+
+        for mode in [None, Some("html"), Some("json")] {
+            for status in [200, 303, 400, 401, 403, 429, 500, 503] {
+                if status == 200 && mode != Some("json") || status == 303 && mode == Some("json") {
+                    continue;
+                }
+                let server = MockServer::start().await;
+                let mut wire = json!({"email": "person@example.com", "password": "example password", "state": "pending-state"});
+                if let Some(mode) = mode {
+                    wire["response_mode"] = json!(mode);
+                }
+                let request: crate::LoginFormData = serde_json::from_value(wire.clone()).unwrap();
+                assert_eq!(serde_json::to_value(&request).unwrap(), wire);
+                let callback = "https://example.com/callback?code=example&state=pending-state";
+                let response_wire = match status {
+                    200 => json!({"data": {"redirect_uri": callback}}),
+                    429 => json!({"error": {"code": "rate_limited", "message": "Try later."}}),
+                    503 => {
+                        json!({"error": {"code": "service_unavailable", "message": "Try later."}})
+                    }
+                    401 => json!({"error": "invalid_credentials", "message": "Try again."}),
+                    403 => json!({"error": "confirm_email", "message": "Confirm your email."}),
+                    400 => json!({"error": "invalid_request", "message": "Invalid form."}),
+                    _ => json!({"error": "service_unavailable", "message": "Try later."}),
+                };
+                let is_html = mode == Some("html") && matches!(status, 401 | 403 | 429 | 500);
+                let (response_body, content_type) = if is_html {
+                    ("<form><input name=email value=person@example.com><input name=password value=></form>".to_owned(), "text/html")
+                } else {
+                    (
+                        serde_json::to_string(&response_wire).unwrap(),
+                        "application/json",
+                    )
+                };
+                let mut matcher = Mock::given(method("POST"))
+                    .and(path("/oauth2/login"))
+                    .and(header("content-type", "application/x-www-form-urlencoded"))
+                    .and(body_string_contains("state=pending-state"));
+                if let Some(mode) = mode {
+                    matcher = matcher.and(body_string_contains(format!("response_mode={mode}")));
+                }
+                matcher
+                    .respond_with(
+                        ResponseTemplate::new(status)
+                            .insert_header("Location", callback)
+                            .insert_header("Retry-After", "30")
+                            .set_body_raw(response_body.clone(), content_type),
+                    )
+                    .expect(1)
+                    .mount(&server)
+                    .await;
+                let http = reqwest::Client::builder()
+                    .redirect(reqwest::redirect::Policy::none())
+                    .build()
+                    .unwrap();
+                let result = Client::new_with_client(&server.uri(), http)
+                    .login_form(&request)
+                    .await;
+                if status == 200 {
+                    assert_eq!(
+                        serde_json::to_value(result.unwrap().into_inner()).unwrap(),
+                        response_wire
+                    );
+                } else {
+                    let error =
+                        result.expect_err("redirects and refusals retain their raw HTTP response");
+                    let crate::Error::UnexpectedResponse(response) = error else {
+                        panic!("{error:?}")
+                    };
+                    assert_eq!(response.status().as_u16(), status);
+                    assert_eq!(response.headers()["location"], callback);
+                    assert_eq!(response.headers()["retry-after"], "30");
+                    assert_eq!(response.text().await.unwrap(), response_body);
+                }
+                let received = server.received_requests().await.unwrap();
+                let body = std::str::from_utf8(&received[0].body).unwrap();
+                assert!(body.contains("email=person%40example.com"));
+                assert!(body.contains("password=example+password"));
+                assert_eq!(body.contains("response_mode="), mode.is_some());
+                server.verify().await;
+            }
+        }
+        assert!(serde_json::from_value::<crate::LoginFormData>(json!({
+            "email": "person@example.com", "password": "example", "state": "pending", "response_mode": "xml"
+        })).is_err());
+        for refusal in [
+            "invalid_credentials",
+            "too_many_attempts",
+            "confirm_email",
+            "expired_session",
+            "service_unavailable",
+        ] {
+            let wire = json!({"error": refusal, "message": "Try again."});
+            let decoded: crate::BrowserSignInError = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(decoded).unwrap(), wire);
+        }
+        assert!(
+            serde_json::from_value::<crate::BrowserSignInError>(
+                json!({"error": "unknown", "message": "Try again."})
+            )
+            .is_err()
+        );
+        for wire in [
+            json!({"error": "admission_limit", "message": "Try later.", "details": [{"retry_after": 30}, false, 5]}),
+            json!({"error": {"code": "gateway_maintenance", "message": "Try later."}}),
+        ] {
+            let decoded: crate::LoginFormAdmissionError =
+                serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(decoded).unwrap(), wire);
+        }
+    }
+
     #[tokio::test]
     async fn template_publication_rejects_unknown_rollout_wire_values() {
         for (outcome, failure) in [("pending", "internal"), ("failed", "unknown")] {
@@ -773,7 +1228,7 @@ mod tests {
             let request = serde_json::from_value(request_wire).unwrap();
             let response_wire = json!({"data": {
                 "slug": "release-test", "revision": 7, "created": false,
-                "revision_added": false, "active": true,
+                "revision_added": false, "active": true, "listed": false, "review_state": "pending",
                 "providers": ["google"],
                 "rollout": {"template_slug": "release-test", "template_revision": 8,
                     "deployments": [{"deployment_id": Uuid::new_v4(), "outcome": outcome, "failure": failure}]
@@ -1142,7 +1597,7 @@ mod tests {
             let payload = json!({
                 "data": {
                     "avatar_url": "https://example.com/avatar.png",
-                    "capabilities": ["Research"]
+                    "capabilities": ["Research"], "example_tasks": [], "works_in": [], "pronouns": "they/them"
                 }
             });
             Mock::given(method("POST"))
@@ -1193,7 +1648,7 @@ mod tests {
                 "/organizations/{organization_id}/templates/team%2Fresearch%3F%23/avatar"
             )))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "data": {"capabilities": []}
+                "data": {"capabilities": [], "example_tasks": [], "works_in": [], "pronouns": "they/them"}
             })))
             .expect(1)
             .mount(&server)

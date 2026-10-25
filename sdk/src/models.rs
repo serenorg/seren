@@ -8,6 +8,85 @@ pub struct ManagedDeploymentReadResponse {
     pub pending_stop_refusal: Option<crate::ManagedDeploymentPendingStopRefusal>,
 }
 
+/// Changes the named profile fields; omitted fields retain their stored value.
+/// Text can be cleared with null, and lists can be cleared with an empty list.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PutManagedAgentTemplateProfile {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_list::<_, _, 8>"
+    )]
+    #[schemars(with = "Vec<crate::CapabilityLabel>", length(max = 8))]
+    pub capabilities: Option<Vec<crate::CapabilityLabel>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_double_option"
+    )]
+    pub description: Option<Option<crate::Description>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_list::<_, _, 3>"
+    )]
+    #[schemars(with = "Vec<crate::ExampleTask>", length(max = 3))]
+    pub example_tasks: Option<Vec<crate::ExampleTask>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_double_option"
+    )]
+    pub job_title: Option<Option<crate::JobTitle>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_non_null"
+    )]
+    #[schemars(with = "crate::Pronouns")]
+    pub pronouns: Option<crate::Pronouns>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_double_option"
+    )]
+    pub tagline: Option<Option<crate::Tagline>>,
+    /// Each tool at most once, in the order the card shows them.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_list::<_, _, 13>"
+    )]
+    #[schemars(with = "Vec<crate::ManagedAgentTemplateTool>", length(max = 13))]
+    pub works_in: Option<Vec<crate::ManagedAgentTemplateTool>>,
+}
+
+/// A supplied non-null value is distinct from an omitted field's default.
+fn deserialize_optional_non_null<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
+
+fn deserialize_optional_list<'de, T, D, const MAX: usize>(
+    deserializer: D,
+) -> Result<Option<Vec<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    let values = Vec::<T>::deserialize(deserializer)?;
+    if values.len() > MAX {
+        return Err(serde::de::Error::custom(format!(
+            "expected at most {MAX} items"
+        )));
+    }
+    Ok(Some(values))
+}
+
 /// Changes to an organization OAuth provider. An omitted field stays unchanged.
 ///
 /// The account-lookup and revocation settings distinguish an omitted field
@@ -319,6 +398,157 @@ pub struct ReplicationSlotResponse {
     pub plugin: String,
     pub created_at: jiff::Timestamp,
     pub updated_at: jiff::Timestamp,
+}
+
+#[cfg(test)]
+mod template_profile_patch_tests {
+    use super::PutManagedAgentTemplateProfile;
+    use serde_json::json;
+
+    #[test]
+    fn profile_patch_preserves_omission_clear_and_supplied_values() {
+        for wire in [
+            json!({}),
+            json!({"job_title": null, "tagline": null, "description": null}),
+            json!({"capabilities": [], "example_tasks": [], "works_in": []}),
+            json!({"job_title": "Researcher", "tagline": "Research made clear",
+                "description": "Find and summarize primary sources.",
+                "capabilities": ["Research"], "example_tasks": ["Summarize the latest report"],
+                "works_in": ["1password", "google-drive", "slack"], "pronouns": "they/them"}),
+        ] {
+            let patch: PutManagedAgentTemplateProfile =
+                serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(patch).unwrap(), wire);
+        }
+        let omitted: PutManagedAgentTemplateProfile = serde_json::from_value(json!({})).unwrap();
+        assert!(omitted.job_title.is_none());
+        assert!(omitted.tagline.is_none());
+        assert!(omitted.description.is_none());
+        assert!(omitted.capabilities.is_none());
+        assert!(omitted.example_tasks.is_none());
+        assert!(omitted.works_in.is_none());
+        assert!(omitted.pronouns.is_none());
+        let cleared: PutManagedAgentTemplateProfile = serde_json::from_value(json!({
+            "job_title": null, "tagline": null, "description": null
+        }))
+        .unwrap();
+        assert!(matches!(cleared.job_title, Some(None)));
+        assert!(matches!(cleared.tagline, Some(None)));
+        assert!(matches!(cleared.description, Some(None)));
+        assert_eq!(
+            serde_json::to_value(PutManagedAgentTemplateProfile::default()).unwrap(),
+            json!({})
+        );
+    }
+
+    #[test]
+    fn profile_patch_rejects_null_non_null_fields_and_closed_wire_values() {
+        for wire in [
+            json!({"capabilities": null}),
+            json!({"example_tasks": null}),
+            json!({"works_in": null}),
+            json!({"pronouns": null}),
+            json!({"pronouns": "unknown"}),
+            json!({"works_in": ["unknown"]}),
+            json!({"capabilities": [null]}),
+            json!({"example_tasks": [7]}),
+            json!({"avatar_url": "https://example.com/avatar.png"}),
+        ] {
+            assert!(
+                serde_json::from_value::<PutManagedAgentTemplateProfile>(wire.clone()).is_err(),
+                "{wire}"
+            );
+        }
+    }
+
+    #[test]
+    fn profile_patch_enforces_named_text_and_list_bounds() {
+        for (field, maximum) in [("capabilities", 8), ("example_tasks", 3), ("works_in", 13)] {
+            let items = if field == "works_in" {
+                vec![
+                    "1password",
+                    "canva",
+                    "discord",
+                    "gmail",
+                    "google",
+                    "google-drive",
+                    "microsoft",
+                    "onedrive",
+                    "outlook",
+                    "shopify",
+                    "signal",
+                    "slack",
+                    "whatsapp",
+                ]
+            } else {
+                vec!["Research"; maximum]
+            };
+            let at_limit = json!({field: items});
+            let decoded: PutManagedAgentTemplateProfile =
+                serde_json::from_value(at_limit.clone()).unwrap();
+            assert_eq!(serde_json::to_value(decoded).unwrap(), at_limit);
+            let item = if field == "works_in" {
+                "slack"
+            } else {
+                "Research"
+            };
+            let oversized = json!({field: vec![item; maximum + 1]});
+            assert!(serde_json::from_value::<PutManagedAgentTemplateProfile>(oversized).is_err());
+        }
+        for (field, maximum, list) in [
+            ("job_title", 60, false),
+            ("tagline", 120, false),
+            ("description", 2000, false),
+            ("capabilities", 80, true),
+            ("example_tasks", 80, true),
+        ] {
+            for length in [0, maximum + 1] {
+                let text = "x".repeat(length);
+                let value = if list { json!([text]) } else { json!(text) };
+                assert!(
+                    serde_json::from_value::<PutManagedAgentTemplateProfile>(json!({field: value}))
+                        .is_err(),
+                    "{field}: {length}"
+                );
+            }
+            let text = "x".repeat(maximum);
+            let wire = json!({field: if list { json!([text]) } else { json!(text) }});
+            let decoded: PutManagedAgentTemplateProfile =
+                serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(decoded).unwrap(), wire);
+        }
+    }
+
+    #[test]
+    fn profile_patch_schema_advertises_optional_non_null_lists_and_pronouns() {
+        let schema =
+            serde_json::to_value(schemars::schema_for!(PutManagedAgentTemplateProfile)).unwrap();
+        assert!(
+            schema
+                .get("required")
+                .is_none_or(|required| required.as_array().unwrap().is_empty())
+        );
+        assert_eq!(schema["additionalProperties"], false);
+        for (field, maximum) in [("capabilities", 8), ("example_tasks", 3), ("works_in", 13)] {
+            assert_eq!(schema["properties"][field]["type"], "array");
+            assert_eq!(schema["properties"][field]["maxItems"], maximum);
+        }
+        let pronouns = &schema["properties"]["pronouns"];
+        let pronouns = pronouns
+            .get("$ref")
+            .and_then(serde_json::Value::as_str)
+            .map_or(pronouns, |reference| {
+                schema
+                    .pointer(reference.strip_prefix('#').unwrap())
+                    .unwrap()
+            });
+        assert_eq!(pronouns["type"], "string");
+        let values = pronouns["enum"].as_array().unwrap();
+        assert_eq!(values.len(), 3);
+        for value in ["she/her", "he/him", "they/them"] {
+            assert!(values.contains(&json!(value)));
+        }
+    }
 }
 
 #[cfg(test)]

@@ -6766,7 +6766,7 @@
             }
           },
           "404": {
-            "description": "Template or connected account not found",
+            "description": "Template not found, suspended, or taken off the catalog by its Owner (new hires only), or connected account not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -6776,7 +6776,7 @@
             }
           },
           "409": {
-            "description": "A hire is in progress, the account must be reconnected, the hirer's email address is unconfirmed (`owner_email_unverified`; `details.email` names the address and `details.confirmation_email` reports confirmation delivery), the template's setup is unavailable (`template_artifact_unavailable`), its setup does not match the published revision (`template_artifact_mismatch`), a required service has changed (`managed_agent_template_unavailable`), or a run kind is priced below its minimum (`run_fee_below_minimum`)",
+            "description": "The template is waiting for platform review (`managed_agent_template_not_approved`), a hire is in progress, the account must be reconnected, the hirer's email address is unconfirmed (`owner_email_unverified`; `details.email` names the address and `details.confirmation_email` reports confirmation delivery), the template's setup is unavailable (`template_artifact_unavailable`), its setup does not match the published revision (`template_artifact_mismatch`), a required service has changed (`managed_agent_template_unavailable`), or a run kind is priced below its minimum (`run_fee_below_minimum`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -11564,6 +11564,7 @@
               "status",
               "desired_lifecycle_state",
               "template",
+              "serving_fallback",
               "run_kinds",
               "spend_limits",
               "created_at",
@@ -11607,6 +11608,14 @@
               "desired_lifecycle_state": {
                 "$ref": "#/components/schemas/DesiredLifecycleState"
               },
+              "desired_revision": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "Template revision the managed agent is set to run."
+              },
               "id": {
                 "type": "string",
                 "format": "uuid"
@@ -11642,6 +11651,18 @@
                   "$ref": "#/components/schemas/ManagedAgentRunKindPrice"
                 },
                 "description": "Each kind of run of the current release, with what it charges."
+              },
+              "serving_fallback": {
+                "type": "boolean",
+                "description": "Whether work is running on an earlier revision while an update installs."
+              },
+              "serving_revision": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "Template revision of the last confirmed serving setup, when known."
               },
               "skill_slug": {
                 "type": "string"
@@ -12634,6 +12655,7 @@
               "template_slug",
               "current_revision",
               "newest_revision",
+              "serving_fallback",
               "state",
               "decision_needed",
               "setting",
@@ -12670,6 +12692,14 @@
               "decision_needed": {
                 "type": "boolean",
                 "description": "Whether the Employer's decision is needed: an update is pending or was put off."
+              },
+              "desired_revision": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "Template revision the managed agent is set to run."
               },
               "held_reason": {
                 "oneOf": [
@@ -12745,6 +12775,18 @@
                 ],
                 "format": "int64",
                 "description": "The previous saved choice a rollback restores; it need not have run."
+              },
+              "serving_fallback": {
+                "type": "boolean",
+                "description": "Whether work is running on an earlier revision while an update installs."
+              },
+              "serving_revision": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "Template revision of the last confirmed serving setup, when known."
               },
               "setting": {
                 "$ref": "#/components/schemas/TemplateUpdateSetting",
@@ -14520,6 +14562,9 @@
               "required": [
                 "owner_connection",
                 "capabilities",
+                "example_tasks",
+                "works_in",
+                "pronouns",
                 "slug",
                 "display_name",
                 "publisher",
@@ -14560,6 +14605,12 @@
                 "display_name": {
                   "type": "string"
                 },
+                "example_tasks": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ExampleTask"
+                  }
+                },
                 "intro_video": {
                   "oneOf": [
                     {
@@ -14571,9 +14622,22 @@
                     }
                   ]
                 },
+                "job_title": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/JobTitle"
+                    }
+                  ]
+                },
                 "owner_connection": {
                   "$ref": "#/components/schemas/ManagedAgentTemplateOwnerConnection",
                   "description": "Whether hiring requires a mail and files connection or only a sign-in identity."
+                },
+                "pronouns": {
+                  "$ref": "#/components/schemas/Pronouns"
                 },
                 "published_at": {
                   "type": "string",
@@ -14581,7 +14645,7 @@
                   "description": "Time the template was first published."
                 },
                 "publisher": {
-                  "$ref": "#/components/schemas/ManagedAgentTemplatePublisher"
+                  "$ref": "#/components/schemas/ManagedAgentTemplateListingPublisher"
                 },
                 "run_kinds": {
                   "type": "array",
@@ -14605,6 +14669,12 @@
                       "$ref": "#/components/schemas/Tagline"
                     }
                   ]
+                },
+                "works_in": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateTool"
+                  }
                 }
               }
             }
@@ -15256,6 +15326,11 @@
         },
         "additionalProperties": false
       },
+      "ExampleTask": {
+        "type": "string",
+        "maxLength": 80,
+        "minLength": 1
+      },
       "GrantedActions": {
         "oneOf": [
           {
@@ -15388,6 +15463,11 @@
           "pending",
           "unavailable"
         ]
+      },
+      "JobTitle": {
+        "type": "string",
+        "maxLength": 60,
+        "minLength": 1
       },
       "ManagedAgentActivityDeploymentSummary": {
         "type": "object",
@@ -17188,7 +17268,8 @@
         "enum": [
           "pending",
           "delivered",
-          "failed"
+          "failed",
+          "unconfigured"
         ]
       },
       "ManagedAgentHealthIncidentState": {
@@ -17745,6 +17826,7 @@
           "status",
           "desired_lifecycle_state",
           "template",
+          "serving_fallback",
           "run_kinds",
           "spend_limits",
           "created_at",
@@ -17788,6 +17870,14 @@
           "desired_lifecycle_state": {
             "$ref": "#/components/schemas/DesiredLifecycleState"
           },
+          "desired_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Template revision the managed agent is set to run."
+          },
           "id": {
             "type": "string",
             "format": "uuid"
@@ -17823,6 +17913,18 @@
               "$ref": "#/components/schemas/ManagedAgentRunKindPrice"
             },
             "description": "Each kind of run of the current release, with what it charges."
+          },
+          "serving_fallback": {
+            "type": "boolean",
+            "description": "Whether work is running on an earlier revision while an update installs."
+          },
+          "serving_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Template revision of the last confirmed serving setup, when known."
           },
           "skill_slug": {
             "type": "string"
@@ -19947,6 +20049,9 @@
         "required": [
           "owner_connection",
           "capabilities",
+          "example_tasks",
+          "works_in",
+          "pronouns",
           "slug",
           "display_name",
           "publisher",
@@ -19987,6 +20092,12 @@
           "display_name": {
             "type": "string"
           },
+          "example_tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExampleTask"
+            }
+          },
           "intro_video": {
             "oneOf": [
               {
@@ -19998,9 +20109,22 @@
               }
             ]
           },
+          "job_title": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobTitle"
+              }
+            ]
+          },
           "owner_connection": {
             "$ref": "#/components/schemas/ManagedAgentTemplateOwnerConnection",
             "description": "Whether hiring requires a mail and files connection or only a sign-in identity."
+          },
+          "pronouns": {
+            "$ref": "#/components/schemas/Pronouns"
           },
           "published_at": {
             "type": "string",
@@ -20008,7 +20132,7 @@
             "description": "Time the template was first published."
           },
           "publisher": {
-            "$ref": "#/components/schemas/ManagedAgentTemplatePublisher"
+            "$ref": "#/components/schemas/ManagedAgentTemplateListingPublisher"
           },
           "run_kinds": {
             "type": "array",
@@ -20032,6 +20156,46 @@
                 "$ref": "#/components/schemas/Tagline"
               }
             ]
+          },
+          "works_in": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentTemplateTool"
+            }
+          }
+        }
+      },
+      "ManagedAgentTemplateListingPublisher": {
+        "type": "object",
+        "description": "The organization that publishes a template, as the public catalog shows it.",
+        "required": [
+          "organization_id",
+          "name",
+          "made_by_seren",
+          "verified"
+        ],
+        "properties": {
+          "handle": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The publisher's store address on serendb.com, `/stores/{handle}`; null until its Owner sets one."
+          },
+          "made_by_seren": {
+            "type": "boolean",
+            "description": "Whether the publisher is Seren."
+          },
+          "name": {
+            "type": "string"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "verified": {
+            "type": "boolean",
+            "description": "Whether the publisher is Seren, or one of its built-in Owners verified their identity with a government ID."
           }
         }
       },
@@ -20096,23 +20260,6 @@
           "mail_and_files",
           "sign_in_only"
         ]
-      },
-      "ManagedAgentTemplatePublisher": {
-        "type": "object",
-        "description": "The organization that publishes a template.",
-        "required": [
-          "organization_id",
-          "name"
-        ],
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "organization_id": {
-            "type": "string",
-            "format": "uuid"
-          }
-        }
       },
       "ManagedAgentTemplateReferralCampaign": {
         "type": "object",
@@ -20236,6 +20383,25 @@
           }
         }
       },
+      "ManagedAgentTemplateTool": {
+        "type": "string",
+        "description": "A product a managed agent works in, shown as a logo on its catalog card.",
+        "enum": [
+          "1password",
+          "canva",
+          "discord",
+          "gmail",
+          "google",
+          "google-drive",
+          "microsoft",
+          "onedrive",
+          "outlook",
+          "shopify",
+          "signal",
+          "slack",
+          "whatsapp"
+        ]
+      },
       "ManagedAgentTemplateUpdate": {
         "type": "object",
         "description": "The Employer's view of a hire's template updates.",
@@ -20243,6 +20409,7 @@
           "template_slug",
           "current_revision",
           "newest_revision",
+          "serving_fallback",
           "state",
           "decision_needed",
           "setting",
@@ -20279,6 +20446,14 @@
           "decision_needed": {
             "type": "boolean",
             "description": "Whether the Employer's decision is needed: an update is pending or was put off."
+          },
+          "desired_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Template revision the managed agent is set to run."
           },
           "held_reason": {
             "oneOf": [
@@ -20354,6 +20529,18 @@
             ],
             "format": "int64",
             "description": "The previous saved choice a rollback restores; it need not have run."
+          },
+          "serving_fallback": {
+            "type": "boolean",
+            "description": "Whether work is running on an earlier revision while an update installs."
+          },
+          "serving_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Template revision of the last confirmed serving setup, when known."
           },
           "setting": {
             "$ref": "#/components/schemas/TemplateUpdateSetting",
@@ -22259,6 +22446,15 @@
           "live_discovery",
           "fallback_registry",
           "unsupported_provider"
+        ]
+      },
+      "Pronouns": {
+        "type": "string",
+        "description": "How public text refers to the managed agent.",
+        "enum": [
+          "she/her",
+          "he/him",
+          "they/them"
         ]
       },
       "ProposeVaults": {

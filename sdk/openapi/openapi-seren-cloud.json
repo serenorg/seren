@@ -11347,6 +11347,7 @@
           "state",
           "queue_state",
           "files",
+          "serving_fallback",
           "created_at"
         ],
         "properties": {
@@ -11356,6 +11357,25 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "desired_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Template revision the managed agent is set to run."
+          },
+          "end_reason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudConversationTaskEndReason",
+                "description": "Why the message was ended without running. Present only on a removed task."
+              }
+            ]
           },
           "files": {
             "type": "array",
@@ -11391,6 +11411,37 @@
           "queue_state": {
             "$ref": "#/components/schemas/CloudConversationQueueState"
           },
+          "retry_refusal": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ConversationAttemptRetryRefusal",
+                "description": "Safe reason code for a refused retry, paired with retry_refused_at."
+              }
+            ]
+          },
+          "retry_refused_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the message's last attempt was found unable to be retried."
+          },
+          "serving_fallback": {
+            "type": "boolean",
+            "description": "Whether work is running on an earlier revision while an update installs."
+          },
+          "serving_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Template revision of the last confirmed serving setup, when known."
+          },
           "state": {
             "$ref": "#/components/schemas/CloudConversationTaskState"
           },
@@ -11399,6 +11450,15 @@
             "format": "uuid"
           }
         }
+      },
+      "CloudConversationTaskEndReason": {
+        "type": "string",
+        "description": "Why a held task was ended without running it.",
+        "enum": [
+          "retry_refused",
+          "retry_limit",
+          "hold_expired"
+        ]
       },
       "CloudConversationTaskHoldReason": {
         "type": "string",
@@ -16094,6 +16154,13 @@
           }
         }
       },
+      "ConversationAttemptRetryRefusal": {
+        "type": "string",
+        "description": "Why a held attempt cannot be retried.",
+        "enum": [
+          "admission_refused"
+        ]
+      },
       "ConversationMessageOrder": {
         "type": "string",
         "enum": [
@@ -16934,6 +17001,7 @@
               "state",
               "queue_state",
               "files",
+              "serving_fallback",
               "created_at"
             ],
             "properties": {
@@ -16943,6 +17011,25 @@
               "created_at": {
                 "type": "string",
                 "format": "date-time"
+              },
+              "desired_revision": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "Template revision the managed agent is set to run."
+              },
+              "end_reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudConversationTaskEndReason",
+                    "description": "Why the message was ended without running. Present only on a removed task."
+                  }
+                ]
               },
               "files": {
                 "type": "array",
@@ -16977,6 +17064,37 @@
               },
               "queue_state": {
                 "$ref": "#/components/schemas/CloudConversationQueueState"
+              },
+              "retry_refusal": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ConversationAttemptRetryRefusal",
+                    "description": "Safe reason code for a refused retry, paired with retry_refused_at."
+                  }
+                ]
+              },
+              "retry_refused_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time",
+                "description": "When the message's last attempt was found unable to be retried."
+              },
+              "serving_fallback": {
+                "type": "boolean",
+                "description": "Whether work is running on an earlier revision while an update installs."
+              },
+              "serving_revision": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "Template revision of the last confirmed serving setup, when known."
               },
               "state": {
                 "$ref": "#/components/schemas/CloudConversationTaskState"
@@ -23714,6 +23832,7 @@
           "status",
           "desired_lifecycle_state",
           "template",
+          "serving_fallback",
           "run_kinds",
           "spend_limits",
           "created_at",
@@ -23757,6 +23876,14 @@
           "desired_lifecycle_state": {
             "$ref": "#/components/schemas/DesiredLifecycleState"
           },
+          "desired_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Template revision the managed agent is set to run."
+          },
           "id": {
             "type": "string",
             "format": "uuid"
@@ -23792,6 +23919,18 @@
               "$ref": "#/components/schemas/ManagedAgentRunKindPrice"
             },
             "description": "Each kind of run of the current release, with what it charges."
+          },
+          "serving_fallback": {
+            "type": "boolean",
+            "description": "Whether work is running on an earlier revision while an update installs."
+          },
+          "serving_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Template revision of the last confirmed serving setup, when known."
           },
           "skill_slug": {
             "type": "string"

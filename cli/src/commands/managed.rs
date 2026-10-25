@@ -131,11 +131,46 @@ pub enum ManagedAction {
         #[command(subcommand)]
         action: ProposalAction,
     },
+    /// List the publishing organization's Employee templates, including pending and rejected entries
+    ManagedTemplates { organization_id: Uuid },
+    /// Read or edit an Employee template's catalog profile
+    ManagedTemplateProfile {
+        #[command(subcommand)]
+        action: TemplateProfileAction,
+    },
+    /// Set the Owner's listing preference; approval and activation are also required for new hires
+    ManagedTemplateListing {
+        organization_id: Uuid,
+        template: String,
+        #[arg(long, action = clap::ArgAction::Set, required = true)]
+        listed: bool,
+    },
+    /// Resubmit a rejected Employee template for review
+    ManagedTemplateReview {
+        organization_id: Uuid,
+        template: String,
+    },
     /// Publish a managed template release using a key scoped to managed-agent-template:publish
     ManagedPublishTemplateRelease {
         organization_id: Uuid,
         template: String,
         /// PublishManagedAgentTemplateReleaseRequest JSON file
+        #[arg(long)]
+        request: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum TemplateProfileAction {
+    Get {
+        organization_id: Uuid,
+        template: String,
+    },
+    /// Change only supplied fields; null clears text and an empty list clears that list
+    Update {
+        organization_id: Uuid,
+        template: String,
+        /// PutManagedAgentTemplateProfile JSON file
         #[arg(long)]
         request: PathBuf,
     },
@@ -620,6 +655,46 @@ pub async fn execute(action: ManagedAction, ctx: &CommandContext) -> Result<()> 
                 &proposal_id
             )),
         },
+        ManagedAction::ManagedTemplates { organization_id } => {
+            respond!(client.list_organization_managed_agent_templates(&organization_id));
+        }
+        ManagedAction::ManagedTemplateProfile { action } => match action {
+            TemplateProfileAction::Get {
+                organization_id,
+                template,
+            } => {
+                respond!(client.get_managed_agent_template_profile(&organization_id, &template));
+            }
+            TemplateProfileAction::Update {
+                organization_id,
+                template,
+                request,
+            } => {
+                let request: seren::PutManagedAgentTemplateProfile = request_file(&request)?;
+                respond!(client.put_managed_agent_template_profile(
+                    &organization_id,
+                    &template,
+                    &request
+                ));
+            }
+        },
+        ManagedAction::ManagedTemplateListing {
+            organization_id,
+            template,
+            listed,
+        } => {
+            respond!(client.put_managed_agent_template_listing(
+                &organization_id,
+                &template,
+                &seren::PutManagedAgentTemplateListing { listed }
+            ));
+        }
+        ManagedAction::ManagedTemplateReview {
+            organization_id,
+            template,
+        } => {
+            respond!(client.request_managed_agent_template_review(&organization_id, &template));
+        }
         ManagedAction::ManagedPublishTemplateRelease {
             organization_id,
             template,
@@ -861,63 +936,207 @@ mod tests {
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
         for rollout in [None, Some(false), Some(true)] {
-            let server = MockServer::start().await;
-            let organization_id = Uuid::new_v4();
-            let mut request = json!({
-                "display_name": "Release test",
-                "source_bundle_id": Uuid::new_v4(),
-                "source_commit_sha": "a".repeat(40),
-                "deploy_defaults": {
-                    "mode": "cron", "cron_schedule": "0 9 * * *",
-                    "model_policy": "balanced", "max_runtime_seconds": 300,
-                    "browser": {"display": "headless", "max_session_seconds": 60},
-                    "network_egress": [], "script_publisher_grants": []
-                }
-            });
-            if let Some(rollout) = rollout {
-                request["rollout"] = json!(rollout);
-            }
-            let mut response = json!({"data": {
-                "slug": "release-test", "revision": 7, "created": false,
-                "revision_added": false, "active": true,
-                "providers": ["google", "microsoft"]
-            }});
-            if rollout == Some(true) {
-                response["data"]["rollout"] = json!({
-                    "template_slug": "release-test", "template_revision": 8,
-                    "deployments": [{"deployment_id": Uuid::new_v4(), "outcome": "hire_incomplete"}]
+            for listed in [None, Some(false), Some(true)] {
+                let server = MockServer::start().await;
+                let organization_id = Uuid::new_v4();
+                let mut request = json!({
+                    "display_name": "Release test",
+                    "source_bundle_id": Uuid::new_v4(),
+                    "source_commit_sha": "a".repeat(40),
+                    "deploy_defaults": {
+                        "mode": "cron", "cron_schedule": "0 9 * * *",
+                        "model_policy": "balanced", "max_runtime_seconds": 300,
+                        "browser": {"display": "headless", "max_session_seconds": 60},
+                        "network_egress": [], "script_publisher_grants": []
+                    }
                 });
+                if let Some(rollout) = rollout {
+                    request["rollout"] = json!(rollout);
+                }
+                if let Some(listed) = listed {
+                    request["listed"] = json!(listed);
+                }
+                let mut expected_request = request.clone();
+                expected_request["listed"] = json!(listed.unwrap_or(true));
+                let mut response = json!({"data": {
+                    "slug": "release-test", "revision": 7, "created": false,
+                    "revision_added": false, "active": true, "listed": false, "review_state": "pending",
+                    "providers": ["google", "microsoft"]
+                }});
+                if rollout == Some(true) {
+                    response["data"]["rollout"] = json!({
+                        "template_slug": "release-test", "template_revision": 8,
+                        "deployments": [{"deployment_id": Uuid::new_v4(), "outcome": "hire_incomplete"}]
+                    });
+                }
+                Mock::given(method("POST"))
+                    .and(path(format!(
+                        "/organizations/{organization_id}/templates/release-test/releases"
+                    )))
+                    .and(header("Authorization", "Bearer seren_test_key"))
+                    .and(body_json(expected_request))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(response))
+                    .expect(1)
+                    .mount(&server)
+                    .await;
+                let fixture = tempfile::tempdir().unwrap();
+                let request_path = fixture.path().join("release.json");
+                fs::write(&request_path, serde_json::to_vec(&request).unwrap()).unwrap();
+                let context = CommandContext::new(
+                    Some(server.uri()),
+                    Some("seren_test_key".into()),
+                    OutputFormat::Json,
+                );
+                execute(
+                    ManagedAction::ManagedPublishTemplateRelease {
+                        organization_id,
+                        template: "release-test".into(),
+                        request: request_path,
+                    },
+                    &context,
+                )
+                .await
+                .unwrap();
+                assert_eq!(server.received_requests().await.unwrap().len(), 1);
             }
-            Mock::given(method("POST"))
-                .and(path(format!(
-                    "/organizations/{organization_id}/templates/release-test/releases"
-                )))
-                .and(header("Authorization", "Bearer seren_test_key"))
-                .and(body_json(request.clone()))
-                .respond_with(ResponseTemplate::new(200).set_body_json(response))
+        }
+    }
+
+    #[test]
+    fn template_catalog_commands_require_explicit_listing_choice() {
+        let id = "11111111-1111-4111-8111-111111111111";
+        assert!(
+            ManagedCli::try_parse_from(["agent", "managed-template-listing", id, "example"])
+                .is_err()
+        );
+        let parsed = ManagedCli::try_parse_from([
+            "agent",
+            "managed-template-listing",
+            id,
+            "example",
+            "--listed",
+            "false",
+        ])
+        .unwrap();
+        assert!(matches!(
+            parsed.action,
+            ManagedAction::ManagedTemplateListing { listed: false, .. }
+        ));
+        assert!(ManagedCli::try_parse_from(["agent", "managed-templates", id]).is_ok());
+        assert!(
+            ManagedCli::try_parse_from(["agent", "managed-template-review", id, "example"]).is_ok()
+        );
+        assert!(
+            ManagedCli::try_parse_from(["agent", "managed-template-profile", "get", id, "example"])
+                .is_ok()
+        );
+        assert!(
+            ManagedCli::try_parse_from([
+                "agent",
+                "managed-template-profile",
+                "update",
+                id,
+                "example",
+                "--request",
+                "profile.json"
+            ])
+            .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn template_catalog_commands_preserve_profile_presence_and_listing_state() {
+        use wiremock::matchers::{body_json, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        let organization_id = Uuid::from_u128(42);
+        let ctx = CommandContext::new(
+            Some(server.uri()),
+            Some("seren_test_key".into()),
+            OutputFormat::Json,
+        );
+        let template = json!({"slug": "example", "display_name": "Example", "active": true, "listed": false, "current_revision": 3, "review_state": "pending"});
+        let profile = json!({"capabilities": [], "example_tasks": [], "works_in": [], "pronouns": "they/them"});
+        let prefix = format!("/organizations/{organization_id}/templates");
+        for (verb, route, request, response) in [
+            (
+                "GET",
+                prefix.clone(),
+                None,
+                json!({"data": [template.clone()]}),
+            ),
+            (
+                "GET",
+                format!("{prefix}/example/profile"),
+                None,
+                json!({"data": profile.clone()}),
+            ),
+            (
+                "PUT",
+                format!("{prefix}/example/profile"),
+                Some(json!({"job_title": null, "example_tasks": [], "pronouns": "they/them"})),
+                json!({"data": profile}),
+            ),
+            (
+                "PUT",
+                format!("{prefix}/example/listing"),
+                Some(json!({"listed": false})),
+                json!({"data": template.clone()}),
+            ),
+            (
+                "POST",
+                format!("{prefix}/example/reviews"),
+                None,
+                json!({"data": template}),
+            ),
+        ] {
+            let mut mock = Mock::given(method(verb))
+                .and(path(route))
+                .and(header("Authorization", "Bearer seren_test_key"));
+            if let Some(request) = request {
+                mock = mock.and(body_json(request));
+            }
+            mock.respond_with(ResponseTemplate::new(200).set_body_json(response))
                 .expect(1)
                 .mount(&server)
                 .await;
-            let fixture = tempfile::tempdir().unwrap();
-            let request_path = fixture.path().join("release.json");
-            fs::write(&request_path, serde_json::to_vec(&request).unwrap()).unwrap();
-            let context = CommandContext::new(
-                Some(server.uri()),
-                Some("seren_test_key".into()),
-                OutputFormat::Json,
-            );
-            execute(
-                ManagedAction::ManagedPublishTemplateRelease {
-                    organization_id,
-                    template: "release-test".into(),
-                    request: request_path,
-                },
-                &context,
-            )
-            .await
-            .unwrap();
-            assert_eq!(server.received_requests().await.unwrap().len(), 1);
         }
+        let dir = tempfile::tempdir().unwrap();
+        let request = dir.path().join("profile.json");
+        fs::write(
+            &request,
+            br#"{"job_title":null,"example_tasks":[],"pronouns":"they/them"}"#,
+        )
+        .unwrap();
+        for action in [
+            ManagedAction::ManagedTemplates { organization_id },
+            ManagedAction::ManagedTemplateProfile {
+                action: TemplateProfileAction::Get {
+                    organization_id,
+                    template: "example".into(),
+                },
+            },
+            ManagedAction::ManagedTemplateProfile {
+                action: TemplateProfileAction::Update {
+                    organization_id,
+                    template: "example".into(),
+                    request,
+                },
+            },
+            ManagedAction::ManagedTemplateListing {
+                organization_id,
+                template: "example".into(),
+                listed: false,
+            },
+            ManagedAction::ManagedTemplateReview {
+                organization_id,
+                template: "example".into(),
+            },
+        ] {
+            execute(action, &ctx).await.unwrap();
+        }
+        assert_eq!(server.received_requests().await.unwrap().len(), 5);
+        server.verify().await;
     }
 
     #[test]

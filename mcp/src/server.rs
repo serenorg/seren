@@ -2614,6 +2614,42 @@ pub struct DecideCloudApprovalInboxEntryParams {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct OrganizationTemplatesParams {
+    pub organization_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OwnedSerenAgentTemplateParams {
+    pub organization_id: Uuid,
+    pub slug: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateSerenAgentTemplateProfileParams {
+    pub organization_id: Uuid,
+    pub slug: String,
+    pub request: seren::PutManagedAgentTemplateProfile,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateSerenAgentTemplateListingParams {
+    pub organization_id: Uuid,
+    pub slug: String,
+    pub request: seren::PutManagedAgentTemplateListing,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateOrganizationParams {
+    pub organization_id: Uuid,
+    pub request: seren::RenameOrganizationRequest,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PublishSerenAgentTemplateReleaseParams {
     pub organization_id: Uuid,
     pub slug: String,
@@ -9964,6 +10000,30 @@ impl SerenMcpServer {
     }
 
     #[tool(
+        description = "Change the organization name or public store address. Only supplied fields change. Requires a built-in Owner using an unrestricted credential of the organization; changing the store address retires the old address.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn update_organization(
+        &self,
+        Parameters(params): Parameters<UpdateOrganizationParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .rename_organization(&params.organization_id, &params.request)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
         description = "List the authenticated user's active organization memberships, including the user's role. Organization-bound API keys return only their organization.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
@@ -16152,7 +16212,125 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Publish an Employee template release using an uploaded bundle and exact commit hash after user authorization. Requires a user API key of the publishing organization explicitly scoped managed-agent-template:publish; sessions and unrestricted keys cannot publish. A new template can be hired as soon as it is published, only its publishing organization can release it again, and a suspended template refuses releases. A release that no provider can hire is refused; the result lists the providers whose connected accounts can hire the current revision.",
+        description = "List the publishing organization's Employee templates, including pending and rejected templates, listing preference and review reason. Requires a direct organization Owner.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_organization_seren_agent_templates(
+        &self,
+        Parameters(params): Parameters<OrganizationTemplatesParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .list_organization_managed_agent_templates(&params.organization_id)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Read the publishing organization's Employee catalog profile, including job title, example tasks, tools and pronouns. Requires a built-in Owner with an unrestricted credential of the publishing organization.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_seren_agent_template_profile(
+        &self,
+        Parameters(params): Parameters<OwnedSerenAgentTemplateParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .get_managed_agent_template_profile(&params.organization_id, &params.slug)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Change only supplied Employee catalog profile fields. Omission preserves a field, null clears text, and an empty list clears that list. Requires a nonempty request and a built-in Owner with an unrestricted credential of the publishing organization. The picture is managed separately.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn update_seren_agent_template_profile(
+        &self,
+        Parameters(params): Parameters<UpdateSerenAgentTemplateProfileParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .put_managed_agent_template_profile(
+                &params.organization_id,
+                &params.slug,
+                &params.request,
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Set the Owner's Employee template listing preference. False removes it from the catalog and refuses new hires; existing hires continue. True still requires platform approval and activation. Requires a built-in Owner with an unrestricted credential of the publishing organization.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn update_seren_agent_template_listing(
+        &self,
+        Parameters(params): Parameters<UpdateSerenAgentTemplateListingParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .put_managed_agent_template_listing(
+                &params.organization_id,
+                &params.slug,
+                &params.request,
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Resubmit a rejected Employee template for Seren review. This requests review and does not approve or activate the template. Requires a built-in Owner with an unrestricted credential of the publishing organization.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn request_seren_agent_template_review(
+        &self,
+        Parameters(params): Parameters<OwnedSerenAgentTemplateParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .request_managed_agent_template_review(&params.organization_id, &params.slug)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Publish an Employee template release using an uploaded bundle and exact commit hash after user authorization. Requires a user API key of the publishing organization explicitly scoped managed-agent-template:publish; sessions and unrestricted keys cannot publish. New templates begin pending review; new hires require Seren approval, platform activation and Owner listing. Only its publishing organization can release it again, and a suspended template refuses releases. A release with no supported provider is refused; the result lists supported connected-account providers.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -23803,94 +23981,101 @@ mod tests {
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
         for rollout in [None, Some(false), Some(true)] {
-            let proxy = MockServer::start().await;
-            let organization_id = Uuid::new_v4();
-            let mut request = serde_json::json!({
-                "display_name": "Release test",
-                "source_bundle_id": Uuid::new_v4(),
-                "source_commit_sha": "a".repeat(40),
-                "deploy_defaults": {
-                    "mode": "cron", "cron_schedule": "0 9 * * *",
-                    "model_policy": "balanced", "max_runtime_seconds": 300,
-                    "browser": {"display": "headless", "max_session_seconds": 60},
-                    "network_egress": [], "script_publisher_grants": []
-                }
-            });
-            if let Some(rollout) = rollout {
-                request["rollout"] = serde_json::json!(rollout);
-            }
-            let mut response = serde_json::json!({"data": {
-                "slug": "release-test", "revision": 7, "created": false,
-                "revision_added": false, "active": true,
-                "providers": ["google", "microsoft"]
-            }});
-            if rollout == Some(true) {
-                response["data"]["rollout"] = serde_json::json!({
-                    "template_slug": "release-test", "template_revision": 8,
-                    "deployments": [{"deployment_id": Uuid::new_v4(), "outcome": "failed", "failure": "superseded"}]
+            for listed in [None, Some(false), Some(true)] {
+                let proxy = MockServer::start().await;
+                let organization_id = Uuid::new_v4();
+                let mut request = serde_json::json!({
+                    "display_name": "Release test",
+                    "source_bundle_id": Uuid::new_v4(),
+                    "source_commit_sha": "a".repeat(40),
+                    "deploy_defaults": {
+                        "mode": "cron", "cron_schedule": "0 9 * * *",
+                        "model_policy": "balanced", "max_runtime_seconds": 300,
+                        "browser": {"display": "headless", "max_session_seconds": 60},
+                        "network_egress": [], "script_publisher_grants": []
+                    }
                 });
-            }
-            Mock::given(method("POST"))
-                .and(path(format!(
-                    "/organizations/{organization_id}/templates/release-test/releases"
-                )))
-                .and(header("Authorization", "Bearer scoped-publication-key"))
-                .and(header("x-agent-client-id", "publication-client"))
-                .and(header("x-agent-client-name", "Release publisher"))
-                .and(header("x-agent-software-id", "publication-tool"))
-                .and(header("x-agent-software-version", "1.0"))
-                .and(body_json(request.clone()))
-                .respond_with(ResponseTemplate::new(200).set_body_json(response.clone()))
-                .expect(1)
-                .mount(&proxy)
-                .await;
-            let server = SerenMcpServer::new_oauth(&proxy.uri()).unwrap();
-            let extensions = extensions_with_headers_and_auth_context(
-                &[
-                    ("authorization", "Bearer scoped-publication-key"),
-                    ("x-agent-client-id", "publication-client"),
-                    ("x-agent-client-name", "Release publisher"),
-                    ("x-agent-software-id", "publication-tool"),
-                    ("x-agent-software-version", "1.0"),
-                ],
-                crate::SerenRequestAuthContext {
-                    user_id: Uuid::new_v4(),
-                    email: None,
-                    credential: crate::SerenRequestCredential::UserApiKey {
-                        api_key_id: Some(Uuid::new_v4()),
-                        api_key_scopes: Some(vec!["managed-agent-template:publish".into()]),
+                if let Some(rollout) = rollout {
+                    request["rollout"] = serde_json::json!(rollout);
+                }
+                if let Some(listed) = listed {
+                    request["listed"] = serde_json::json!(listed);
+                }
+                let mut expected_request = request.clone();
+                expected_request["listed"] = serde_json::json!(listed.unwrap_or(true));
+                let mut response = serde_json::json!({"data": {
+                    "slug": "release-test", "revision": 7, "created": false,
+                    "revision_added": false, "active": true, "listed": false, "review_state": "pending",
+                    "providers": ["google", "microsoft"]
+                }});
+                if rollout == Some(true) {
+                    response["data"]["rollout"] = serde_json::json!({
+                        "template_slug": "release-test", "template_revision": 8,
+                        "deployments": [{"deployment_id": Uuid::new_v4(), "outcome": "failed", "failure": "superseded"}]
+                    });
+                }
+                Mock::given(method("POST"))
+                    .and(path(format!(
+                        "/organizations/{organization_id}/templates/release-test/releases"
+                    )))
+                    .and(header("Authorization", "Bearer scoped-publication-key"))
+                    .and(header("x-agent-client-id", "publication-client"))
+                    .and(header("x-agent-client-name", "Release publisher"))
+                    .and(header("x-agent-software-id", "publication-tool"))
+                    .and(header("x-agent-software-version", "1.0"))
+                    .and(body_json(expected_request))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(response.clone()))
+                    .expect(1)
+                    .mount(&proxy)
+                    .await;
+                let server = SerenMcpServer::new_oauth(&proxy.uri()).unwrap();
+                let extensions = extensions_with_headers_and_auth_context(
+                    &[
+                        ("authorization", "Bearer scoped-publication-key"),
+                        ("x-agent-client-id", "publication-client"),
+                        ("x-agent-client-name", "Release publisher"),
+                        ("x-agent-software-id", "publication-tool"),
+                        ("x-agent-software-version", "1.0"),
+                    ],
+                    crate::SerenRequestAuthContext {
+                        user_id: Uuid::new_v4(),
+                        email: None,
+                        credential: crate::SerenRequestCredential::UserApiKey {
+                            api_key_id: Some(Uuid::new_v4()),
+                            api_key_scopes: Some(vec!["managed-agent-template:publish".into()]),
+                        },
                     },
-                },
-            );
-            let params: PublishSerenAgentTemplateReleaseParams = serde_json::from_value(
+                );
+                let params: PublishSerenAgentTemplateReleaseParams = serde_json::from_value(
                 serde_json::json!({"organization_id": organization_id, "slug": "release-test", "request": request}),
             )
             .unwrap();
-            let result = server
-                .publish_seren_agent_template_release(Parameters(params), extensions)
-                .await
-                .unwrap();
-            assert!(!result.is_error.unwrap_or(false));
-            let content = serde_json::to_value(result).unwrap();
-            let decoded: Value =
-                serde_json::from_str(content["content"][0]["text"].as_str().unwrap()).unwrap();
-            assert_eq!(decoded["data"]["revision"], 7);
-            assert_eq!(
-                decoded["data"]["providers"],
-                serde_json::json!(["google", "microsoft"])
-            );
-            if rollout == Some(true) {
-                assert_eq!(decoded["data"]["rollout"]["template_revision"], 8);
+                let result = server
+                    .publish_seren_agent_template_release(Parameters(params), extensions)
+                    .await
+                    .unwrap();
+                assert!(!result.is_error.unwrap_or(false));
+                let content = serde_json::to_value(result).unwrap();
+                let decoded: Value =
+                    serde_json::from_str(content["content"][0]["text"].as_str().unwrap()).unwrap();
+                assert_eq!(decoded["data"]["revision"], 7);
                 assert_eq!(
-                    decoded["data"]["rollout"]["deployments"][0]["outcome"],
-                    "failed"
+                    decoded["data"]["providers"],
+                    serde_json::json!(["google", "microsoft"])
                 );
-                assert_eq!(
-                    decoded["data"]["rollout"]["deployments"][0]["failure"],
-                    "superseded"
-                );
-            } else {
-                assert!(decoded["data"]["rollout"].is_null());
+                if rollout == Some(true) {
+                    assert_eq!(decoded["data"]["rollout"]["template_revision"], 8);
+                    assert_eq!(
+                        decoded["data"]["rollout"]["deployments"][0]["outcome"],
+                        "failed"
+                    );
+                    assert_eq!(
+                        decoded["data"]["rollout"]["deployments"][0]["failure"],
+                        "superseded"
+                    );
+                } else {
+                    assert!(decoded["data"]["rollout"].is_null());
+                }
             }
         }
     }
@@ -23900,6 +24085,12 @@ mod tests {
         let server = SerenMcpServer::new("test-key", "http://localhost").unwrap();
         let tools = server.tool_router.list_all();
         for (name, read_only) in [
+            ("list_organization_seren_agent_templates", true),
+            ("get_seren_agent_template_profile", true),
+            ("update_seren_agent_template_profile", false),
+            ("update_seren_agent_template_listing", false),
+            ("request_seren_agent_template_review", false),
+            ("update_organization", false),
             ("get_seren_agent_state", true),
             ("list_seren_agent_work_items", true),
             ("list_seren_agent_skill_proposals", true),
@@ -23957,37 +24148,314 @@ mod tests {
         }
     }
 
+    fn template_catalog_result_json(result: CallToolResult) -> Value {
+        let result = serde_json::to_value(result).unwrap();
+        serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn template_catalog_tools_forward_owner_requests_and_complete_responses() {
+        use wiremock::matchers::{body_json, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let proxy = MockServer::start().await;
+        let id = Uuid::from_u128(42);
+        let prefix = format!("/organizations/{id}/templates");
+        let rejected = serde_json::json!({"slug": "example", "display_name": "Example", "active": true, "listed": false, "current_revision": 3, "review_state": "rejected", "review_reason": "Update the description"});
+        let pending = serde_json::json!({"slug": "example", "display_name": "Example", "active": true, "listed": false, "current_revision": 3, "review_state": "pending"});
+        let profile = serde_json::json!({"capabilities": [], "example_tasks": [], "works_in": ["google-drive"], "pronouns": "she/her"});
+        let organization = serde_json::json!({"id": id, "name": "Example", "slug": "example", "created_by": id, "is_personal": false, "public_handle": "example-store", "created_at": "2026-10-25T00:00:00Z", "updated_at": "2026-10-25T00:00:00Z"});
+        for (verb, route, request, response) in [
+            (
+                "GET",
+                prefix.clone(),
+                None,
+                serde_json::json!({"data": [rejected.clone()]}),
+            ),
+            (
+                "GET",
+                format!("{prefix}/example/profile"),
+                None,
+                serde_json::json!({"data": profile.clone()}),
+            ),
+            (
+                "PUT",
+                format!("{prefix}/example/profile"),
+                Some(
+                    serde_json::json!({"job_title": null, "example_tasks": [], "pronouns": "she/her"}),
+                ),
+                serde_json::json!({"data": profile.clone()}),
+            ),
+            (
+                "PUT",
+                format!("{prefix}/example/listing"),
+                Some(serde_json::json!({"listed": false})),
+                serde_json::json!({"data": rejected.clone()}),
+            ),
+            (
+                "POST",
+                format!("{prefix}/example/reviews"),
+                None,
+                serde_json::json!({"data": pending.clone()}),
+            ),
+            (
+                "PATCH",
+                format!("/organizations/{id}"),
+                Some(serde_json::json!({"public_handle": "example-store"})),
+                serde_json::json!({"data": organization.clone()}),
+            ),
+        ] {
+            let mut mock = Mock::given(method(verb))
+                .and(path(route))
+                .and(header("authorization", "Bearer owner-key"));
+            if let Some(request) = request {
+                mock = mock.and(body_json(request));
+            }
+            mock.respond_with(ResponseTemplate::new(200).set_body_json(response))
+                .expect(1)
+                .mount(&proxy)
+                .await;
+        }
+        let server = SerenMcpServer::new("owner-key", &proxy.uri()).unwrap();
+        let result = server
+            .list_organization_seren_agent_templates(
+                Parameters(OrganizationTemplatesParams {
+                    organization_id: id,
+                }),
+                Extensions::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            template_catalog_result_json(result),
+            serde_json::json!({"data": [rejected.clone()]})
+        );
+        let result = server
+            .get_seren_agent_template_profile(
+                Parameters(OwnedSerenAgentTemplateParams {
+                    organization_id: id,
+                    slug: "example".into(),
+                }),
+                Extensions::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            template_catalog_result_json(result),
+            serde_json::json!({"data": profile.clone()})
+        );
+        let params = serde_json::from_value(serde_json::json!({"organization_id": id, "slug": "example", "request": {"job_title": null, "example_tasks": [], "pronouns": "she/her"}})).unwrap();
+        let result = server
+            .update_seren_agent_template_profile(Parameters(params), Extensions::default())
+            .await
+            .unwrap();
+        assert_eq!(
+            template_catalog_result_json(result),
+            serde_json::json!({"data": profile})
+        );
+        let result = server
+            .update_seren_agent_template_listing(
+                Parameters(UpdateSerenAgentTemplateListingParams {
+                    organization_id: id,
+                    slug: "example".into(),
+                    request: seren::PutManagedAgentTemplateListing { listed: false },
+                }),
+                Extensions::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            template_catalog_result_json(result),
+            serde_json::json!({"data": rejected})
+        );
+        let result = server
+            .request_seren_agent_template_review(
+                Parameters(OwnedSerenAgentTemplateParams {
+                    organization_id: id,
+                    slug: "example".into(),
+                }),
+                Extensions::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            template_catalog_result_json(result),
+            serde_json::json!({"data": pending})
+        );
+        let params = serde_json::from_value(serde_json::json!({"organization_id": id, "request": {"public_handle": "example-store"}})).unwrap();
+        let result = server
+            .update_organization(Parameters(params), Extensions::default())
+            .await
+            .unwrap();
+        assert_eq!(
+            template_catalog_result_json(result),
+            serde_json::json!({"data": organization})
+        );
+        assert_eq!(proxy.received_requests().await.unwrap().len(), 6);
+        proxy.verify().await;
+    }
+
+    #[tokio::test]
+    async fn template_catalog_tools_keep_owner_and_read_only_boundaries() {
+        let proxy = wiremock::MockServer::start().await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let id = Uuid::nil();
+        let agent = || {
+            extensions_with_auth_context(crate::SerenRequestAuthContext {
+                user_id: Uuid::new_v4(),
+                email: None,
+                credential: crate::SerenRequestCredential::AgentApiKey {
+                    api_key_id: None,
+                    agent_identity_id: Some(Uuid::new_v4()),
+                },
+            })
+        };
+        assert!(
+            server
+                .list_organization_seren_agent_templates(
+                    Parameters(OrganizationTemplatesParams {
+                        organization_id: id
+                    }),
+                    agent()
+                )
+                .await
+                .unwrap_err()
+                .message
+                .contains("owner's session or user API key")
+        );
+        let mut work_context = Extensions::default();
+        work_context.insert(RuntimeWorkContextToken("work-context".into()));
+        assert!(
+            server
+                .get_seren_agent_template_profile(
+                    Parameters(OwnedSerenAgentTemplateParams {
+                        organization_id: id,
+                        slug: "example".into()
+                    }),
+                    work_context
+                )
+                .await
+                .unwrap_err()
+                .message
+                .contains("work context")
+        );
+        let read_only = || extensions_with_headers(&[("x-read-only", "true")]);
+        let profile = serde_json::from_value(serde_json::json!({"organization_id": id, "slug": "example", "request": {"tagline": null}})).unwrap();
+        assert!(
+            server
+                .update_seren_agent_template_profile(Parameters(profile), read_only())
+                .await
+                .unwrap_err()
+                .message
+                .contains("Read-only mode")
+        );
+        assert!(
+            server
+                .update_seren_agent_template_listing(
+                    Parameters(UpdateSerenAgentTemplateListingParams {
+                        organization_id: id,
+                        slug: "example".into(),
+                        request: seren::PutManagedAgentTemplateListing { listed: false }
+                    }),
+                    read_only()
+                )
+                .await
+                .unwrap_err()
+                .message
+                .contains("Read-only mode")
+        );
+        assert!(
+            server
+                .request_seren_agent_template_review(
+                    Parameters(OwnedSerenAgentTemplateParams {
+                        organization_id: id,
+                        slug: "example".into()
+                    }),
+                    read_only()
+                )
+                .await
+                .unwrap_err()
+                .message
+                .contains("Read-only mode")
+        );
+        let organization = serde_json::from_value(serde_json::json!({"organization_id": id, "request": {"public_handle": "example-store"}})).unwrap();
+        assert!(
+            server
+                .update_organization(Parameters(organization), read_only())
+                .await
+                .unwrap_err()
+                .message
+                .contains("Read-only mode")
+        );
+        let params = || {
+            serde_json::from_value(serde_json::json!({"organization_id": id, "request": {"public_handle": "example-store"}})).unwrap()
+        };
+        let error = server
+            .update_organization(Parameters(params()), agent())
+            .await
+            .unwrap_err();
+        assert!(error.message.contains("owner's session or user API key"));
+        let mut work_context = Extensions::default();
+        work_context.insert(RuntimeWorkContextToken("work-context".into()));
+        let error = server
+            .update_organization(Parameters(params()), work_context)
+            .await
+            .unwrap_err();
+        assert!(error.message.contains("work context"));
+        assert!(proxy.received_requests().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn template_catalog_listing_conflict_remains_a_refusal() {
+        use wiremock::matchers::{body_json, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let proxy = MockServer::start().await;
+        let id = Uuid::nil();
+        Mock::given(method("PUT")).and(path(format!("/organizations/{id}/templates/example/listing")))
+            .and(body_json(serde_json::json!({"listed": true})))
+            .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({"error": "unlisted_by_seren", "message": "This template cannot be listed"})))
+            .expect(1).mount(&proxy).await;
+        let server = SerenMcpServer::new("owner-key", &proxy.uri()).unwrap();
+        assert!(
+            server
+                .update_seren_agent_template_listing(
+                    Parameters(UpdateSerenAgentTemplateListingParams {
+                        organization_id: id,
+                        slug: "example".into(),
+                        request: seren::PutManagedAgentTemplateListing { listed: true }
+                    }),
+                    Extensions::default()
+                )
+                .await
+                .is_err()
+        );
+        proxy.verify().await;
+    }
+
     #[test]
-    fn template_publish_tool_says_a_published_template_is_hireable() {
+    fn template_catalog_tools_require_owned_routes_and_typed_requests() {
         let server = SerenMcpServer::new("test-key", "http://localhost").unwrap();
         let tools = server.tool_router.list_all();
-        let description = tools
-            .iter()
-            .find(|tool| tool.name == "publish_seren_agent_template_release")
-            .and_then(|tool| tool.description.as_deref())
-            .expect("publish_seren_agent_template_release has a description");
-        // Core creates a new template active, so callers have nothing to activate.
-        assert!(
-            !description.to_lowercase().contains("activat"),
-            "{description}"
-        );
-        assert!(
-            description.contains("A new template can be hired as soon as it is published"),
-            "{description}"
-        );
-        assert!(
-            description.contains("a suspended template refuses releases"),
-            "{description}"
-        );
-        // Only the publisher can release again, and a release needs a hireable provider.
-        assert!(
-            description.contains("only its publishing organization can release it again"),
-            "{description}"
-        );
-        assert!(
-            description.contains("A release that no provider can hire is refused"),
-            "{description}"
-        );
+        for name in [
+            "update_seren_agent_template_profile",
+            "update_seren_agent_template_listing",
+        ] {
+            let tool = tools.iter().find(|tool| tool.name == name).unwrap();
+            let schema = Value::Object((*tool.input_schema).clone());
+            for required in ["organization_id", "slug", "request"] {
+                assert!(
+                    schema["required"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|value| value == required),
+                    "{name} {required}"
+                );
+            }
+            assert!(schema["properties"]["request"].is_object());
+        }
+        let listing: UpdateSerenAgentTemplateListingParams = serde_json::from_value(serde_json::json!({"organization_id": Uuid::nil(), "slug": "example", "request": {"listed": false}})).unwrap();
+        assert!(!listing.request.listed);
+        assert!(serde_json::from_value::<UpdateSerenAgentTemplateListingParams>(serde_json::json!({"organization_id": Uuid::nil(), "slug": "example", "request": {}})).is_err());
     }
 
     #[test]
@@ -29266,6 +29734,7 @@ mod tests {
                 "skill_slug": "managed-hire-00000000000000000000000000009003",
                 "mode": "cron",
                 "platform_managed": true,
+                "serving_fallback": false,
                 "status": "running",
                 "desired_lifecycle_state": "running",
                 "template": {
@@ -31385,7 +31854,7 @@ mod tests {
         let proxy = MockServer::start().await;
         let deployment_id = Uuid::from_u128(42);
         let prices = serde_json::json!([{"key":"work","name":"Work","charge":"fee","amount":{"atomic":1000000,"usd":"$1.00"},"changed_at":null,"triggers":["chat"],"expected_cost_atomic":300000},{"key":"care","name":"Care","charge":"cost","triggers":["hire_cron","schedule","webhook","api"],"expected_cost_atomic":300000}]);
-        let owner = serde_json::json!({"id":deployment_id,"organization_id":Uuid::from_u128(1),"name":"Pricing contract","skill_slug":"pricing-contract","mode":"always_on","platform_managed":true,"status":"running","desired_lifecycle_state":"running","template":{"slug":"pricing-contract","display_name":"Pricing contract","revision":1},"run_kinds":prices.clone(),"spend_limits":{"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":prices.clone()},"created_at":"2026-10-23T00:00:00Z","updated_at":"2026-10-23T00:00:00Z"});
+        let owner = serde_json::json!({"id":deployment_id,"organization_id":Uuid::from_u128(1),"name":"Pricing contract","skill_slug":"pricing-contract","mode":"always_on","platform_managed":true,"serving_fallback":false,"status":"running","desired_lifecycle_state":"running","template":{"slug":"pricing-contract","display_name":"Pricing contract","revision":1},"run_kinds":prices.clone(),"spend_limits":{"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":prices.clone()},"created_at":"2026-10-23T00:00:00Z","updated_at":"2026-10-23T00:00:00Z"});
         Mock::given(method("GET"))
             .and(path(format!(
                 "/publishers/seren-agent/deployments/{deployment_id}/managed"

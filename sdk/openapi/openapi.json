@@ -216,6 +216,16 @@
           },
           "429": {
             "description": "Too many requests"
+          },
+          "503": {
+            "description": "Password could not be checked; nothing changed. Try again later.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -269,7 +279,7 @@
             "description": "Too many requests or password verification temporarily locked"
           },
           "503": {
-            "description": "Confirmation could not be sent"
+            "description": "Confirmation could not be sent, or the current password could not be checked; try again later"
           }
         },
         "security": [
@@ -351,10 +361,27 @@
             "description": "Sign-in refused: invalid credentials or temporarily unavailable password sign-in"
           },
           "403": {
-            "description": "Email verification required"
+            "description": "Email confirmation required (`email_verification_required`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "429": {
             "description": "Too many requests"
+          },
+          "503": {
+            "description": "Password could not be checked; nothing changed. Try again later.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -567,6 +594,16 @@
           },
           "429": {
             "description": "Password verification is temporarily locked"
+          },
+          "503": {
+            "description": "Password could not be checked; nothing changed. Try again later.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -613,6 +650,16 @@
           },
           "429": {
             "description": "Password verification is temporarily locked"
+          },
+          "503": {
+            "description": "Password could not be checked; nothing changed. Try again later.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2935,19 +2982,39 @@
           "required": true
         },
         "responses": {
+          "200": {
+            "description": "With `response_mode=json`, sign-in succeeded: continue to `redirect_uri`, the application callback carrying the authorization code and the original `state`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_LoginFormRedirect"
+                }
+              }
+            }
+          },
           "303": {
-            "description": "Continue to the application",
+            "description": "Continue to the application. A browser (`Accept: text/html`) whose sign-in is refused returns to the sign-in page with an `error` query parameter: `invalid_credentials` for any credential refusal, `too_many_attempts` for any sign-in rate limit, or `confirm_email` when the email address must be confirmed first. The page also receives the original `state`, `redirect_uri`, `code_challenge` and `client_id`. Where no separate sign-in page is used, the browser instead receives the sign-in form with a message and the refusal's status. With `response_mode=html` a refusal never redirects: it answers with the sign-in form (`text/html`), keeping the entered email and an empty password, under the refusal's status.",
             "headers": {
               "Location": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Application callback"
+                "description": "Application callback or sign-in page"
+              }
+            }
+          },
+          "400": {
+            "description": "`response_mode` is neither `html` nor `json` (`invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           },
           "401": {
-            "description": "Sign-in refused: invalid credentials or temporarily unavailable password sign-in",
+            "description": "Sign-in refused: invalid credentials, temporarily unavailable password sign-in, or an expired sign-in. A browser receives a page when the sign-in has expired. With `response_mode=json` the body is a `BrowserSignInError` with `invalid_credentials` or `expired_session`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2957,10 +3024,44 @@
             }
           },
           "403": {
-            "description": "Email confirmation required. Browsers receive the sign-in form with instructions; JSON callers receive the email_verification_required error."
+            "description": "Email confirmation required (`email_verification_required`). With `response_mode=json` the body is a `BrowserSignInError` with `confirm_email`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "429": {
-            "description": "Too many requests"
+            "description": "Too many requests. JSON callers and browser requests without a valid form retain the rate-limit response when the limit applies before the form is read. Otherwise `response_mode=json` answers with a `BrowserSignInError` with `too_many_attempts`, `response_mode=html` with the sign-in form, and both send `Retry-After`. JSON refusals use either the flat `{error, message}` body or the nested `{error: {code, message}}` request-limit body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginFormAdmissionError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Sign-in could not complete. Without `response_mode` the body is an `ErrorResponse`. With `response_mode=json` the body is a `BrowserSignInError` with `service_unavailable`; with `response_mode=html` the sign-in form says so.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Password verification or sign-in is temporarily unavailable; retry later. Without `response_mode` the body is an `ErrorResponse`. When request admission itself is unavailable, every caller receives its nested `{error: {code, message}}` refusal. Otherwise, with `response_mode=json` the body is a `BrowserSignInError` with `service_unavailable`; with `response_mode=html` the sign-in form says so.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginFormAdmissionError"
+                }
+              }
+            }
           }
         }
       }
@@ -3221,7 +3322,7 @@
         "tags": [
           "Organizations"
         ],
-        "summary": "PATCH /organizations/{organization_id}\nRename the organization.",
+        "summary": "PATCH /organizations/{organization_id}\nRename the organization or set its store address.",
         "operationId": "rename_organization",
         "parameters": [
           {
@@ -3247,7 +3348,7 @@
         },
         "responses": {
           "200": {
-            "description": "The renamed organization",
+            "description": "The updated organization",
             "content": {
               "application/json": {
                 "schema": {
@@ -3257,7 +3358,7 @@
             }
           },
           "400": {
-            "description": "The name is empty, longer than 255 characters or contains surrounding whitespace or NUL characters, or the request body is invalid"
+            "description": "Neither field was sent, the name is empty, longer than 255 characters or contains surrounding whitespace or NUL characters, the store address is invalid (`organization_handle_invalid`), or the request body is invalid"
           },
           "401": {
             "description": "Authentication required"
@@ -3269,7 +3370,7 @@
             "description": "Organization not found"
           },
           "409": {
-            "description": "The name is reserved"
+            "description": "The name is reserved (`organization_name_reserved`), the organization publishes a template and the name is the personal placeholder (`publisher_name_required`), the store address is reserved (`organization_handle_reserved`), or another organization uses it (`organization_handle_taken`)"
           }
         },
         "security": [
@@ -10233,6 +10334,75 @@
         ]
       }
     },
+    "/organizations/{organization_id}/templates/{slug}/listing": {
+      "put": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Take a published template off serendb.com, or put it back. A template\nSeren took off can be unlisted but not listed again. Repeating the current\nchoice changes nothing.",
+        "operationId": "put_managed_agent_template_listing",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutManagedAgentTemplateListing"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The template after the change",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OrganizationManagedAgentTemplate"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is invalid"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, or the organization does not publish the template (`managed_agent_profile_owner_required`)"
+          },
+          "409": {
+            "description": "Seren took the template off serendb.com, so it cannot be listed (`unlisted_by_seren`)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/organizations/{organization_id}/templates/{slug}/profile": {
       "get": {
         "tags": [
@@ -10289,7 +10459,7 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Replace the tagline, plain-text description and ordered capabilities.\nThe picture is managed separately. Suspended templates or profiles refuse edits.",
+        "summary": "Change the job title, tagline, plain-text description, ordered\ncapabilities, example tasks, tools and pronouns. A field left out keeps its\nvalue; null removes text and an empty list removes every item. The picture\nis managed separately. Suspended templates or profiles refuse edits.",
         "operationId": "put_managed_agent_template_profile",
         "parameters": [
           {
@@ -10334,7 +10504,14 @@
             }
           },
           "400": {
-            "description": "The profile is invalid"
+            "description": "The profile is invalid, names no field, or its text states a number Seren shows itself, such as hires, ratings or reviews (`profile_states_a_count`, with the field, its list position and the matched text in `details`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "401": {
             "description": "Authentication required"
@@ -10355,7 +10532,7 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Publish a release from an organization's managed deployment. Requires a\nbuilt-in Owner's direct session or unrestricted user API key. New templates\nare immediately hireable. Repeating the current release adds no revision;\nexisting hires receive the release by their Employers' update settings, and\n`rollout` offers it to them now and reports each outcome.",
+        "summary": "Publish a release from an organization's managed deployment. Requires a\nbuilt-in Owner's direct session or unrestricted user API key. New templates\nfrom outside the platform source organization await review before listing or hiring.\nRepeating the current release adds no revision;\nexisting hires receive the release by their Employers' update settings, and\n`rollout` offers it to them now and reports each outcome.",
         "operationId": "publish_managed_agent_deployment",
         "parameters": [
           {
@@ -10412,7 +10589,7 @@
             "description": "Deployment not found"
           },
           "409": {
-            "description": "Template publication conflict"
+            "description": "Template publication conflict, including a reserved slug for a new template (`managed_agent_template_slug_reserved`), or a publisher without a public name (`publisher_name_required`) or store address (`publisher_handle_required`)"
           }
         },
         "security": [
@@ -10484,7 +10661,7 @@
             "description": "Deployment not found"
           },
           "409": {
-            "description": "Template publication conflict"
+            "description": "Template publication conflict, including a reserved slug for a new template (`managed_agent_template_slug_reserved`), or a publisher without a public name (`publisher_name_required`) or store address (`publisher_handle_required`)"
           }
         },
         "security": [
@@ -10500,7 +10677,7 @@
           "managed-agent-templates"
         ],
         "summary": "Publish an uploaded release of a managed agent template.",
-        "description": "Creates the template when it does not exist, and otherwise adds the\nrelease as its next revision. A new template can be hired as soon as it is\npublished. Publication cannot create a template at a reserved slug, and a\nsuspended template accepts no release. Publishing the current revision\nagain changes nothing. Existing hires receive a release by their\nEmployers' update settings: a content change applies by itself between\ntasks under `automatic`, an access change or any change under `ask_first`\nwaits for the Employer's approval, and `stay` changes nothing. With\n`rollout`, the template's current revision is offered to each existing hire\nnow and the response reports each hire's outcome; otherwise the update job\noffers it on its next pass. `rollout` never applies anything past an\nEmployer's setting or approval. One hire's failure neither fails the\nrelease nor undoes the others. Repeating the current release retries a\npartly applied rollout. The rollout names its offered revision separately\nif another release advanced the template. A hire whose mode differs from\nthe release's is held, and incomplete hires are offered the release once\nthey complete. An optional `release_note` is shown to Employers as the\nOwner's words.\nA release is refused unless a hire can use it with at least one provider,\nand the response lists the providers a hire can select.\nRequires a user API key with `managed-agent-template:publish`, granted by\na built-in owner of the publishing organization. Any organization can\npublish, and only the organization that published a template can release\nit again. An issued key remains valid if its creator later loses\nownership, until it expires or is revoked.",
+        "description": "Creates the template when it does not exist, and otherwise adds the\nrelease as its next revision. New templates from outside the platform source\norganization await review before listing or hiring. Later releases preserve\nthe Owner's listing preference. Publication cannot create a template at a reserved slug, and a\nsuspended template accepts no release. Publishing the current revision\nagain changes nothing. Existing hires receive a release by their\nEmployers' update settings: a content change applies by itself between\ntasks under `automatic`, an access change or any change under `ask_first`\nwaits for the Employer's approval, and `stay` changes nothing. With\n`rollout`, the template's current revision is offered to each existing hire\nnow and the response reports each hire's outcome; otherwise the update job\noffers it on its next pass. `rollout` never applies anything past an\nEmployer's setting or approval. One hire's failure neither fails the\nrelease nor undoes the others. Repeating the current release retries a\npartly applied rollout. The rollout names its offered revision separately\nif another release advanced the template. A hire whose mode differs from\nthe release's is held, and incomplete hires are offered the release once\nthey complete. An optional `release_note` is shown to Employers as the\nOwner's words.\nA release is refused unless a hire can use it with at least one provider,\nand the response lists the providers a hire can select.\nRequires a user API key with `managed-agent-template:publish`, granted by\na built-in owner of the publishing organization. Any organization can\npublish, and only the organization that published a template can release\nit again. An issued key remains valid if its creator later loses\nownership, until it expires or is revoked.",
         "operationId": "publish_managed_agent_template_release",
         "parameters": [
           {
@@ -10554,7 +10731,63 @@
             "description": "The credential or organization may not publish this template, or the template is suspended (`managed_agent_template_suspended`)"
           },
           "409": {
-            "description": "The slug is reserved and no template exists there (`managed_agent_template_slug_reserved`), the display name differs from the template's, the release conflicts with the template or its bundle, the rollout of a published release could not start because the current revision is unavailable or the template is suspended, or one of the template's run kinds is priced below its minimum (`run_fee_below_minimum`)"
+            "description": "The slug is reserved, or is kept for Seren's own organization, and no template exists there (`managed_agent_template_slug_reserved`), a new template's publisher has no public name (`publisher_name_required`) or store address (`publisher_handle_required`), the display name differs from the template's, the release conflicts with the template or its bundle, the rollout of a published release could not start because the current revision is unavailable or the template is suspended, or one of the template's run kinds is priced below its minimum (`run_fee_below_minimum`)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/reviews": {
+      "post": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Ask Seren to review a rejected template again. Repeating the request while\nthe template waits for review changes nothing.",
+        "operationId": "request_managed_agent_template_review",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The template after the request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OrganizationManagedAgentTemplate"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, or the organization does not publish the template (`managed_agent_template_owner_required`)"
+          },
+          "409": {
+            "description": "Seren already approved the template (`managed_agent_template_review_not_rejected`)"
           }
         },
         "security": [
@@ -13653,7 +13886,14 @@
             "description": "Unauthorized"
           },
           "403": {
-            "description": "Confirmed email required (`email_unverified`); the message names the address to confirm"
+            "description": "Confirmed email required (`email_unverified`; `details.email` names the address to confirm and `details.confirmation_email` reports confirmation delivery: `sent`, `already_sent`, `in_progress`, `uncertain` or `not_sent`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -16434,6 +16674,33 @@
         "enum": [
           "headless",
           "headed"
+        ]
+      },
+      "BrowserSignInError": {
+        "type": "object",
+        "description": "A `response_mode=json` refusal.",
+        "required": [
+          "error",
+          "message"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/BrowserSignInRefusal"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "BrowserSignInRefusal": {
+        "type": "string",
+        "description": "The refusal a browser returns to the sign-in page with. Console shows its own wording\nfor each code, so the code must not reveal which credential check failed.",
+        "enum": [
+          "invalid_credentials",
+          "too_many_attempts",
+          "confirm_email",
+          "expired_session",
+          "service_unavailable"
         ]
       },
       "CampaignParameter": {
@@ -20108,6 +20375,39 @@
           }
         }
       },
+      "DataResponse_LoginFormRedirect": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Where a `response_mode=json` sign-in continues.",
+            "required": [
+              "redirect_uri"
+            ],
+            "properties": {
+              "redirect_uri": {
+                "type": "string",
+                "description": "The application callback, with the authorization code and the original `state`."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_LoginResult": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -21082,9 +21382,12 @@
         "properties": {
           "data": {
             "type": "object",
-            "description": "Public marketing text, rendered as plain text, and an optional picture.",
+            "description": "Public text and an optional picture; also the job title, example tasks,\ntools and pronouns a catalog card shows.",
             "required": [
-              "capabilities"
+              "capabilities",
+              "example_tasks",
+              "works_in",
+              "pronouns"
             ],
             "properties": {
               "avatar_url": {
@@ -21110,6 +21413,26 @@
                   }
                 ]
               },
+              "example_tasks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ExampleTask"
+                },
+                "maxItems": 3
+              },
+              "job_title": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/JobTitle"
+                  }
+                ]
+              },
+              "pronouns": {
+                "$ref": "#/components/schemas/Pronouns"
+              },
               "tagline": {
                 "oneOf": [
                   {
@@ -21119,6 +21442,13 @@
                     "$ref": "#/components/schemas/Tagline"
                   }
                 ]
+              },
+              "works_in": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentTemplateTool"
+                },
+                "maxItems": 13
               }
             }
           },
@@ -21151,16 +21481,22 @@
               "created",
               "revision_added",
               "active",
+              "listed",
+              "review_state",
               "providers"
             ],
             "properties": {
               "active": {
                 "type": "boolean",
-                "description": "Whether the template can be hired."
+                "description": "Whether the platform has activated the template, independent of review and Owner listing."
               },
               "created": {
                 "type": "boolean",
                 "description": "Whether this request created the template."
+              },
+              "listed": {
+                "type": "boolean",
+                "description": "The Owner's listing preference, independent of platform approval and activation."
               },
               "providers": {
                 "type": "array",
@@ -21168,6 +21504,17 @@
                   "$ref": "#/components/schemas/ManagedAgentHireProvider"
                 },
                 "description": "Providers whose connected accounts can hire the current revision."
+              },
+              "review_reason": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Seren's reason, present only while the template is rejected."
+              },
+              "review_state": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateReviewState",
+                "description": "Seren's review. Only an approved template is listed and can be hired."
               },
               "revision": {
                 "type": "integer",
@@ -21502,6 +21849,13 @@
               },
               "name": {
                 "type": "string"
+              },
+              "public_handle": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The organization's store address on serendb.com, `/stores/{public_handle}`; null until its Owner sets one."
               },
               "slug": {
                 "$ref": "#/components/schemas/Slug"
@@ -22084,6 +22438,74 @@
               },
               "role": {
                 "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_OrganizationManagedAgentTemplate": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "slug",
+              "display_name",
+              "active",
+              "listed",
+              "current_revision",
+              "review_state"
+            ],
+            "properties": {
+              "active": {
+                "type": "boolean"
+              },
+              "current_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "display_name": {
+                "type": "string"
+              },
+              "listed": {
+                "type": "boolean",
+                "description": "The Owner's listing preference, independent of platform approval and activation."
+              },
+              "review_reason": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Seren's reason, present only while the template is rejected."
+              },
+              "review_state": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateReviewState",
+                "description": "Seren's review. Only an approved template is listed and can be hired."
+              },
+              "slug": {
+                "type": "string"
+              },
+              "source_deployment_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
               }
             }
           },
@@ -25866,6 +26288,13 @@
                 "name": {
                   "type": "string"
                 },
+                "public_handle": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The organization's store address on serendb.com, `/stores/{public_handle}`; null until its Owner sets one."
+                },
                 "slug": {
                   "$ref": "#/components/schemas/Slug"
                 },
@@ -26303,7 +26732,9 @@
                 "slug",
                 "display_name",
                 "active",
-                "current_revision"
+                "listed",
+                "current_revision",
+                "review_state"
               ],
               "properties": {
                 "active": {
@@ -26315,6 +26746,21 @@
                 },
                 "display_name": {
                   "type": "string"
+                },
+                "listed": {
+                  "type": "boolean",
+                  "description": "The Owner's listing preference, independent of platform approval and activation."
+                },
+                "review_reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Seren's reason, present only while the template is rejected."
+                },
+                "review_state": {
+                  "$ref": "#/components/schemas/ManagedAgentTemplateReviewState",
+                  "description": "Seren's review. Only an approved template is listed and can be hired."
                 },
                 "slug": {
                   "type": "string"
@@ -26454,6 +26900,13 @@
                 },
                 "name": {
                   "type": "string"
+                },
+                "public_handle": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The organization's store address on serendb.com, `/stores/{public_handle}`; null until its Owner sets one."
                 },
                 "role": {
                   "type": "string"
@@ -29819,6 +30272,11 @@
           }
         }
       },
+      "ExampleTask": {
+        "type": "string",
+        "maxLength": 80,
+        "minLength": 1
+      },
       "FederatedResourceHistoryResponse": {
         "type": "object",
         "description": "Response for a federation history event with optional publisher metadata.",
@@ -30558,6 +31016,11 @@
           }
         }
       },
+      "JobTitle": {
+        "type": "string",
+        "maxLength": 60,
+        "minLength": 1
+      },
       "LatencyMs": {
         "type": "object",
         "properties": {
@@ -30602,6 +31065,49 @@
           }
         }
       },
+      "LoginFormAdmissionError": {
+        "anyOf": [
+          {
+            "type": "object",
+            "required": [
+              "error",
+              "message"
+            ],
+            "properties": {
+              "details": {},
+              "error": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "error"
+            ],
+            "properties": {
+              "error": {
+                "type": "object",
+                "required": [
+                  "code",
+                  "message"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
       "LoginFormData": {
         "type": "object",
         "description": "POST /oauth2/login\nHandle login form submission from the authorize page",
@@ -30617,8 +31123,32 @@
           "password": {
             "type": "string"
           },
+          "response_mode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LoginResponseMode",
+                "description": "Omit for the established answers. `html` answers a refusal with the sign-in form,\nkeeping the entered email; `json` answers with a `BrowserSignInError`, and a\nsuccessful sign-in with the callback to continue to."
+              }
+            ]
+          },
           "state": {
             "type": "string"
+          }
+        }
+      },
+      "LoginFormRedirect": {
+        "type": "object",
+        "description": "Where a `response_mode=json` sign-in continues.",
+        "required": [
+          "redirect_uri"
+        ],
+        "properties": {
+          "redirect_uri": {
+            "type": "string",
+            "description": "The application callback, with the authorization code and the original `state`."
           }
         }
       },
@@ -30636,6 +31166,14 @@
             "type": "string"
           }
         }
+      },
+      "LoginResponseMode": {
+        "type": "string",
+        "description": "How an explicit sign-in form asks to be answered.",
+        "enum": [
+          "html",
+          "json"
+        ]
       },
       "LoginResult": {
         "type": "object",
@@ -32308,9 +32846,12 @@
       },
       "ManagedAgentTemplateProfile": {
         "type": "object",
-        "description": "Public marketing text, rendered as plain text, and an optional picture.",
+        "description": "Public text and an optional picture; also the job title, example tasks,\ntools and pronouns a catalog card shows.",
         "required": [
-          "capabilities"
+          "capabilities",
+          "example_tasks",
+          "works_in",
+          "pronouns"
         ],
         "properties": {
           "avatar_url": {
@@ -32336,6 +32877,26 @@
               }
             ]
           },
+          "example_tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExampleTask"
+            },
+            "maxItems": 3
+          },
+          "job_title": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobTitle"
+              }
+            ]
+          },
+          "pronouns": {
+            "$ref": "#/components/schemas/Pronouns"
+          },
           "tagline": {
             "oneOf": [
               {
@@ -32345,6 +32906,13 @@
                 "$ref": "#/components/schemas/Tagline"
               }
             ]
+          },
+          "works_in": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentTemplateTool"
+            },
+            "maxItems": 13
           }
         }
       },
@@ -32357,16 +32925,22 @@
           "created",
           "revision_added",
           "active",
+          "listed",
+          "review_state",
           "providers"
         ],
         "properties": {
           "active": {
             "type": "boolean",
-            "description": "Whether the template can be hired."
+            "description": "Whether the platform has activated the template, independent of review and Owner listing."
           },
           "created": {
             "type": "boolean",
             "description": "Whether this request created the template."
+          },
+          "listed": {
+            "type": "boolean",
+            "description": "The Owner's listing preference, independent of platform approval and activation."
           },
           "providers": {
             "type": "array",
@@ -32374,6 +32948,17 @@
               "$ref": "#/components/schemas/ManagedAgentHireProvider"
             },
             "description": "Providers whose connected accounts can hire the current revision."
+          },
+          "review_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Seren's reason, present only while the template is rejected."
+          },
+          "review_state": {
+            "$ref": "#/components/schemas/ManagedAgentTemplateReviewState",
+            "description": "Seren's review. Only an approved template is listed and can be hired."
           },
           "revision": {
             "type": "integer",
@@ -32399,6 +32984,15 @@
             "type": "string"
           }
         }
+      },
+      "ManagedAgentTemplateReviewState": {
+        "type": "string",
+        "description": "Seren's review of a template before the catalog lists it or anyone hires\nit. An approved template never returns to review.",
+        "enum": [
+          "pending",
+          "approved",
+          "rejected"
+        ]
       },
       "ManagedAgentTemplateRuntimeClass": {
         "type": "string",
@@ -32430,6 +33024,25 @@
           }
         },
         "additionalProperties": false
+      },
+      "ManagedAgentTemplateTool": {
+        "type": "string",
+        "description": "A product a managed agent works in, shown as a logo on its catalog card.",
+        "enum": [
+          "1password",
+          "canva",
+          "discord",
+          "gmail",
+          "google",
+          "google-drive",
+          "microsoft",
+          "onedrive",
+          "outlook",
+          "shopify",
+          "signal",
+          "slack",
+          "whatsapp"
+        ]
       },
       "ManagedAgentWebhookReceipt": {
         "type": "object",
@@ -32991,6 +33604,13 @@
           },
           "name": {
             "type": "string"
+          },
+          "public_handle": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The organization's store address on serendb.com, `/stores/{public_handle}`; null until its Owner sets one."
           },
           "slug": {
             "$ref": "#/components/schemas/Slug"
@@ -33604,7 +34224,9 @@
           "slug",
           "display_name",
           "active",
-          "current_revision"
+          "listed",
+          "current_revision",
+          "review_state"
         ],
         "properties": {
           "active": {
@@ -33616,6 +34238,21 @@
           },
           "display_name": {
             "type": "string"
+          },
+          "listed": {
+            "type": "boolean",
+            "description": "The Owner's listing preference, independent of platform approval and activation."
+          },
+          "review_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Seren's reason, present only while the template is rejected."
+          },
+          "review_state": {
+            "$ref": "#/components/schemas/ManagedAgentTemplateReviewState",
+            "description": "Seren's review. Only an approved template is listed and can be hired."
           },
           "slug": {
             "type": "string"
@@ -33734,6 +34371,13 @@
           },
           "name": {
             "type": "string"
+          },
+          "public_handle": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The organization's store address on serendb.com, `/stores/{public_handle}`; null until its Owner sets one."
           },
           "role": {
             "type": "string"
@@ -35830,6 +36474,15 @@
           }
         }
       },
+      "Pronouns": {
+        "type": "string",
+        "description": "How public text refers to the managed agent.",
+        "enum": [
+          "she/her",
+          "he/him",
+          "they/them"
+        ]
+      },
       "ProvidersResponse": {
         "type": "object",
         "required": [
@@ -35873,6 +36526,11 @@
           },
           "display_name": {
             "type": "string"
+          },
+          "listed": {
+            "type": "boolean",
+            "description": "The Owner's listing preference when this publication creates the template.\nListing also requires platform approval and activation. Later releases preserve the preference.",
+            "default": true
           },
           "max_runtime_seconds": {
             "type": [
@@ -35925,6 +36583,11 @@
           "display_name": {
             "type": "string",
             "description": "Name of the template. It must equal the name of an existing template."
+          },
+          "listed": {
+            "type": "boolean",
+            "description": "The Owner's listing preference when this release creates the template.\nListing also requires platform approval and activation. Later releases preserve the preference.",
+            "default": true
           },
           "release_note": {
             "type": [
@@ -37240,12 +37903,22 @@
         },
         "additionalProperties": false
       },
+      "PutManagedAgentTemplateListing": {
+        "type": "object",
+        "description": "False takes the managed agent off serendb.com and refuses new hires; existing\nhires keep working.",
+        "required": [
+          "listed"
+        ],
+        "properties": {
+          "listed": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
       "PutManagedAgentTemplateProfile": {
         "type": "object",
-        "description": "Replaces all profile text. Omitted or null text removes it; an empty list\nremoves all capabilities. The picture is managed separately.",
-        "required": [
-          "capabilities"
-        ],
+        "description": "Changes the fields it names. A field left out keeps its value; null\nremoves text and an empty list removes every item. The picture is\nmanaged separately.",
         "properties": {
           "capabilities": {
             "type": "array",
@@ -37264,6 +37937,26 @@
               }
             ]
           },
+          "example_tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExampleTask"
+            },
+            "maxItems": 3
+          },
+          "job_title": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobTitle"
+              }
+            ]
+          },
+          "pronouns": {
+            "$ref": "#/components/schemas/Pronouns"
+          },
           "tagline": {
             "oneOf": [
               {
@@ -37273,6 +37966,14 @@
                 "$ref": "#/components/schemas/Tagline"
               }
             ]
+          },
+          "works_in": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentTemplateTool"
+            },
+            "description": "Each tool at most once, in the order the card shows them.",
+            "maxItems": 13
           }
         },
         "additionalProperties": false
@@ -37687,16 +38388,26 @@
       },
       "RenameOrganizationRequest": {
         "type": "object",
-        "description": "Request body for renaming an organization.",
-        "required": [
-          "name"
-        ],
+        "description": "Request body for renaming an organization or setting its store address.\nAt least one field is required.",
         "properties": {
           "name": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "The organization's new name: 1-255 characters without surrounding whitespace or NUL characters.",
             "maxLength": 255,
             "minLength": 1
+          },
+          "public_handle": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The organization's store address on serendb.com, `/stores/{public_handle}`: 2-64 lowercase letters, digits or single hyphens, with no leading or trailing hyphen. The previous address stops working.",
+            "maxLength": 64,
+            "minLength": 2,
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
           }
         },
         "additionalProperties": false

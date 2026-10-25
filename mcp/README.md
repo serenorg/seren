@@ -234,9 +234,16 @@ Use `create_seren_agent_template_deployment` to create a managed agent deploymen
 | Publisher grants | `list_seren_agent_publisher_grants`, `add_seren_agent_publisher_grant`, `revoke_seren_agent_publisher_grant` |
 | Standing approvals | `list_seren_agent_publisher_allowances`, `revoke_seren_agent_publisher_allowance` |
 | Browser sign-in | `get_active_seren_agent_browser_handoff`, `create_seren_agent_browser_handoff_ticket` |
+| Inspect owned templates and profiles | `list_organization_seren_agent_templates`, `get_seren_agent_template_profile` |
+| Edit the catalog profile or listing preference | `update_seren_agent_template_profile`, `update_seren_agent_template_listing` |
+| Resubmit a rejected template for review | `request_seren_agent_template_review` |
 | Publish a template release | `publish_seren_agent_template_release` |
 
 Owner tools accept the Employee owner's session or user API key; agent keys and organization work contexts cannot act as the owner. Adding publisher grants and starting API-key credential setup require a signed-in user session. Credential approval and browser sign-in remain human actions. Show returned Seren Passwords launch URLs and one-use browser viewer tickets only to the owner; viewer tickets expire after 60 seconds. Template publication requires a user API key explicitly scoped `managed-agent-template:publish`; sessions and unrestricted API keys cannot publish.
+
+New community templates begin pending review. New hires require Seren approval, platform activation, and the publishing Owner's listing preference. The template list includes pending and rejected entries and their review reasons. Listing a template does not approve it; turning listing off refuses new hires while existing hires continue. Profile, listing, and review changes require the publishing organization's built-in Owner with an unrestricted credential. A profile request changes only named fields: omitted fields remain unchanged, `null` clears text, and an empty list clears that list. Lists and pronouns cannot be `null`.
+
+`update_organization` changes the organization name or public store address through a nested `request`; at least one must be supplied. Setting `public_handle` alone preserves the name, and changing it retires the old store address. This tool requires a built-in Owner using an unrestricted credential of the organization and is blocked by read-only mode.
 
 Review an exact proposal before approving it. Undo applies only to the most recently applied proposal while its applied revision remains active. Use a stable optional `idempotency_key` when retrying a work rating. Runtime state writes, work recording, access requests, allowance checks, proposal submission and browser handoff creation or settlement belong to the Employee runtime and are not ordinary owner MCP tools.
 

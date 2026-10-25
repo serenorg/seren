@@ -2881,6 +2881,16 @@ enum ProfileAction {
 
 #[derive(Subcommand)]
 enum OrgAction {
+    /// Change the organization name or public store address (organization Owner required)
+    #[command(group(clap::ArgGroup::new("fields").required(true).multiple(true).args(["name", "public_handle"])))]
+    Update {
+        #[arg(long)]
+        org_id: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        public_handle: Option<String>,
+    },
     /// List members in an organization
     Members {
         /// Organization ID
@@ -5805,6 +5815,19 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::OrganizationMemberships => commands::auth::organization_memberships(&ctx).await?,
         Commands::Orgs { action } => match action {
+            OrgAction::Update {
+                org_id,
+                name,
+                public_handle,
+            } => {
+                commands::organizations::update(
+                    &org_id,
+                    name.as_deref(),
+                    public_handle.as_deref(),
+                    &ctx,
+                )
+                .await?
+            }
             OrgAction::Members { org_id } => {
                 commands::organizations::list_members(&org_id, &ctx).await?
             }
@@ -8921,6 +8944,34 @@ mod tests {
             ])
             .is_err()
         );
+    }
+
+    #[test]
+    fn organization_update_accepts_handle_only_and_requires_a_change() {
+        const ID: &str = "550e8400-e29b-41d4-a716-446655440000";
+        assert!(
+            try_parse_cli_with_large_stack(vec!["seren", "orgs", "update", "--org-id", ID])
+                .is_err()
+        );
+        let parsed = parse_cli_with_large_stack(vec![
+            "seren",
+            "orgs",
+            "update",
+            "--org-id",
+            ID,
+            "--public-handle",
+            "example-store",
+        ]);
+        assert!(matches!(
+            parsed.command,
+            Commands::Orgs {
+                action: OrgAction::Update {
+                    name: None,
+                    public_handle: Some(_),
+                    ..
+                }
+            }
+        ));
     }
 
     #[test]
