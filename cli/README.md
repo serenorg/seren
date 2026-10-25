@@ -315,12 +315,17 @@ seren env init --project-id <id> --branch-id <id> --key DATABASE_URL --pooled
 
 ```bash
 seren organizations                              # list organizations
+seren orgs update --org-id <id> --name "Daertho" --public-handle daertho
 seren orgs members --org-id <id>                  # list members
 seren orgs invites --org-id <id>                  # list invites
 seren orgs invite --org-id <id> --email user@example.com --role member
 seren orgs skills --org-id <id> list
 seren orgs private-models-policy --org-id <id> get
 ```
+
+The organization name is the public publisher name; there is no separate publisher-name field. Before publishing, an organization Owner must set a non-placeholder name and a store address. `--public-handle` must be unique and use 2-64 lowercase letters, digits, or single hyphens, with no leading or trailing hyphen. Seren names are reserved. The handle `daertho` gives the store URL `https://serendb.com/stores/daertho`. Updating only the handle preserves the organization name; changing the handle retires the previous address.
+
+The API accepts `PATCH /organizations/{organization_id}` with `{"public_handle":"daertho"}`; send `name` in the same body to change the public publisher name too. In MCP, use `update_organization` with `organization_id` and a nested `request` containing `public_handle`, `name`, or both. These updates require the organization's built-in Owner with an unrestricted credential.
 
 ### Skills
 
