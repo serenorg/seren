@@ -63,6 +63,7 @@ const ATTACHMENT_URI_SCHEME: &str = "seren-secrets://attachment/";
 const GRANT_RECONSENT_NEXT_STEP: &str = "Call passwords_request_access with force=true to open a new consent URL. Select every vault that should be accessible; the saved grant is replaced only after approval.";
 const GRANT_RETRY_NEXT_STEP: &str = "Retry passwords_request_access later to verify the saved grant. Verification did not change it.";
 const EMPTY_APPROVAL_NEXT_STEP: &str = "The approval selected no vault; call passwords_request_access with force=true and select at least one vault.";
+const REPLACEMENT_CLEANUP_NEXT_STEP: &str = "For a leftover identity, passwords_agents_freeze revokes every active agent identity, including the new grant; use it only when that is intended, then re-grant sessions that should remain active. For a leftover API key, verify its exact key ID and organization before using revoke_api_key; a matching name alone does not prove ownership. Cleanup is best effort; if finalization was interrupted, inspect prior identities and keys manually.";
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -82,6 +83,43 @@ enum HostedGrantCheck {
     VerificationFailed {
         error: String,
     },
+}
+
+fn superseded_api_key_leftover(
+    previous: &HostedPasswordsAgent,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut result = serde_json::Map::new();
+    match (previous.api_key_id, previous.api_key_organization_id) {
+        (Some(id), Some(organization_id)) => {
+            result.insert("leftover_api_key_id".into(), serde_json::json!(id));
+            result.insert(
+                "leftover_api_key_organization_id".into(),
+                serde_json::json!(organization_id),
+            );
+        }
+        (id, _) if id.is_some() || previous.api_key.is_some() => {
+            result.insert(
+                "leftover_api_key_name".into(),
+                serde_json::json!(format!(
+                    "{} (seren-passwords hosted MCP)",
+                    previous.display_name
+                )),
+            );
+            if let Some(id) = id {
+                result.insert("leftover_api_key_id".into(), serde_json::json!(id));
+            }
+        }
+        _ => return result,
+    }
+    tracing::warn!(
+        identity_id = %previous.identity_id,
+        "Hosted grant finalized for the same identity with a previous API key remaining"
+    );
+    result.insert(
+        "next_step".into(),
+        serde_json::json!(REPLACEMENT_CLEANUP_NEXT_STEP),
+    );
+    result
 }
 
 fn grant_verification_failed(stage: &str, status: Option<u16>) -> HostedGrantCheck {
@@ -125,6 +163,27 @@ fn passwords_error_status<E>(error: &seren::Error<E>) -> Option<PasswordsStatus>
     error
         .status()
         .map(|status| PasswordsStatus::Gateway(status.as_u16()))
+}
+
+/// Passwords confirms cleanup with `revoked: true`, or 404 for an absent identity. A JSON-valued response type also accepts the
+/// gateway envelope as data, so the envelope status and body are checked first.
+fn passwords_identity_revoke_confirmed(data: &serde_json::Value) -> bool {
+    let Some(status) = passwords_envelope_status(data) else {
+        return data.get("revoked").and_then(serde_json::Value::as_bool) == Some(true);
+    };
+    if status == 404 {
+        return true;
+    }
+    let body = match data.get("body") {
+        Some(serde_json::Value::String(raw)) => serde_json::from_str(raw).ok(),
+        Some(body) => Some(body.clone()),
+        None => None,
+    };
+    status == 200
+        && body
+            .as_ref()
+            .and_then(|body| body.get("data")?.get("revoked")?.as_bool())
+            == Some(true)
 }
 
 /// User-mode (master-password) unlocked session. Held in memory only and used
@@ -1245,6 +1304,10 @@ impl SerenMcpServer {
                 let identity_id = record.identity_id.ok_or_else(|| {
                     McpError::internal_error("Approved delegation is missing identity id", None)
                 })?;
+                let previous = store
+                    .get_hosted_passwords_agent(user_id, &credential_subject_key)
+                    .await
+                    .map_err(|e| McpError::internal_error(e.to_string(), None))?;
                 let claimed = store
                     .claim_pending_hosted_passwords_agent(
                         user_id,
@@ -1293,7 +1356,9 @@ impl SerenMcpServer {
                         identity_id,
                         display_name: &record.display_name,
                         kem_private: &claimed.kem_private,
-                        api_key: api_key.as_ref().map(|key| key.as_str()),
+                        api_key: api_key.as_ref().map(|(key, _, _)| key.as_str()),
+                        api_key_id: api_key.as_ref().map(|(_, id, _)| *id),
+                        api_key_organization_id: api_key.as_ref().map(|(_, _, org)| *org),
                         granted_vaults: &granted_vaults,
                     })
                     .await
@@ -1314,6 +1379,35 @@ impl SerenMcpServer {
                 });
                 if record.granted_vault_ids.is_empty() {
                     result["next_step"] = serde_json::json!(EMPTY_APPROVAL_NEXT_STEP);
+                }
+                let cleanup = match previous {
+                    Some(previous) if previous.identity_id != identity_id => Some(
+                        self.cleanup_replaced_hosted_grant(
+                            &extensions,
+                            &previous,
+                            credential_subject.is_user_api_key(),
+                        )
+                        .await,
+                    ),
+                    // Same-identity finalization revokes nothing. It only reports
+                    // the previous key that the saved grant no longer holds.
+                    Some(previous) if !credential_subject.is_user_api_key() => {
+                        Some(superseded_api_key_leftover(&previous))
+                    }
+                    _ => None,
+                };
+                if let Some(mut cleanup) = cleanup {
+                    if record.granted_vault_ids.is_empty()
+                        && let Some(step) = cleanup.get_mut("next_step")
+                    {
+                        *step = serde_json::json!(format!(
+                            "{EMPTY_APPROVAL_NEXT_STEP} {REPLACEMENT_CLEANUP_NEXT_STEP}"
+                        ));
+                    }
+                    result
+                        .as_object_mut()
+                        .expect("grant response object")
+                        .extend(cleanup);
                 }
                 Ok(CallToolResult::success(vec![crate::server::json_content(
                     &result,
@@ -1403,12 +1497,102 @@ impl SerenMcpServer {
         Ok(response.into_inner().data)
     }
 
+    async fn cleanup_replaced_hosted_grant(
+        &self,
+        extensions: &Extensions,
+        previous: &HostedPasswordsAgent,
+        user_api_key_subject: bool,
+    ) -> serde_json::Map<String, serde_json::Value> {
+        let mut result = serde_json::Map::new();
+        result.insert(
+            "replaced_identity_id".into(),
+            serde_json::json!(previous.identity_id),
+        );
+        let client = self.api_client(extensions);
+        let identity_client = self
+            .validate_passwords_endpoint()
+            .ok()
+            .and_then(|_| self.bearer_token(extensions).ok())
+            .and_then(|bearer| {
+                self.passwords_api_client_for_bearer(&bearer, extensions)
+                    .ok()
+            });
+        let identity_revoked = if let Some(client) = identity_client {
+            match client.identity_revoke(&previous.identity_id).await {
+                Ok(response) => serde_json::to_value(response.into_inner().data)
+                    .is_ok_and(|data| passwords_identity_revoke_confirmed(&data)),
+                Err(error) => {
+                    passwords_error_status(&error) == Some(PasswordsStatus::Producer(404))
+                }
+            }
+        } else {
+            false
+        };
+        if !identity_revoked {
+            result.insert(
+                "leftover_identity_id".into(),
+                serde_json::json!(previous.identity_id),
+            );
+        }
+        if !user_api_key_subject {
+            let name = format!("{} (seren-passwords hosted MCP)", previous.display_name);
+            // Only a key ID captured from this grant's own creation response is
+            // bound to the encrypted saved credential. A display name is not.
+            if let (Some(id), Some(organization_id)) =
+                (previous.api_key_id, previous.api_key_organization_id)
+            {
+                let revoked = if let Ok(client) = &client {
+                    match client.revoke_org_api_key(&organization_id, &id).await {
+                        Ok(_) => true,
+                        // Key revocation is a Core route, so its direct 404 is authoritative.
+                        Err(error) => {
+                            passwords_error_status(&error) == Some(PasswordsStatus::Gateway(404))
+                        }
+                    }
+                } else {
+                    false
+                };
+                let field = if revoked {
+                    "revoked_api_key_id"
+                } else {
+                    "leftover_api_key_id"
+                };
+                result.insert(field.into(), serde_json::json!(id));
+                if !revoked {
+                    result.insert(
+                        "leftover_api_key_organization_id".into(),
+                        serde_json::json!(organization_id),
+                    );
+                }
+            } else {
+                result.insert("leftover_api_key_name".into(), serde_json::json!(name));
+                if let Some(id) = previous.api_key_id {
+                    result.insert("leftover_api_key_id".into(), serde_json::json!(id));
+                }
+            }
+        }
+        if result.keys().any(|field| field.starts_with("leftover_")) {
+            tracing::warn!(
+                identity_id = %previous.identity_id,
+                identity_cleanup_pending = result.contains_key("leftover_identity_id"),
+                api_key_cleanup_pending = result.contains_key("leftover_api_key_id")
+                    || result.contains_key("leftover_api_key_name"),
+                "Hosted grant replaced with cleanup remaining"
+            );
+            result.insert(
+                "next_step".into(),
+                serde_json::json!(REPLACEMENT_CLEANUP_NEXT_STEP),
+            );
+        }
+        result
+    }
+
     async fn mint_hosted_passwords_agent_key(
         &self,
         extensions: &Extensions,
         identity_id: Uuid,
         display_name: &str,
-    ) -> Result<Zeroizing<String>, McpError> {
+    ) -> Result<(Zeroizing<String>, Uuid, Uuid), McpError> {
         let client = self.api_client(extensions)?;
         let response = match client
             .create_default_org_api_key(&seren::CreateApiKeyRequest {
@@ -1423,7 +1607,9 @@ impl SerenMcpServer {
             Ok(response) => response,
             Err(e) => return Err(crate::server::seren_error_to_mcp_error(e).await),
         };
-        Ok(Zeroizing::new(response.into_inner().data.api_key))
+        let key = response.into_inner().data;
+        // The revoke route accepts the UUID `id`, not the opaque `key_id` string.
+        Ok((Zeroizing::new(key.api_key), key.id, key.organization_id))
     }
 
     #[tool(
@@ -6531,6 +6717,7 @@ mod hosted_grant_tests {
         server: SerenMcpServer,
         user_id: Uuid,
         identity_id: Uuid,
+        organization_id: Uuid,
         kem: IdentityKemKeypair,
         vault_ids: Vec<Uuid>,
     }
@@ -6560,6 +6747,8 @@ mod hosted_grant_tests {
                     identity_id,
                     display_name: "Prior agent",
                     kem_private: &BASE64.encode(kem.private.as_bytes()),
+                    api_key_id: None,
+                    api_key_organization_id: None,
                     api_key: if subject.is_user_api_key() {
                         None
                     } else {
@@ -6590,6 +6779,7 @@ mod hosted_grant_tests {
                 server,
                 user_id,
                 identity_id,
+                organization_id: Uuid::new_v4(),
                 kem,
                 vault_ids,
             }
@@ -6755,15 +6945,16 @@ mod hosted_grant_tests {
                 .await;
         }
 
-        async fn mint_key(&self) -> Uuid {
+        async fn mint_key(&self) -> (Uuid, Uuid) {
             let id = Uuid::new_v4();
+            let organization_id = Uuid::new_v4();
             Mock::given(method("POST")).and(path("/organizations/default/api-keys"))
                 .and(header("authorization", "Bearer test-key"))
                 .respond_with(ResponseTemplate::new(201).set_body_json(json!({"data": {
                     "id": id, "key_id": "not-the-revocation-id", "api_key": "new-agent-token", "name": "Replacement agent (seren-passwords hosted MCP)",
-                    "organization_id": Uuid::new_v4(), "key_type": "agent", "created_at": "2026-10-25T00:00:00Z"
+                    "organization_id": organization_id, "key_type": "agent", "created_at": "2026-10-25T00:00:00Z"
                 }}))).expect(1).mount(&self.gateway).await;
-            id
+            (id, organization_id)
         }
 
         async fn finalize(&self, request_id: Uuid) -> Value {
@@ -7067,6 +7258,12 @@ mod hosted_grant_tests {
         }
         let (_container, store) = test_token_store().await;
         let fixture = HostedFixture::new(Arc::new(store)).await;
+        // A first grant has no previous key to report alongside the reconsent step.
+        fixture
+            .store
+            .delete_hosted_passwords_agent(fixture.user_id, fixture.identity_id)
+            .await
+            .unwrap();
         let record = fixture
             .seed_pending(
                 fixture.identity_id,
@@ -7079,6 +7276,13 @@ mod hosted_grant_tests {
         assert_eq!(result["status"], "granted");
         assert_eq!(result["granted_vault_ids"], json!([]));
         assert_eq!(result["next_step"], EMPTY_APPROVAL_NEXT_STEP);
+        assert!(
+            !result
+                .as_object()
+                .unwrap()
+                .keys()
+                .any(|key| key.starts_with("leftover_"))
+        );
         assert_eq!(
             fixture
                 .store
@@ -7151,5 +7355,466 @@ mod hosted_grant_tests {
             assert_eq!(fixture.gateway.received_requests().await.unwrap().len(), 1);
             fixture.gateway.verify().await;
         }
+    }
+
+    impl HostedFixture {
+        async fn set_previous_key_id(&self, id: Uuid) {
+            let agent = self
+                .store
+                .get_hosted_passwords_agent(self.user_id, &self.subject.storage_key())
+                .await
+                .unwrap()
+                .unwrap();
+            self.store
+                .upsert_hosted_passwords_agent(HostedPasswordsAgentUpsert {
+                    user_id: self.user_id,
+                    credential_subject: &self.subject.storage_key(),
+                    identity_id: agent.identity_id,
+                    display_name: &agent.display_name,
+                    kem_private: &agent.kem_private,
+                    api_key: agent.api_key.as_deref().map(|key| key.as_str()),
+                    api_key_id: Some(id),
+                    api_key_organization_id: Some(self.organization_id),
+                    granted_vaults: &agent.granted_vaults,
+                })
+                .await
+                .unwrap();
+        }
+
+        /// A direct status is the gateway's own. An envelope carries the Passwords
+        /// status; a direct error keeps a revoked-looking body so only status decides.
+        async fn mock_identity_revoke(&self, status: u16, envelope: bool) {
+            let response = if envelope {
+                let body = if status == 200 {
+                    json!({"data": {"revoked": true}})
+                } else {
+                    json!({"error": "identity not found"})
+                };
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({"data": {"status": status, "body": body}}))
+            } else {
+                ResponseTemplate::new(status).set_body_json(json!({"data": {"revoked": true}}))
+            };
+            Mock::given(method("POST"))
+                .and(path(format!(
+                    "/publishers/seren-passwords/identities/{}/revoke",
+                    self.identity_id
+                )))
+                .and(header("authorization", "Bearer test-key"))
+                .respond_with(response)
+                .expect(1)
+                .mount(&self.gateway)
+                .await;
+        }
+
+        async fn mock_key_revoke(&self, id: Uuid, status: u16) {
+            Mock::given(method("DELETE"))
+                .and(path(format!(
+                    "/organizations/{}/api-keys/{id}",
+                    self.organization_id
+                )))
+                .and(header("authorization", "Bearer test-key"))
+                .respond_with(ResponseTemplate::new(status))
+                .expect(1)
+                .mount(&self.gateway)
+                .await;
+        }
+    }
+
+    #[tokio::test]
+    async fn replacement_revokes_previous_identity_and_key_once() {
+        if !integration_tests_enabled() {
+            eprintln!("skipping hosted grant integration test");
+            return;
+        }
+        let (_container, store) = test_token_store().await;
+        let store = Arc::new(store);
+        for (identity_status, envelope, key_status) in
+            [(200, false, 200), (200, true, 200), (404, true, 404)]
+        {
+            let fixture = HostedFixture::new(store.clone()).await;
+            let previous_key_id = Uuid::new_v4();
+            fixture.set_previous_key_id(previous_key_id).await;
+            let replacement_id = Uuid::new_v4();
+            let record = fixture
+                .seed_pending(
+                    replacement_id,
+                    DelegationPolicyRequestStatus::Approved,
+                    &fixture.vault_ids,
+                )
+                .await;
+            let (new_key_id, new_key_organization_id) = fixture.mint_key().await;
+            fixture
+                .mock_identity_revoke(identity_status, envelope)
+                .await;
+            fixture.mock_key_revoke(previous_key_id, key_status).await;
+            let result = fixture.finalize(record.request_id).await;
+            assert_eq!(result["status"], "granted");
+            assert_eq!(result["replaced_identity_id"], json!(fixture.identity_id));
+            assert_eq!(result["revoked_api_key_id"], json!(previous_key_id));
+            assert!(
+                !result
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .any(|key| key.starts_with("leftover_"))
+            );
+            let saved = store
+                .get_hosted_passwords_agent(fixture.user_id, "user")
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(saved.identity_id, replacement_id);
+            assert_eq!(saved.api_key_id, Some(new_key_id));
+            assert_eq!(saved.api_key_organization_id, Some(new_key_organization_id));
+            assert_eq!(saved.api_key.unwrap().as_str(), "new-agent-token");
+            assert!(
+                store
+                    .get_pending_hosted_passwords_agent_for_subject(fixture.user_id, "user")
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+            let requests = fixture.gateway.received_requests().await.unwrap();
+            let identity_index = requests
+                .iter()
+                .position(|request| request.url.path().ends_with("/revoke"))
+                .unwrap();
+            assert!(requests.iter().all(|request| {
+                !request
+                    .url
+                    .path()
+                    .starts_with("/organizations/default/api-keys/")
+            }));
+            let key_index = requests
+                .iter()
+                .position(|request| request.method == "DELETE")
+                .unwrap();
+            assert!(identity_index < key_index);
+            // Finalization cannot apply cleanup a second time after consuming the pending row.
+            assert!(
+                fixture
+                    .server
+                    .passwords_grant_status(
+                        Parameters(PasswordsGrantStatusParams {
+                            request_id: record.request_id
+                        }),
+                        fixture.extensions()
+                    )
+                    .await
+                    .is_err()
+            );
+            fixture.gateway.verify().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn same_identity_finalization_revokes_nothing() {
+        if !integration_tests_enabled() {
+            eprintln!("skipping hosted grant integration test");
+            return;
+        }
+        let (_container, store) = test_token_store().await;
+        let fixture = HostedFixture::new(Arc::new(store)).await;
+        let previous_key_id = Uuid::new_v4();
+        fixture.set_previous_key_id(previous_key_id).await;
+        let record = fixture
+            .seed_pending(
+                fixture.identity_id,
+                DelegationPolicyRequestStatus::Approved,
+                &fixture.vault_ids,
+            )
+            .await;
+        let (new_key_id, _) = fixture.mint_key().await;
+        let result = fixture.finalize(record.request_id).await;
+        assert_eq!(result["status"], "granted");
+        assert!(result.get("replaced_identity_id").is_none());
+        assert!(result.get("revoked_api_key_id").is_none());
+        assert!(result.get("leftover_identity_id").is_none());
+        // The fresh key replaces the saved binding; the previous key stays active
+        // and is disclosed rather than revoked.
+        assert_eq!(result["leftover_api_key_id"], json!(previous_key_id));
+        assert_eq!(
+            result["leftover_api_key_organization_id"],
+            json!(fixture.organization_id)
+        );
+        assert!(
+            result["next_step"]
+                .as_str()
+                .unwrap()
+                .contains("revoke_api_key")
+        );
+        let saved = fixture
+            .store
+            .get_hosted_passwords_agent(fixture.user_id, "user")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved.identity_id, fixture.identity_id);
+        assert_eq!(saved.api_key_id, Some(new_key_id));
+        assert!(
+            !fixture
+                .gateway
+                .received_requests()
+                .await
+                .unwrap()
+                .iter()
+                .any(
+                    |request| request.url.path().ends_with("/revoke") || request.method == "DELETE"
+                )
+        );
+        fixture.gateway.verify().await;
+    }
+
+    #[tokio::test]
+    async fn failed_revocation_keeps_new_grant_and_reports_leftovers() {
+        if !integration_tests_enabled() {
+            eprintln!("skipping hosted grant integration test");
+            return;
+        }
+        let (_container, store) = test_token_store().await;
+        let store = Arc::new(store);
+        // Neither a gateway 404 nor an enveloped Passwords failure proves revocation.
+        for (identity_status, envelope, key_status, identity_leftover) in [
+            (500, false, 200, true),
+            (200, false, 500, false),
+            (500, false, 500, true),
+            (404, false, 200, true),
+            (500, true, 200, true),
+        ] {
+            let fixture = HostedFixture::new(store.clone()).await;
+            let old_key_id = Uuid::new_v4();
+            fixture.set_previous_key_id(old_key_id).await;
+            let new_identity = Uuid::new_v4();
+            let record = fixture
+                .seed_pending(new_identity, DelegationPolicyRequestStatus::Approved, &[])
+                .await;
+            fixture.mint_key().await;
+            fixture
+                .mock_identity_revoke(identity_status, envelope)
+                .await;
+            fixture.mock_key_revoke(old_key_id, key_status).await;
+            let result = fixture.finalize(record.request_id).await;
+            assert_eq!(result["status"], "granted");
+            assert_eq!(
+                store
+                    .get_hosted_passwords_agent(fixture.user_id, "user")
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .identity_id,
+                new_identity
+            );
+            if identity_leftover {
+                assert_eq!(result["leftover_identity_id"], json!(fixture.identity_id));
+            } else {
+                assert!(result.get("leftover_identity_id").is_none());
+            }
+            if key_status == 500 {
+                assert_eq!(result["leftover_api_key_id"], json!(old_key_id));
+                assert_eq!(
+                    result["leftover_api_key_organization_id"],
+                    json!(fixture.organization_id)
+                );
+            } else {
+                assert_eq!(result["revoked_api_key_id"], json!(old_key_id));
+            }
+            let step = result["next_step"].as_str().unwrap();
+            assert!(step.contains("passwords_agents_freeze") && step.contains("revoke_api_key"));
+            assert!(step.contains("selected no vault"));
+            fixture.gateway.verify().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn legacy_key_cleanup_requires_exact_binding() {
+        if !integration_tests_enabled() {
+            eprintln!("skipping hosted grant integration test");
+            return;
+        }
+        let (_container, store) = test_token_store().await;
+        let store = Arc::new(store);
+        for missing_organization in [false, true] {
+            let fixture = HostedFixture::new(store.clone()).await;
+            let old_key_id = Uuid::new_v4();
+            if missing_organization {
+                let previous = store
+                    .get_hosted_passwords_agent(fixture.user_id, "user")
+                    .await
+                    .unwrap()
+                    .unwrap();
+                store
+                    .upsert_hosted_passwords_agent(HostedPasswordsAgentUpsert {
+                        user_id: fixture.user_id,
+                        credential_subject: "user",
+                        identity_id: previous.identity_id,
+                        display_name: &previous.display_name,
+                        kem_private: &previous.kem_private,
+                        api_key: previous.api_key.as_deref().map(|key| key.as_str()),
+                        api_key_id: Some(old_key_id),
+                        api_key_organization_id: None,
+                        granted_vaults: &previous.granted_vaults,
+                    })
+                    .await
+                    .unwrap();
+            }
+            // Even a uniquely matching name is not a credential binding. The list
+            // endpoint is an observable trap: cleanup must not request candidates.
+            Mock::given(method("GET"))
+                .and(path("/organizations/default/api-keys"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": [{
+                    "id": old_key_id, "key_id": "opaque-key-id",
+                    "name": "Prior agent (seren-passwords hosted MCP)",
+                    "key_type": "agent", "key_prefix": "synthetic",
+                    "organization_id": fixture.organization_id,
+                    "created_at": "2026-10-25T00:00:00Z"
+                }]})))
+                .expect(0)
+                .mount(&fixture.gateway)
+                .await;
+            let record = fixture
+                .seed_pending(
+                    Uuid::new_v4(),
+                    DelegationPolicyRequestStatus::Approved,
+                    &fixture.vault_ids,
+                )
+                .await;
+            fixture.mint_key().await;
+            fixture.mock_identity_revoke(200, false).await;
+            let result = fixture.finalize(record.request_id).await;
+            assert_eq!(result["status"], "granted");
+            assert_eq!(
+                result["leftover_api_key_name"],
+                "Prior agent (seren-passwords hosted MCP)"
+            );
+            assert_eq!(
+                result.get("leftover_api_key_id"),
+                missing_organization.then(|| json!(old_key_id)).as_ref()
+            );
+            assert!(result.get("revoked_api_key_id").is_none());
+            assert!(
+                result["next_step"]
+                    .as_str()
+                    .unwrap()
+                    .contains("matching name alone does not prove ownership")
+            );
+            assert!(
+                !fixture
+                    .gateway
+                    .received_requests()
+                    .await
+                    .unwrap()
+                    .iter()
+                    .any(|request| request.method == "DELETE")
+            );
+            fixture.gateway.verify().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn user_api_key_replacement_only_revokes_identity() {
+        if !integration_tests_enabled() {
+            eprintln!("skipping hosted grant integration test");
+            return;
+        }
+        let (_container, store) = test_token_store().await;
+        let fixture = HostedFixture::new_for_subject(
+            Arc::new(store),
+            crate::oauth::store::HostedPasswordsCredentialSubject::UserApiKey(Uuid::new_v4()),
+        )
+        .await;
+        let record = fixture
+            .seed_pending(
+                Uuid::new_v4(),
+                DelegationPolicyRequestStatus::Approved,
+                &fixture.vault_ids,
+            )
+            .await;
+        fixture.mock_identity_revoke(200, false).await;
+        let result = fixture.finalize(record.request_id).await;
+        assert_eq!(result["status"], "granted");
+        assert_eq!(result["replaced_identity_id"], json!(fixture.identity_id));
+        assert!(result.get("revoked_api_key_id").is_none());
+        let saved = fixture
+            .store
+            .get_hosted_passwords_agent(fixture.user_id, &fixture.subject.storage_key())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved.identity_id, record.agent_identity_id);
+        assert!(
+            saved.api_key.is_none()
+                && saved.api_key_id.is_none()
+                && saved.api_key_organization_id.is_none()
+        );
+        assert!(
+            !fixture
+                .gateway
+                .received_requests()
+                .await
+                .unwrap()
+                .iter()
+                .any(|request| request.url.path().contains("api-keys"))
+        );
+        fixture.gateway.verify().await;
+    }
+
+    #[tokio::test]
+    async fn replacement_cleanup_uses_configured_identity_endpoint() {
+        if !integration_tests_enabled() {
+            eprintln!("skipping hosted grant integration test");
+            return;
+        }
+        let (_container, store) = test_token_store().await;
+        let mut fixture = HostedFixture::new(Arc::new(store)).await;
+        let previous_key_id = Uuid::new_v4();
+        fixture.set_previous_key_id(previous_key_id).await;
+        let record = fixture
+            .seed_pending(
+                Uuid::new_v4(),
+                DelegationPolicyRequestStatus::Approved,
+                &fixture.vault_ids,
+            )
+            .await;
+        fixture.mint_key().await;
+        fixture.mock_key_revoke(previous_key_id, 200).await;
+        let passwords = MockServer::start().await;
+        fixture.server = crate::server::tests::passwords_test_server_with_endpoint(
+            &fixture.gateway.uri(),
+            &format!("{}/publishers/seren-passwords", passwords.uri()),
+            Some(PasswordsAgentIdentity {
+                api_key: Zeroizing::new("wrong-startup-token".into()),
+                kem_private: IdentityKemKeypair::generate().private,
+            }),
+            Some(fixture.store.clone()),
+        );
+        let revoke_path = format!(
+            "/publishers/seren-passwords/identities/{}/revoke",
+            fixture.identity_id
+        );
+        Mock::given(method("POST"))
+            .and(path(&revoke_path))
+            .and(header("authorization", "Bearer test-key"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({"data": {"revoked": true}})),
+            )
+            .expect(1)
+            .mount(&passwords)
+            .await;
+        let result = fixture.finalize(record.request_id).await;
+        assert_eq!(result["status"], "granted");
+        assert_eq!(result["revoked_api_key_id"], json!(previous_key_id));
+        assert!(result.get("leftover_identity_id").is_none());
+        assert!(
+            fixture
+                .gateway
+                .received_requests()
+                .await
+                .unwrap()
+                .iter()
+                .all(|request| request.url.path() != revoke_path)
+        );
+        passwords.verify().await;
+        fixture.gateway.verify().await;
     }
 }

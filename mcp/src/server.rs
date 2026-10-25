@@ -20611,9 +20611,23 @@ pub(crate) mod tests {
         agent: Option<crate::passwords::PasswordsAgentIdentity>,
         store: Option<Arc<crate::oauth::store::TokenStore>>,
     ) -> SerenMcpServer {
+        passwords_test_server_with_endpoint(
+            gateway,
+            &format!("{gateway}/publishers/seren-passwords"),
+            agent,
+            store,
+        )
+    }
+
+    pub(crate) fn passwords_test_server_with_endpoint(
+        gateway: &str,
+        passwords_endpoint: &str,
+        agent: Option<crate::passwords::PasswordsAgentIdentity>,
+        store: Option<Arc<crate::oauth::store::TokenStore>>,
+    ) -> SerenMcpServer {
         let mut server = server_with_http_client(reqwest::Client::new());
         server.api_base_url = gateway.to_owned();
-        server.passwords_api_base_url = format!("{gateway}/publishers/seren-passwords");
+        server.passwords_api_base_url = passwords_endpoint.to_owned();
         server.passwords_local_mode = store.is_none();
         server.passwords_agent = agent.map(Arc::new);
         server.passwords_hosted_store = store;

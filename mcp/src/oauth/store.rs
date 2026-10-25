@@ -225,6 +225,8 @@ pub struct HostedPasswordsAgent {
     pub display_name: String,
     pub kem_private: Zeroizing<String>,
     pub api_key: Option<Zeroizing<String>>,
+    pub api_key_id: Option<Uuid>,
+    pub api_key_organization_id: Option<Uuid>,
     pub granted_vaults: serde_json::Value,
 }
 
@@ -280,6 +282,8 @@ pub struct HostedPasswordsAgentUpsert<'a> {
     pub display_name: &'a str,
     pub kem_private: &'a str,
     pub api_key: Option<&'a str>,
+    pub api_key_id: Option<Uuid>,
+    pub api_key_organization_id: Option<Uuid>,
     pub granted_vaults: &'a serde_json::Value,
 }
 
@@ -292,6 +296,10 @@ struct HostedPasswordsAgentSecretBundle {
     kem_private: String,
     #[serde(default)]
     api_key: Option<String>,
+    #[serde(default)]
+    api_key_id: Option<Uuid>,
+    #[serde(default)]
+    api_key_organization_id: Option<Uuid>,
 }
 
 #[derive(Serialize)]
@@ -302,6 +310,10 @@ struct HostedPasswordsAgentSecretBundleRef<'a> {
     kem_private: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     api_key: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    api_key_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    api_key_organization_id: Option<Uuid>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -470,6 +482,8 @@ impl TokenStore {
             identity_id: request.identity_id,
             kem_private: request.kem_private,
             api_key: request.api_key,
+            api_key_id: request.api_key_id,
+            api_key_organization_id: request.api_key_organization_id,
         };
         let credential_json =
             Zeroizing::new(serde_json::to_string(&credential_bundle).map_err(|e| {
@@ -854,6 +868,8 @@ impl TokenStore {
             display_name: row.display_name,
             kem_private: Zeroizing::new(bundle.kem_private),
             api_key: bundle.api_key.map(Zeroizing::new),
+            api_key_id: bundle.api_key_id,
+            api_key_organization_id: bundle.api_key_organization_id,
             granted_vaults: row.granted_vaults,
         }))
     }
