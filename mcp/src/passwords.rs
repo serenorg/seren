@@ -738,6 +738,15 @@ pub struct PasswordsShareIdParams {
 
 #[tool_router(router = passwords_tool_router, vis = "pub(crate)")]
 impl SerenMcpServer {
+    async fn select_passwords_vault(
+        &self,
+        client: &seren_secrets_resolver::VaultClient,
+        vault_id: Option<Uuid>,
+    ) -> Result<seren_secrets_resolver::vault::DecryptedVault, McpError> {
+        let next_step = self.passwords_vault_access_next_step().await;
+        select_vault(client, vault_id, next_step).await
+    }
+
     pub(crate) async fn call_builtin_passwords_tool(
         &self,
         tool_name: &str,
@@ -1507,7 +1516,9 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         if !self.passwords_local_mode {
             let client = self.passwords_vault_client(&extensions).await?;
-            let vault = select_vault(&client, params.vault_id).await?;
+            let vault = self
+                .select_passwords_vault(&client, params.vault_id)
+                .await?;
             let mut query = Vec::new();
             if params.exclude_attachments.unwrap_or(false) {
                 query.push(("exclude_attachments", "true".to_string()));
@@ -1519,7 +1530,9 @@ impl SerenMcpServer {
             );
         }
         let client = self.passwords_vault_client(&extensions).await?;
-        let vault = select_vault(&client, params.vault_id).await?;
+        let vault = self
+            .select_passwords_vault(&client, params.vault_id)
+            .await?;
         let (bearer, _) = self.passwords_vault_auth(&extensions).await?;
         let api_client = self.api_client_for_bearer(&bearer, &extensions)?;
         let listed = client
@@ -1629,7 +1642,9 @@ impl SerenMcpServer {
         crate::server::ensure_writes_allowed(&extensions)?;
         if !self.passwords_local_mode {
             let client = self.passwords_vault_client(&extensions).await?;
-            let vault = select_vault(&client, params.vault_id).await?;
+            let vault = self
+                .select_passwords_vault(&client, params.vault_id)
+                .await?;
             return hosted_passwords_ui_action_result(
                 "import-vault",
                 HOSTED_PASSWORDS_BULK_PLAINTEXT_HANDOFF_REASON,
@@ -1641,7 +1656,9 @@ impl SerenMcpServer {
             return Err(McpError::invalid_params("items cannot be empty", None));
         }
         let client = self.passwords_vault_client(&extensions).await?;
-        let vault = select_vault(&client, params.vault_id).await?;
+        let vault = self
+            .select_passwords_vault(&client, params.vault_id)
+            .await?;
         let (bearer, _) = self.passwords_vault_auth(&extensions).await?;
         let api_client = self.api_client_for_bearer(&bearer, &extensions)?;
         let mut imported = Vec::with_capacity(params.items.len());
@@ -2119,7 +2136,9 @@ impl SerenMcpServer {
         }
         let (bearer, _, signing_private) = self.passwords_user_signing_auth(&extensions).await?;
         let vault_client = self.passwords_vault_client(&extensions).await?;
-        let vault = select_vault(&vault_client, Some(params.vault_id)).await?;
+        let vault = self
+            .select_passwords_vault(&vault_client, Some(params.vault_id))
+            .await?;
         let client = self.api_client_for_bearer(&bearer, &extensions)?;
         let identity = passwords_gateway_data(client.identity_get(&params.identity_id).await)
             .await?
@@ -2231,7 +2250,9 @@ impl SerenMcpServer {
 
         let (bearer, _, signing_private) = self.passwords_user_signing_auth(&extensions).await?;
         let vault_client = self.passwords_vault_client(&extensions).await?;
-        let vault = select_vault(&vault_client, Some(params.vault_id)).await?;
+        let vault = self
+            .select_passwords_vault(&vault_client, Some(params.vault_id))
+            .await?;
         let client = self.api_client_for_bearer(&bearer, &extensions)?;
         let identity = passwords_gateway_data(client.identity_get(&params.identity_id).await)
             .await?
@@ -2287,7 +2308,9 @@ impl SerenMcpServer {
             ));
         }
         let vault_client = self.passwords_vault_client(&extensions).await?;
-        let vault = select_vault(&vault_client, Some(params.vault_id)).await?;
+        let vault = self
+            .select_passwords_vault(&vault_client, Some(params.vault_id))
+            .await?;
         let invitation_id = Uuid::new_v4();
         let email_ciphertext = encrypt_vault_invitation_email(
             &vault.key,
@@ -2413,7 +2436,9 @@ impl SerenMcpServer {
         }
         let (bearer, _, signing_private) = self.passwords_user_signing_auth(&extensions).await?;
         let vault_client = self.passwords_vault_client(&extensions).await?;
-        let vault = select_vault(&vault_client, Some(params.vault_id)).await?;
+        let vault = self
+            .select_passwords_vault(&vault_client, Some(params.vault_id))
+            .await?;
         let client = self.api_client_for_bearer(&bearer, &extensions)?;
         let invitations =
             passwords_gateway_data(client.invitation_list_for_vault(&vault.vault_id).await)
@@ -2547,7 +2572,9 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let client = self.passwords_vault_client(&extensions).await?;
-        let vault = select_vault(&client, params.vault_id).await?;
+        let vault = self
+            .select_passwords_vault(&client, params.vault_id)
+            .await?;
         let items = client
             .list_items(vault.vault_id, &vault.key)
             .await
@@ -2579,7 +2606,9 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let reveal = params.reveal.unwrap_or(false);
         let client = self.passwords_vault_client(&extensions).await?;
-        let vault = select_vault(&client, params.vault_id).await?;
+        let vault = self
+            .select_passwords_vault(&client, params.vault_id)
+            .await?;
         let item = client
             .get_item(vault.vault_id, params.item_id, &vault.key)
             .await
@@ -2625,7 +2654,9 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         crate::server::ensure_writes_allowed(&extensions)?;
         let client = self.passwords_vault_client(&extensions).await?;
-        let vault = select_vault(&client, params.vault_id).await?;
+        let vault = self
+            .select_passwords_vault(&client, params.vault_id)
+            .await?;
 
         let sensitive = params.sensitive.unwrap_or(false);
         let tags = params.tags.unwrap_or_default();
@@ -2764,7 +2795,9 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         crate::server::ensure_writes_allowed(&extensions)?;
         let client = self.passwords_vault_client(&extensions).await?;
-        let vault = select_vault(&client, params.vault_id).await?;
+        let vault = self
+            .select_passwords_vault(&client, params.vault_id)
+            .await?;
         let item = client
             .get_item(vault.vault_id, params.item_id, &vault.key)
             .await
@@ -2915,7 +2948,9 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         crate::server::ensure_writes_allowed(&extensions)?;
         let client = self.passwords_vault_client(&extensions).await?;
-        let vault = select_vault(&client, params.vault_id).await?;
+        let vault = self
+            .select_passwords_vault(&client, params.vault_id)
+            .await?;
         client
             .delete_item(vault.vault_id, params.item_id)
             .await
@@ -2943,7 +2978,9 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         crate::server::ensure_writes_allowed(&extensions)?;
         let client = self.passwords_vault_client(&extensions).await?;
-        let vault = select_vault(&client, params.vault_id).await?;
+        let vault = self
+            .select_passwords_vault(&client, params.vault_id)
+            .await?;
         client
             .restore_item(vault.vault_id, params.item_id)
             .await
@@ -2972,8 +3009,12 @@ impl SerenMcpServer {
         crate::server::ensure_writes_allowed(&extensions)?;
         let client = self.passwords_vault_client(&extensions).await?;
         let api_client = self.passwords_api_client(&extensions).await?;
-        let source = select_vault(&client, params.vault_id).await?;
-        let target = select_vault(&client, Some(params.target_vault_id)).await?;
+        let source = self
+            .select_passwords_vault(&client, params.vault_id)
+            .await?;
+        let target = self
+            .select_passwords_vault(&client, Some(params.target_vault_id))
+            .await?;
         ensure_distinct_transfer_vaults(source.vault_id, target.vault_id)?;
         let new_item_id =
             duplicate_item_via_api(&api_client, &client, &source, params.item_id, &target).await?;
@@ -3003,8 +3044,12 @@ impl SerenMcpServer {
         crate::server::ensure_writes_allowed(&extensions)?;
         let client = self.passwords_vault_client(&extensions).await?;
         let api_client = self.passwords_api_client(&extensions).await?;
-        let source = select_vault(&client, params.vault_id).await?;
-        let target = select_vault(&client, Some(params.target_vault_id)).await?;
+        let source = self
+            .select_passwords_vault(&client, params.vault_id)
+            .await?;
+        let target = self
+            .select_passwords_vault(&client, Some(params.target_vault_id))
+            .await?;
         ensure_distinct_transfer_vaults(source.vault_id, target.vault_id)?;
         let moved_item_id =
             move_item_via_api(&api_client, &client, &source, params.item_id, &target).await?;
@@ -3032,7 +3077,9 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let vault_client = self.passwords_vault_client(&extensions).await?;
-        let vault = select_vault(&vault_client, params.vault_id).await?;
+        let vault = self
+            .select_passwords_vault(&vault_client, params.vault_id)
+            .await?;
         let (bearer, _) = self.passwords_vault_auth(&extensions).await?;
         let client = self.api_client_for_bearer(&bearer, &extensions)?;
         let attachments = passwords_gateway_data(
@@ -3062,7 +3109,9 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         crate::server::ensure_writes_allowed(&extensions)?;
         let vault_client = self.passwords_vault_client(&extensions).await?;
-        let vault = select_vault(&vault_client, params.vault_id).await?;
+        let vault = self
+            .select_passwords_vault(&vault_client, params.vault_id)
+            .await?;
         let (bearer, _) = self.passwords_vault_auth(&extensions).await?;
         let client = self.api_client_for_bearer(&bearer, &extensions)?;
         let plaintext = Zeroizing::new(decode_passwords_b64_field(
@@ -3104,7 +3153,9 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let vault_client = self.passwords_vault_client(&extensions).await?;
-        let vault = select_vault(&vault_client, params.vault_id).await?;
+        let vault = self
+            .select_passwords_vault(&vault_client, params.vault_id)
+            .await?;
         let (bearer, _) = self.passwords_vault_auth(&extensions).await?;
         let client = self.api_client_for_bearer(&bearer, &extensions)?;
         let attachment = passwords_gateway_data(
@@ -3139,7 +3190,9 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         crate::server::ensure_writes_allowed(&extensions)?;
         let vault_client = self.passwords_vault_client(&extensions).await?;
-        let vault = select_vault(&vault_client, params.vault_id).await?;
+        let vault = self
+            .select_passwords_vault(&vault_client, params.vault_id)
+            .await?;
         let (bearer, _) = self.passwords_vault_auth(&extensions).await?;
         let client = self.api_client_for_bearer(&bearer, &extensions)?;
         let result = passwords_gateway_data(
@@ -4857,6 +4910,7 @@ fn api_credential_kind(raw: &str) -> Result<ApiCredentialKind, McpError> {
 async fn select_vault(
     client: &seren_secrets_resolver::VaultClient,
     vault_id: Option<Uuid>,
+    next_step: &str,
 ) -> Result<seren_secrets_resolver::vault::DecryptedVault, McpError> {
     let mut vaults = client.list_vaults().await.map_err(vault_err)?;
     match vault_id {
@@ -4870,10 +4924,22 @@ async fn select_vault(
                 )
             }),
         None => {
-            if vaults.len() != 1 {
+            if vaults.is_empty() {
+                return Err(McpError::invalid_request(
+                    format!("no password vault is accessible to this account; {next_step}"),
+                    Some(serde_json::json!({"accessible_vaults": 0, "next_step": next_step})),
+                ));
+            }
+            if vaults.len() > 1 {
+                let candidates: Vec<_> = vaults
+                    .iter()
+                    .map(
+                        |vault| serde_json::json!({"vault_id": vault.vault_id, "name": vault.name}),
+                    )
+                    .collect();
                 return Err(McpError::invalid_request(
                     "multiple vaults found; pass vault_id",
-                    None,
+                    Some(serde_json::json!({"vaults": candidates})),
                 ));
             }
             vaults
@@ -6072,5 +6138,196 @@ mod tests {
         writeln!(file, "short").unwrap();
         let err = read_master_password(Some(file.path())).await.unwrap_err();
         assert!(err.message.contains("at least 8"));
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod access_tests {
+    use super::*;
+    use serde_json::{Value, json};
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    pub(crate) async fn vault_selection_fixture(
+        count: usize,
+        sync_status: u16,
+    ) -> (SerenMcpServer, MockServer, Vec<Uuid>) {
+        let gateway = MockServer::start().await;
+        let identity_id = Uuid::new_v4();
+        let kem = IdentityKemKeypair::generate();
+        let ids: Vec<_> = (0..count).map(|_| Uuid::new_v4()).collect();
+        let records: Vec<_> = ids.iter().enumerate().map(|(index, id)| {
+            let key = generate_vault_key();
+            json!({
+                "vault_id": id,
+                "name_ciphertext": BASE64.encode(encrypt_vault_name(&key, id.as_bytes(), &format!("Vault {index}"))),
+                "wrapped_vault_key": BASE64.encode(wrap_vault_key_for_identity(&key, &kem.public))
+            })
+        }).collect();
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-passwords/identities/me"))
+            .and(header("authorization", "Bearer selected-vault-token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
+                "identity_id": identity_id, "kind": "agent", "owner_user_id": Uuid::new_v4(),
+                "display_name": "Synthetic caller", "kem_public_key": BASE64.encode(kem.public.as_bytes()),
+                "signing_public_key": BASE64.encode([0u8; 32]), "key_provenance": {},
+                "created_at": "2026-10-20T00:00:00Z", "updated_at": "2026-10-20T00:00:00Z"
+            }})))
+            .expect(1)
+            .mount(&gateway).await;
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-passwords/sync"))
+            .and(header("authorization", "Bearer selected-vault-token"))
+            .respond_with(
+                ResponseTemplate::new(sync_status).set_body_json(json!({"data": {
+                    "vaults": records, "item_overviews": [], "memberships": []
+                }})),
+            )
+            .expect(1)
+            .mount(&gateway)
+            .await;
+        let server = crate::server::tests::passwords_test_server(
+            &gateway.uri(),
+            Some(PasswordsAgentIdentity {
+                api_key: Zeroizing::new("selected-vault-token".into()),
+                kem_private: kem.private,
+            }),
+            None,
+        );
+        (server, gateway, ids)
+    }
+
+    fn result_json(result: CallToolResult) -> Value {
+        serde_json::from_str(&result.content[0].as_text().unwrap().text).unwrap()
+    }
+
+    async fn items(
+        server: &SerenMcpServer,
+        vault_id: Option<Uuid>,
+    ) -> Result<CallToolResult, McpError> {
+        server
+            .passwords_items_list(
+                Parameters(PasswordsItemsListParams { vault_id }),
+                Extensions::default(),
+            )
+            .await
+    }
+
+    #[tokio::test]
+    async fn zero_vaults_report_no_accessible_vault() {
+        let (server, gateway, _) = vault_selection_fixture(0, 200).await;
+        let error = items(&server, None).await.unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("no password vault is accessible to this account")
+        );
+        assert!(!error.message.contains("multiple vaults"));
+        let data = error.data.unwrap();
+        assert_eq!(data["accessible_vaults"], 0);
+        assert_eq!(
+            data["next_step"],
+            "ask a vault admin to grant this identity membership, or use an identity that has one"
+        );
+        gateway.verify().await;
+    }
+
+    #[tokio::test]
+    async fn zero_vault_guidance_matches_hosted_and_local_modes() {
+        for hosted in [false, true] {
+            let (server, gateway, _) = vault_selection_fixture(0, 200).await;
+            let client = server
+                .passwords_vault_client(&Extensions::default())
+                .await
+                .unwrap();
+            let mut mode_server =
+                crate::server::tests::passwords_test_server(&gateway.uri(), None, None);
+            mode_server.passwords_local_mode = !hosted;
+            let error = mode_server
+                .select_passwords_vault(&client, None)
+                .await
+                .unwrap_err();
+            let step = error.data.unwrap()["next_step"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            if hosted {
+                assert_eq!(
+                    step,
+                    "call passwords_request_access (force=true if a grant exists) and approve at least one vault"
+                );
+            } else {
+                assert_eq!(
+                    step,
+                    "ask a vault admin to grant this identity membership, or use an identity that has one"
+                );
+            }
+            gateway.verify().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn one_vault_is_selected_implicitly() {
+        let (server, gateway, ids) = vault_selection_fixture(1, 200).await;
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-passwords/vaults/{}/items",
+                ids[0]
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": []})))
+            .expect(1)
+            .mount(&gateway)
+            .await;
+        assert_eq!(result_json(items(&server, None).await.unwrap()), json!([]));
+        gateway.verify().await;
+    }
+
+    #[tokio::test]
+    async fn many_vaults_require_an_explicit_choice_with_candidates() {
+        let (server, gateway, ids) = vault_selection_fixture(2, 200).await;
+        let error = items(&server, None).await.unwrap_err();
+        assert_eq!(error.message, "multiple vaults found; pass vault_id");
+        assert_eq!(
+            error.data.unwrap()["vaults"],
+            json!([
+                {"vault_id": ids[0], "name": "Vault 0"}, {"vault_id": ids[1], "name": "Vault 1"}
+            ])
+        );
+        gateway.verify().await;
+    }
+
+    #[tokio::test]
+    async fn explicit_inaccessible_vault_is_still_refused() {
+        let (server, gateway, _) = vault_selection_fixture(1, 200).await;
+        let missing = Uuid::new_v4();
+        assert_eq!(
+            items(&server, Some(missing)).await.unwrap_err().message,
+            format!("vault {missing} is not available to this account")
+        );
+        gateway.verify().await;
+    }
+
+    #[tokio::test]
+    async fn sync_failure_is_not_an_empty_vault_list() {
+        let (server, gateway, _) = vault_selection_fixture(0, 503).await;
+        let error = items(&server, None).await.unwrap_err();
+        assert_eq!(error.message, "vault server returned status 503");
+        assert!(error.data.is_none());
+        gateway.verify().await;
+    }
+
+    #[tokio::test]
+    async fn vaults_list_preserves_its_empty_array() {
+        let (server, gateway, _) = vault_selection_fixture(0, 200).await;
+        assert_eq!(
+            result_json(
+                server
+                    .passwords_vaults_list(Extensions::default())
+                    .await
+                    .unwrap()
+            ),
+            json!([])
+        );
+        gateway.verify().await;
     }
 }

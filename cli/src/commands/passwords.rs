@@ -4221,15 +4221,32 @@ async fn select_vault(
     client: &VaultClient,
     vault_id: Option<Uuid>,
 ) -> Result<seren_secrets_resolver::vault::DecryptedVault> {
-    let mut vaults = client.list_vaults().await?;
+    let vaults = client.list_vaults().await?;
+    choose_vault(vaults, vault_id)
+}
+
+fn choose_vault(
+    mut vaults: Vec<seren_secrets_resolver::vault::DecryptedVault>,
+    vault_id: Option<Uuid>,
+) -> Result<seren_secrets_resolver::vault::DecryptedVault> {
     match vault_id {
         Some(id) => vaults
             .into_iter()
             .find(|v| v.vault_id == id)
             .with_context(|| format!("vault {id} is not available to this account")),
         None => {
-            if vaults.len() != 1 {
-                bail!("multiple vaults found; pass --vault-id");
+            if vaults.is_empty() {
+                bail!(
+                    "no password vault is accessible to this account; ask a vault admin to grant this identity membership, or use an identity that has one"
+                );
+            }
+            if vaults.len() > 1 {
+                let candidates = vaults
+                    .iter()
+                    .map(|vault| format!("{} ({})", vault.vault_id, vault.name))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                bail!("multiple vaults found; pass --vault-id. Available vaults: {candidates}");
             }
             vaults.pop().context("no password vaults found")
         }
@@ -4447,6 +4464,84 @@ mod tests {
     };
     use seren_secrets_crypto::protocol::vault::generate_vault_key;
     use uuid::Uuid;
+
+    fn selection_vault(id: Uuid, name: &str) -> seren_secrets_resolver::vault::DecryptedVault {
+        seren_secrets_resolver::vault::DecryptedVault {
+            vault_id: id,
+            name: name.to_owned(),
+            key: generate_vault_key(),
+            key_version: 1,
+            access: None,
+        }
+    }
+
+    #[test]
+    fn zero_vaults_report_no_accessible_vault() {
+        let error = super::choose_vault(Vec::new(), None)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            "no password vault is accessible to this account; ask a vault admin to grant this identity membership, or use an identity that has one"
+        );
+    }
+
+    #[test]
+    fn one_vault_is_selected_implicitly() {
+        let id = Uuid::new_v4();
+        assert_eq!(
+            super::choose_vault(vec![selection_vault(id, "Only vault")], None)
+                .unwrap()
+                .vault_id,
+            id
+        );
+    }
+
+    #[test]
+    fn many_vaults_require_an_explicit_choice_with_candidates() {
+        let ids = [Uuid::new_v4(), Uuid::new_v4()];
+        let error = super::choose_vault(
+            vec![
+                selection_vault(ids[0], "First"),
+                selection_vault(ids[1], "Second"),
+            ],
+            None,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.starts_with("multiple vaults found; pass --vault-id"));
+        assert!(error.contains(&format!("{} (First)", ids[0])));
+        assert!(error.contains(&format!("{} (Second)", ids[1])));
+    }
+
+    #[test]
+    fn explicit_inaccessible_vault_is_still_refused() {
+        let id = Uuid::new_v4();
+        let error =
+            super::choose_vault(vec![selection_vault(Uuid::new_v4(), "Available")], Some(id))
+                .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!("vault {id} is not available to this account")
+        );
+    }
+
+    #[test]
+    fn explicit_accessible_vault_is_selected() {
+        let id = Uuid::new_v4();
+        assert_eq!(
+            super::choose_vault(
+                vec![
+                    selection_vault(Uuid::new_v4(), "First"),
+                    selection_vault(id, "Selected")
+                ],
+                Some(id)
+            )
+            .unwrap()
+            .vault_id,
+            id
+        );
+    }
 
     #[test]
     fn master_password_from_input_rejects_both_sources() {

@@ -7626,6 +7626,17 @@ impl SerenMcpServer {
         Ok(seren::Client::new_with_client(&base_url, http_client))
     }
 
+    pub(crate) async fn passwords_vault_access_next_step(&self) -> &'static str {
+        if self.passwords_local_mode
+            || self.passwords_agent.is_some()
+            || self.passwords_session.lock().await.is_some()
+        {
+            "ask a vault admin to grant this identity membership, or use an identity that has one"
+        } else {
+            "call passwords_request_access (force=true if a grant exists) and approve at least one vault"
+        }
+    }
+
     /// Build a Seren Passwords vault client for the active credential.
     ///
     /// A fresh in-memory user-mode session takes priority: a deliberate
@@ -20307,7 +20318,7 @@ When Seren MCP is connected, follow these priorities:
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     use anyhow::{Context, ensure};
@@ -20559,7 +20570,7 @@ mod tests {
         assert!(build_cloud_run_body(None, None, None, None, true, None, Some("   "),).is_err());
     }
 
-    fn server_with_http_client(http_client: reqwest::Client) -> SerenMcpServer {
+    pub(crate) fn server_with_http_client(http_client: reqwest::Client) -> SerenMcpServer {
         SerenMcpServer {
             api_base_url: "https://api.serendb.com".to_string(),
             passwords_api_base_url: "https://api.serendb.com".to_string(),
@@ -20574,6 +20585,20 @@ mod tests {
             passwords_agent: None,
             passwords_hosted_store: None,
         }
+    }
+
+    pub(crate) fn passwords_test_server(
+        gateway: &str,
+        agent: Option<crate::passwords::PasswordsAgentIdentity>,
+        store: Option<Arc<crate::oauth::store::TokenStore>>,
+    ) -> SerenMcpServer {
+        let mut server = server_with_http_client(reqwest::Client::new());
+        server.api_base_url = gateway.to_owned();
+        server.passwords_api_base_url = format!("{gateway}/publishers/seren-passwords");
+        server.passwords_local_mode = store.is_none();
+        server.passwords_agent = agent.map(Arc::new);
+        server.passwords_hosted_store = store;
+        server
     }
 
     fn flat_oauth_provider_update(body: serde_json::Value) -> serde_json::Value {
@@ -23862,6 +23887,32 @@ mod tests {
         assert_eq!(vaults.len(), 1);
         assert_eq!(vaults[0].vault_id, vault_id);
         assert_eq!(vaults[0].access, Some(VaultAccessLevel::Read));
+    }
+
+    #[tokio::test]
+    async fn builtin_proxy_reports_no_accessible_vault() {
+        let (server, gateway, _) =
+            crate::passwords::access_tests::vault_selection_fixture(0, 200).await;
+        let params: CallPublisherParams = serde_json::from_value(serde_json::json!({
+            "publisher": "seren-passwords", "tool": "passwords_items_list"
+        }))
+        .unwrap();
+        let error = server
+            .call_publisher_mcp_tool(
+                &params,
+                &Extensions::default(),
+                &AgentMetadata::default(),
+                false,
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("no password vault is accessible to this account")
+        );
+        assert_eq!(error.data.unwrap()["accessible_vaults"], 0);
+        gateway.verify().await;
     }
 
     #[tokio::test]
