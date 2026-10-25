@@ -2784,6 +2784,43 @@ const LLM_EXECUTION_FIELDS: &[&str] = &[
 /// Workload execution fields that distinguish deployment-bundle code workloads.
 const CODE_EXECUTION_FIELDS: &[&str] = &["deployment_bundle_id", "runtime_kind"];
 
+fn validate_eval_gate_selection(has_set: bool, has_age: bool, clear: bool) -> Result<()> {
+    if clear && (has_set || has_age) {
+        anyhow::bail!(
+            "Provide either --clear-eval-gate or --eval-gate-set-id plus --eval-gate-max-age-seconds, not both."
+        );
+    }
+    match (has_set, has_age) {
+        (true, false) => {
+            anyhow::bail!("--eval-gate-max-age-seconds is required with --eval-gate-set-id.")
+        }
+        (false, true) => {
+            anyhow::bail!("--eval-gate-set-id is required with --eval-gate-max-age-seconds.")
+        }
+        _ => Ok(()),
+    }
+}
+
+fn reshape_eval_gate(body: &mut serde_json::Map<String, serde_json::Value>) -> Result<()> {
+    validate_eval_gate_selection(
+        body.contains_key("eval_gate_set_id"),
+        body.contains_key("eval_gate_max_age_seconds"),
+        body.get("clear_eval_gate")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true),
+    )?;
+    if let (Some(set_id), Some(max_age_seconds)) = (
+        body.remove("eval_gate_set_id"),
+        body.remove("eval_gate_max_age_seconds"),
+    ) {
+        body.insert(
+            "eval_gate".into(),
+            serde_json::json!({"set_id": set_id, "max_age_seconds": max_age_seconds}),
+        );
+    }
+    Ok(())
+}
+
 /// Reshape a flat deploy/update body into the SDK-shaped JSON object.
 ///
 /// The CLI collects flags into a flat `Map<String, Value>`. The SDK contract
@@ -2884,15 +2921,7 @@ fn reshape_body_for_sdk(
         envelope.insert("workload".to_string(), serde_json::Value::Object(workload));
     }
 
-    // Bundle eval_gate_set_id + eval_gate_max_age_seconds into a typed EvalGate.
-    let eval_gate_set_id = envelope.remove("eval_gate_set_id");
-    let eval_gate_max_age_seconds = envelope.remove("eval_gate_max_age_seconds");
-    if let (Some(set_id), Some(max_age_seconds)) = (eval_gate_set_id, eval_gate_max_age_seconds) {
-        let mut gate = serde_json::Map::new();
-        gate.insert("set_id".to_string(), set_id);
-        gate.insert("max_age_seconds".to_string(), max_age_seconds);
-        envelope.insert("eval_gate".to_string(), serde_json::Value::Object(gate));
-    }
+    reshape_eval_gate(&mut envelope)?;
 
     Ok(envelope)
 }
@@ -4047,6 +4076,11 @@ pub async fn cloud_deploy(
         env_path,
         orchestration_config_path,
     } = options;
+    validate_eval_gate_selection(
+        eval_gate_set_id.is_some(),
+        eval_gate_max_age_seconds.is_some(),
+        false,
+    )?;
     let deploy_publisher = normalize_deploy_publisher_slug(publisher_slug)?;
     let runtime_target = resolve_cloud_runtime_target(compute_backend, runtime_kind)?;
 
@@ -4284,6 +4318,11 @@ pub async fn cloud_deploy_prompt(
         model_id,
         visibility,
     } = options;
+    validate_eval_gate_selection(
+        eval_gate_set_id.is_some(),
+        eval_gate_max_age_seconds.is_some(),
+        false,
+    )?;
     let deploy_publisher = SEREN_AGENT_SLUG;
     let runtime_target = resolve_cloud_runtime_target(compute_backend, None)?;
     let agent_config = load_orchestration_config(None, agent_config_path)?;
@@ -6867,6 +6906,11 @@ fn build_managed_agent_update_request(
         model_id,
         visibility,
     } = options;
+    validate_eval_gate_selection(
+        eval_gate_set_id.is_some(),
+        eval_gate_max_age_seconds.is_some(),
+        clear_eval_gate,
+    )?;
 
     let agent_config = load_orchestration_config(None, agent_config_path)?;
     let capability_policy = load_managed_agent_json_override(
@@ -7016,14 +7060,7 @@ fn build_managed_agent_update_request(
     }
     body.remove("prompt");
 
-    let eval_gate_set_id = body.remove("eval_gate_set_id");
-    let eval_gate_max_age_seconds = body.remove("eval_gate_max_age_seconds");
-    if let (Some(set_id), Some(max_age_seconds)) = (eval_gate_set_id, eval_gate_max_age_seconds) {
-        let mut gate = serde_json::Map::new();
-        gate.insert("set_id".to_string(), set_id);
-        gate.insert("max_age_seconds".to_string(), max_age_seconds);
-        body.insert("eval_gate".to_string(), serde_json::Value::Object(gate));
-    }
+    reshape_eval_gate(&mut body)?;
 
     let mut request: seren::AgentSpecUpdate =
         serde_json::from_value(serde_json::Value::Object(body))
@@ -7051,8 +7088,8 @@ pub async fn managed_agent_preview(
     options: ManagedAgentUpdateOptions<'_>,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let client = ctx.client().await?;
     let body = build_managed_agent_update_request(options)?;
+    let client = ctx.client().await?;
     let response = match client
         .seren_agent_preview_managed_deployment_update(&deployment_id, &body)
         .await
@@ -7076,8 +7113,8 @@ pub async fn managed_agent_update(
     options: ManagedAgentUpdateOptions<'_>,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let client = ctx.client().await?;
     let body = build_managed_agent_update_request(options)?;
+    let client = ctx.client().await?;
     let request_id = Uuid::new_v4();
     let response = submit_managed_mutation(
         &client,
@@ -14563,6 +14600,97 @@ mod tests {
             prompt: None,
             model_id: None,
             visibility: None,
+        }
+    }
+
+    #[test]
+    fn eval_gate_update_rejects_partial_and_conflicting_selections() {
+        let set_id = Uuid::from_u128(7);
+        for (set, age, missing) in [
+            (Some(set_id), None, "--eval-gate-max-age-seconds"),
+            (None, Some(3600), "--eval-gate-set-id"),
+        ] {
+            let mut options = empty_tool_update_options();
+            options.name = Some("Unrelated update must not hide a partial gate");
+            options.eval_gate_set_id = set;
+            options.eval_gate_max_age_seconds = age;
+            assert!(
+                build_managed_agent_update_request(options)
+                    .unwrap_err()
+                    .to_string()
+                    .contains(missing)
+            );
+        }
+        let mut options = empty_tool_update_options();
+        options.eval_gate_set_id = Some(set_id);
+        options.eval_gate_max_age_seconds = Some(3600);
+        let request =
+            serde_json::to_value(build_managed_agent_update_request(options).unwrap()).unwrap();
+        assert_eq!(
+            request["eval_gate"],
+            serde_json::json!({"set_id": set_id, "max_age_seconds": 3600})
+        );
+        let mut options = empty_tool_update_options();
+        options.clear_eval_gate = true;
+        let request =
+            serde_json::to_value(build_managed_agent_update_request(options).unwrap()).unwrap();
+        assert_eq!(request["clear_eval_gate"], true);
+        let mut options = empty_tool_update_options();
+        options.clear_eval_gate = true;
+        options.eval_gate_set_id = Some(set_id);
+        options.eval_gate_max_age_seconds = Some(3600);
+        assert!(build_managed_agent_update_request(options).is_err());
+    }
+
+    #[tokio::test]
+    async fn eval_gate_library_commands_validate_before_credentials_or_requests() {
+        let proxy = wiremock::MockServer::start().await;
+        // Invalid header syntax makes premature credential construction observable without refresh calls.
+        let ctx = CommandContext::new(
+            Some(proxy.uri()),
+            Some("invalid\ncredential".into()),
+            OutputFormat::Json,
+        );
+        for preview in [true, false] {
+            for set_only in [true, false] {
+                let mut options = empty_tool_update_options();
+                let missing = if set_only {
+                    options.eval_gate_set_id = Some(Uuid::from_u128(7));
+                    "--eval-gate-max-age-seconds"
+                } else {
+                    options.eval_gate_max_age_seconds = Some(3600);
+                    "--eval-gate-set-id"
+                };
+                let result = if preview {
+                    managed_agent_preview(Uuid::nil(), options, &ctx).await
+                } else {
+                    managed_agent_update(Uuid::nil(), options, &ctx).await
+                };
+                assert!(result.unwrap_err().to_string().contains(missing));
+            }
+        }
+        assert!(proxy.received_requests().await.unwrap().is_empty());
+    }
+
+    #[test]
+    fn eval_gate_deploy_reshape_preserves_complete_and_rejects_partial_pairs() {
+        let set_id = Uuid::from_u128(7);
+        for code in [true, false] {
+            for body in [
+                serde_json::json!({"eval_gate_set_id": set_id}),
+                serde_json::json!({"eval_gate_max_age_seconds": 3600}),
+            ] {
+                assert!(reshape_body_for_sdk(body.as_object().unwrap().clone(), code).is_err());
+            }
+            let body =
+                serde_json::json!({"eval_gate_set_id": set_id, "eval_gate_max_age_seconds": 3600});
+            let result = reshape_body_for_sdk(body.as_object().unwrap().clone(), code).unwrap();
+            assert_eq!(
+                result["eval_gate"],
+                serde_json::json!({"set_id": set_id, "max_age_seconds": 3600})
+            );
+            assert!(!result.contains_key("eval_gate_set_id"));
+            assert!(!result.contains_key("eval_gate_max_age_seconds"));
         }
     }
 

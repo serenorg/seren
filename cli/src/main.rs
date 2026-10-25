@@ -1358,10 +1358,10 @@ enum AgentAction {
         #[arg(long)]
         cron_timezone: Option<String>,
         /// Optional eval set ID that must have a fresh passing verdict before runs are allowed
-        #[arg(long)]
+        #[arg(long, requires = "eval_gate_max_age_seconds")]
         eval_gate_set_id: Option<Uuid>,
         /// Freshness window in seconds for the eval gate (required with --eval-gate-set-id)
-        #[arg(long)]
+        #[arg(long, requires = "eval_gate_set_id")]
         eval_gate_max_age_seconds: Option<i32>,
         /// Optional compute backend override (auto, aws_container, cloudflare_worker, or daytona). Omit for AWS-first auto-routing.
         #[arg(long)]
@@ -1397,10 +1397,10 @@ enum AgentAction {
         #[arg(long)]
         cron_timezone: Option<String>,
         /// Optional eval set ID that must have a fresh passing verdict before runs are allowed
-        #[arg(long)]
+        #[arg(long, requires = "eval_gate_max_age_seconds")]
         eval_gate_set_id: Option<Uuid>,
         /// Freshness window in seconds for the eval gate (required with --eval-gate-set-id)
-        #[arg(long)]
+        #[arg(long, requires = "eval_gate_set_id")]
         eval_gate_max_age_seconds: Option<i32>,
         /// Optional compute backend override (auto, aws_container, cloudflare_worker, or daytona). Omit for AWS-first managed routing.
         #[arg(long)]
@@ -1790,14 +1790,14 @@ enum AgentAction {
         /// Updated cron timezone (cron deployments only)
         #[arg(long)]
         cron_timezone: Option<String>,
-        /// Updated eval set ID that gates execution
-        #[arg(long)]
+        /// Updated eval set ID that gates execution (requires --eval-gate-max-age-seconds)
+        #[arg(long, requires = "eval_gate_max_age_seconds")]
         eval_gate_set_id: Option<Uuid>,
-        /// Updated eval gate freshness window in seconds
-        #[arg(long)]
+        /// Updated eval gate freshness window in seconds (requires --eval-gate-set-id)
+        #[arg(long, requires = "eval_gate_set_id")]
         eval_gate_max_age_seconds: Option<i32>,
         /// Clear the eval gate entirely
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = ["eval_gate_set_id", "eval_gate_max_age_seconds"])]
         clear_eval_gate: bool,
         /// Agent style override
         #[arg(long, visible_alias = "agent-style")]
@@ -1878,14 +1878,14 @@ enum AgentAction {
         /// Updated cron timezone (cron deployments only)
         #[arg(long)]
         cron_timezone: Option<String>,
-        /// Updated eval set ID that gates execution
-        #[arg(long)]
+        /// Updated eval set ID that gates execution (requires --eval-gate-max-age-seconds)
+        #[arg(long, requires = "eval_gate_max_age_seconds")]
         eval_gate_set_id: Option<Uuid>,
-        /// Updated eval gate freshness window in seconds
-        #[arg(long)]
+        /// Updated eval gate freshness window in seconds (requires --eval-gate-set-id)
+        #[arg(long, requires = "eval_gate_set_id")]
         eval_gate_max_age_seconds: Option<i32>,
         /// Clear the eval gate entirely
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = ["eval_gate_set_id", "eval_gate_max_age_seconds"])]
         clear_eval_gate: bool,
         /// Agent style override
         #[arg(long, visible_alias = "agent-style")]
@@ -2181,13 +2181,13 @@ enum CloudDeploymentAction {
         #[arg(long, default_value_t = false)]
         clear_network_policy: bool,
         /// Optional eval set ID that must have a fresh passing verdict before runs are allowed
-        #[arg(long)]
+        #[arg(long, requires = "eval_gate_max_age_seconds")]
         eval_gate_set_id: Option<Uuid>,
         /// Freshness window in seconds for the eval gate (required with --eval-gate-set-id)
-        #[arg(long)]
+        #[arg(long, requires = "eval_gate_set_id")]
         eval_gate_max_age_seconds: Option<i32>,
         /// Remove the eval gate from the deployment
-        #[arg(long, default_value_t = false)]
+        #[arg(long, default_value_t = false, conflicts_with_all = ["eval_gate_set_id", "eval_gate_max_age_seconds"])]
         clear_eval_gate: bool,
     },
 }
@@ -8921,6 +8921,77 @@ mod tests {
             ])
             .is_err()
         );
+    }
+
+    #[test]
+    fn eval_gate_flags_require_a_complete_pair_on_every_command() {
+        const ID: &str = "550e8400-e29b-41d4-a716-446655440000";
+        let commands = [
+            vec!["seren", "agent", "deploy", "/unused"],
+            vec![
+                "seren",
+                "agent",
+                "deploy-prompt",
+                "--name",
+                "Example",
+                "--prompt",
+                "Hello",
+            ],
+            vec!["seren", "agent", "managed-update", ID],
+            vec!["seren", "agent", "managed-preview", ID],
+            vec!["seren", "agent", "cloud", "deployment", "update-config", ID],
+        ];
+        for command in commands {
+            for flags in [
+                vec!["--eval-gate-set-id", ID],
+                vec!["--eval-gate-max-age-seconds", "3600"],
+            ] {
+                let mut args = command.clone();
+                args.extend(flags);
+                let error = try_parse_cli_with_large_stack(args)
+                    .err()
+                    .expect("partial gate must fail before dispatch");
+                assert_eq!(
+                    error.kind(),
+                    clap::error::ErrorKind::MissingRequiredArgument
+                );
+            }
+            let mut args = command.clone();
+            args.extend([
+                "--eval-gate-set-id",
+                ID,
+                "--eval-gate-max-age-seconds",
+                "3600",
+            ]);
+            assert!(try_parse_cli_with_large_stack(args).is_ok());
+        }
+        for action in ["managed-update", "managed-preview"] {
+            let args = vec![
+                "seren",
+                "agent",
+                action,
+                ID,
+                "--clear-eval-gate",
+                "--eval-gate-set-id",
+                ID,
+                "--eval-gate-max-age-seconds",
+                "3600",
+            ];
+            assert_eq!(
+                try_parse_cli_with_large_stack(args).err().unwrap().kind(),
+                clap::error::ErrorKind::ArgumentConflict
+            );
+            assert!(
+                try_parse_cli_with_large_stack(vec![
+                    "seren",
+                    "agent",
+                    action,
+                    ID,
+                    "--clear-eval-gate"
+                ])
+                .is_ok()
+            );
+        }
     }
 
     fn parse_cli_with_large_stack(args: Vec<&'static str>) -> Cli {
