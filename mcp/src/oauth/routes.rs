@@ -1855,12 +1855,7 @@ mod tests {
     use wiremock::matchers::{body_string_contains, header as wm_header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    fn integration_tests_enabled() -> bool {
-        std::env::var("SEREN_MCP_INTEGRATION_TESTS")
-            .ok()
-            .map(|v| v.trim().to_ascii_lowercase())
-            .is_some_and(|v| v == "1" || v == "true" || v == "yes" || v == "on")
-    }
+    use crate::oauth::store::{integration_tests_enabled, test_token_store};
 
     fn find_query_param(url: &reqwest::Url, key: &str) -> Option<String> {
         url.query_pairs()
@@ -1941,47 +1936,8 @@ mod tests {
             return;
         }
 
-        use testcontainers::{
-            GenericImage, ImageExt,
-            core::{IntoContainerPort, WaitFor},
-            runners::AsyncRunner,
-        };
-
-        // Docker container must stay in scope for the duration of the test.
-        let container = GenericImage::new("postgres", "11-alpine")
-            .with_wait_for(WaitFor::message_on_stderr(
-                "database system is ready to accept connections",
-            ))
-            .with_wait_for(WaitFor::message_on_stdout(
-                "database system is ready to accept connections",
-            ))
-            .with_exposed_port(5432.tcp())
-            .with_env_var("POSTGRES_DB", "postgres")
-            .with_env_var("POSTGRES_USER", "postgres")
-            .with_env_var("POSTGRES_PASSWORD", "postgres")
-            .with_cmd(["-c", "fsync=off"])
-            .with_mapped_port(0, 5432.tcp())
-            .with_host_config_modifier(|config| {
-                if let Some(ports) = config.port_bindings.as_mut() {
-                    for bindings in ports.values_mut().flatten() {
-                        for binding in bindings {
-                            binding.host_ip = Some("127.0.0.1".into());
-                        }
-                    }
-                }
-            })
-            .start()
-            .await
-            .unwrap();
-        let port = container.get_host_port_ipv4(5432).await.unwrap();
-        let database_url = format!("postgres://postgres:postgres@127.0.0.1:{}/postgres", port);
-
-        let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
-        let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
-        let migrator = sqlx::migrate::Migrator::new(migrations_dir).await.unwrap();
-        migrator.run(&pool).await.unwrap();
-
-        let store = TokenStore::new(pool);
+        // Keep the disposable database alive until the test completes.
+        let (_container, store) = test_token_store().await;
         let upstream = MockServer::start().await;
 
         let server_host = "http://mcp.test".to_string();
@@ -1995,7 +1951,8 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "access_token": "up_access_1",
                 "token_type": "Bearer",
-                // Force an upstream refresh during the downstream refresh_token flow.
+                // Already expired; the flow below ends at token exchange and must
+                // not refresh it.
                 "expires_in": 0,
                 "refresh_token": "up_refresh_1",
                 "scope": "openid profile email",
@@ -2018,7 +1975,8 @@ mod tests {
             .mount(&upstream)
             .await;
 
-        // Upstream token refresh
+        // Upstream token refresh: the downstream client receives no refresh_token,
+        // so this flow never reaches it.
         Mock::given(method("POST"))
             .and(path("/oauth2/token"))
             .and(body_string_contains("grant_type=refresh_token"))
@@ -2031,6 +1989,7 @@ mod tests {
                 "refresh_token": "up_refresh_2",
                 "scope": "openid profile email",
             })))
+            .expect(0)
             .mount(&upstream)
             .await;
 

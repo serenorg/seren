@@ -47,7 +47,9 @@ use seren_secrets_crypto::protocol::vault::{
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-use crate::oauth::store::{HostedPasswordsAgentUpsert, PendingHostedPasswordsAgentRequest};
+use crate::oauth::store::{
+    HostedPasswordsAgent, HostedPasswordsAgentUpsert, PendingHostedPasswordsAgentRequest,
+};
 use crate::server::SerenMcpServer;
 
 /// Idle timeout for a user-mode unlocked session before it is discarded.
@@ -57,6 +59,73 @@ const MIN_MASTER_PASSWORD_LEN: usize = 8;
 const PASSWORDS_EXPORT_FORMAT: &str = "seren-passwords-mcp-export";
 const PASSWORDS_EXPORT_VERSION: u32 = 1;
 const ATTACHMENT_URI_SCHEME: &str = "seren-secrets://attachment/";
+
+const GRANT_RECONSENT_NEXT_STEP: &str = "Call passwords_request_access with force=true to open a new consent URL. Select every vault that should be accessible; the saved grant is replaced only after approval.";
+const GRANT_RETRY_NEXT_STEP: &str = "Retry passwords_request_access later to verify the saved grant. Verification did not change it.";
+const EMPTY_APPROVAL_NEXT_STEP: &str = "The approval selected no vault; call passwords_request_access with force=true and select at least one vault.";
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum HostedGrantUnusableReason {
+    IdentityUnavailable,
+    NoAccessibleVaults,
+}
+
+enum HostedGrantCheck {
+    Usable {
+        accessible: Vec<serde_json::Value>,
+        inaccessible_vault_ids: Vec<Uuid>,
+    },
+    Unusable {
+        reason: HostedGrantUnusableReason,
+    },
+    VerificationFailed {
+        error: String,
+    },
+}
+
+fn grant_verification_failed(stage: &str, status: Option<u16>) -> HostedGrantCheck {
+    // Upstream bodies, URLs and credentials must never enter this response.
+    let suffix = status
+        .map(|value| format!(" (HTTP {value})"))
+        .unwrap_or_default();
+    HostedGrantCheck::VerificationFailed {
+        error: format!("Could not verify the saved grant: {stage} failed{suffix}."),
+    }
+}
+
+/// The publisher gateway carries the Passwords response status inside its
+/// envelope. A direct HTTP status comes from Seren Core itself; on a publisher
+/// route it reflects the credential or routing, not Passwords state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PasswordsStatus {
+    Producer(u16),
+    Gateway(u16),
+}
+
+impl PasswordsStatus {
+    fn code(self) -> u16 {
+        match self {
+            Self::Producer(code) | Self::Gateway(code) => code,
+        }
+    }
+}
+
+fn passwords_envelope_status(data: &serde_json::Value) -> Option<u16> {
+    data.get("status")?
+        .as_u64()
+        .and_then(|value| u16::try_from(value).ok())
+}
+
+fn passwords_error_status<E>(error: &seren::Error<E>) -> Option<PasswordsStatus> {
+    if let seren::Error::InvalidResponsePayload(bytes, _) = error {
+        let envelope: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+        return passwords_envelope_status(envelope.get("data")?).map(PasswordsStatus::Producer);
+    }
+    error
+        .status()
+        .map(|status| PasswordsStatus::Gateway(status.as_u16()))
+}
 
 /// User-mode (master-password) unlocked session. Held in memory only and used
 /// to rebuild a fresh `VaultClient` or sign local-only requests; expires after
@@ -747,6 +816,100 @@ impl SerenMcpServer {
         select_vault(client, vault_id, next_step).await
     }
 
+    async fn verify_hosted_grant_access(
+        &self,
+        extensions: &Extensions,
+        agent: &HostedPasswordsAgent,
+    ) -> HostedGrantCheck {
+        if self.validate_passwords_endpoint().is_err() {
+            return grant_verification_failed("endpoint validation", None);
+        }
+        let (bearer, kem_private) = match self.hosted_passwords_agent_auth(extensions, agent) {
+            Ok(auth) => auth,
+            Err(_) => return grant_verification_failed("stored credential decoding", None),
+        };
+        let api = match self.passwords_api_client_for_bearer(&bearer, extensions) {
+            Ok(api) => api,
+            Err(_) => return grant_verification_failed("identity client setup", None),
+        };
+        let saved_agent_key = matches!(
+            crate::server::hosted_passwords_credential_subject_from_extensions(extensions),
+            Ok(crate::oauth::store::HostedPasswordsCredentialSubject::User)
+        );
+        let response = api.identity_get_me().await;
+        let status = response.as_ref().err().and_then(passwords_error_status);
+        // Passwords reports a missing, revoked or foreign agent identity as 404.
+        // This establishes unavailability, not a specific revocation cause.
+        // Gateway errors and every other status leave verification inconclusive.
+        if status == Some(PasswordsStatus::Producer(404)) && saved_agent_key {
+            return HostedGrantCheck::Unusable {
+                reason: HostedGrantUnusableReason::IdentityUnavailable,
+            };
+        }
+        let identity = match passwords_gateway_data(response).await {
+            Ok(response) => response.data,
+            Err(_) => {
+                return grant_verification_failed(
+                    "identity lookup",
+                    status.map(PasswordsStatus::code),
+                );
+            }
+        };
+        if identity.identity_id != agent.identity_id
+            || Some(identity.owner_user_id)
+                != crate::server::extract_user_id_from_extensions(extensions)
+        {
+            return grant_verification_failed("saved identity binding", None);
+        }
+        let client = match self.passwords_vault_client_for_credential(
+            bearer,
+            kem_private,
+            identity.identity_id,
+        ) {
+            Ok(client) => client,
+            Err(_) => return grant_verification_failed("vault client setup", None),
+        };
+        let vaults = match client.list_vaults().await {
+            Ok(vaults) => vaults,
+            Err(error) => {
+                let status = match error {
+                    seren_secrets_resolver::ResolverError::ServerError { status, .. } => {
+                        Some(status)
+                    }
+                    _ => None,
+                };
+                return grant_verification_failed("vault listing", status);
+            }
+        };
+        if vaults.is_empty() {
+            return HostedGrantCheck::Unusable {
+                reason: HostedGrantUnusableReason::NoAccessibleVaults,
+            };
+        }
+        let Some(saved) = agent.granted_vaults.as_array() else {
+            return grant_verification_failed("saved vault metadata decoding", None);
+        };
+        let Some(saved): Option<Vec<Uuid>> = saved
+            .iter()
+            .map(|vault| vault.get("vault_id")?.as_str()?.parse().ok())
+            .collect()
+        else {
+            return grant_verification_failed("saved vault metadata decoding", None);
+        };
+        let inaccessible_vault_ids = saved
+            .into_iter()
+            .filter(|id| !vaults.iter().any(|vault| vault.vault_id == *id))
+            .collect();
+        let accessible = vaults
+            .into_iter()
+            .map(|vault| serde_json::json!({"vault_id": vault.vault_id, "name": vault.name}))
+            .collect();
+        HostedGrantCheck::Usable {
+            accessible,
+            inaccessible_vault_ids,
+        }
+    }
+
     pub(crate) async fn call_builtin_passwords_tool(
         &self,
         tool_name: &str,
@@ -823,14 +986,31 @@ impl SerenMcpServer {
                 .await
                 .map_err(|e| McpError::internal_error(e.to_string(), None))?
         {
-            return Ok(CallToolResult::success(vec![crate::server::json_content(
-                &serde_json::json!({
+            let result = match self.verify_hosted_grant_access(&extensions, &agent).await {
+                HostedGrantCheck::Usable {
+                    accessible,
+                    inaccessible_vault_ids,
+                } => serde_json::json!({
                     "status": "already_granted",
+                    "access": if inaccessible_vault_ids.is_empty() { "full" } else { "partial" },
+                    "accessible_vaults": accessible,
+                    "inaccessible_vault_ids": inaccessible_vault_ids,
                     "identity_id": agent.identity_id,
                     "display_name": agent.display_name,
                     "granted_vaults": agent.granted_vaults,
-                    "next_step": "Call passwords_request_access with force=true to open a new consent URL. Approving it replaces this agent's grant, so on the consent page re-select every vault in granted_vaults that should be kept, plus any new vaults.",
+                    "next_step": GRANT_RECONSENT_NEXT_STEP,
                 }),
+                HostedGrantCheck::Unusable { reason } => serde_json::json!({
+                    "status": "grant_unusable", "reason": reason,
+                    "identity_id": agent.identity_id, "display_name": agent.display_name,
+                    "granted_vaults": agent.granted_vaults, "next_step": GRANT_RECONSENT_NEXT_STEP,
+                }),
+                HostedGrantCheck::VerificationFailed { error } => serde_json::json!({
+                    "status": "verification_failed", "error": error, "next_step": GRANT_RETRY_NEXT_STEP,
+                }),
+            };
+            return Ok(CallToolResult::success(vec![crate::server::json_content(
+                &result,
             )?]));
         }
         store
@@ -1126,13 +1306,17 @@ impl SerenMcpServer {
                     )
                     .await
                     .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                let mut result = serde_json::json!({
+                    "status": "granted",
+                    "request_id": record.request_id,
+                    "identity_id": identity_id,
+                    "granted_vault_ids": record.granted_vault_ids,
+                });
+                if record.granted_vault_ids.is_empty() {
+                    result["next_step"] = serde_json::json!(EMPTY_APPROVAL_NEXT_STEP);
+                }
                 Ok(CallToolResult::success(vec![crate::server::json_content(
-                    &serde_json::json!({
-                        "status": "granted",
-                        "request_id": record.request_id,
-                        "identity_id": identity_id,
-                        "granted_vault_ids": record.granted_vault_ids,
-                    }),
+                    &result,
                 )?]))
             }
         }
@@ -5777,7 +5961,7 @@ mod tests {
         assert!(validate_passwords_import_metadata(&params).is_err());
     }
 
-    fn sample_policy_request() -> seren::DelegationPolicyRequestView {
+    pub(super) fn sample_policy_request() -> seren::DelegationPolicyRequestView {
         let timestamp: jiff::Timestamp = "2030-01-01T18:19:00Z".parse().unwrap();
         seren::DelegationPolicyRequestView {
             agent_display_name: "Hosted MCP".to_string(),
@@ -6329,5 +6513,643 @@ pub(crate) mod access_tests {
             json!([])
         );
         gateway.verify().await;
+    }
+}
+
+#[cfg(test)]
+mod hosted_grant_tests {
+    use super::*;
+    use crate::oauth::store::{TokenStore, integration_tests_enabled, test_token_store};
+    use serde_json::{Value, json};
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    struct HostedFixture {
+        store: Arc<TokenStore>,
+        subject: crate::oauth::store::HostedPasswordsCredentialSubject,
+        gateway: MockServer,
+        server: SerenMcpServer,
+        user_id: Uuid,
+        identity_id: Uuid,
+        kem: IdentityKemKeypair,
+        vault_ids: Vec<Uuid>,
+    }
+
+    impl HostedFixture {
+        async fn new(store: Arc<TokenStore>) -> Self {
+            Self::new_for_subject(
+                store,
+                crate::oauth::store::HostedPasswordsCredentialSubject::User,
+            )
+            .await
+        }
+
+        async fn new_for_subject(
+            store: Arc<TokenStore>,
+            subject: crate::oauth::store::HostedPasswordsCredentialSubject,
+        ) -> Self {
+            let gateway = MockServer::start().await;
+            let user_id = Uuid::new_v4();
+            let identity_id = Uuid::new_v4();
+            let kem = IdentityKemKeypair::generate();
+            let vault_ids = vec![Uuid::new_v4(), Uuid::new_v4()];
+            store
+                .upsert_hosted_passwords_agent(HostedPasswordsAgentUpsert {
+                    user_id,
+                    credential_subject: &subject.storage_key(),
+                    identity_id,
+                    display_name: "Prior agent",
+                    kem_private: &BASE64.encode(kem.private.as_bytes()),
+                    api_key: if subject.is_user_api_key() {
+                        None
+                    } else {
+                        Some("stored-agent-token")
+                    },
+                    granted_vaults: &json!(
+                        vault_ids
+                            .iter()
+                            .map(|id| json!({"vault_id": id}))
+                            .collect::<Vec<_>>()
+                    ),
+                })
+                .await
+                .unwrap();
+            // Verification must ignore a different startup identity.
+            let server = crate::server::tests::passwords_test_server(
+                &gateway.uri(),
+                Some(PasswordsAgentIdentity {
+                    api_key: Zeroizing::new("wrong-startup-token".into()),
+                    kem_private: IdentityKemKeypair::generate().private,
+                }),
+                Some(store.clone()),
+            );
+            Self {
+                store,
+                subject,
+                gateway,
+                server,
+                user_id,
+                identity_id,
+                kem,
+                vault_ids,
+            }
+        }
+
+        fn extensions(&self) -> Extensions {
+            let request = axum::http::Request::builder()
+                .header("x-user-id", self.user_id.to_string())
+                .body(())
+                .unwrap();
+            let (mut parts, _) = request.into_parts();
+            let credential = match self.subject {
+                crate::oauth::store::HostedPasswordsCredentialSubject::User => {
+                    crate::SerenRequestCredential::UserSession
+                }
+                crate::oauth::store::HostedPasswordsCredentialSubject::UserApiKey(id) => {
+                    crate::SerenRequestCredential::UserApiKey {
+                        api_key_id: Some(id),
+                        api_key_scopes: None,
+                    }
+                }
+            };
+            parts.extensions.insert(crate::SerenRequestAuthContext {
+                user_id: self.user_id,
+                email: None,
+                credential,
+            });
+            let mut extensions = Extensions::default();
+            extensions.insert(parts);
+            extensions
+        }
+
+        async fn snapshot(&self) -> Value {
+            sqlx::query_scalar("SELECT to_jsonb(agent) FROM mcp_oauth.hosted_passwords_agents agent WHERE user_id = $1 AND credential_subject = $2")
+                .bind(self.user_id).bind(self.subject.storage_key()).fetch_one(self.store.pool()).await.unwrap()
+        }
+
+        async fn request_access(&self, force: bool) -> Value {
+            output(
+                self.server
+                    .passwords_request_access(
+                        Parameters(PasswordsRequestAccessParams {
+                            display_name: None,
+                            force: Some(force),
+                        }),
+                        self.extensions(),
+                    )
+                    .await
+                    .unwrap(),
+            )
+        }
+
+        fn identity_response(&self) -> Value {
+            json!({"data": {
+                "identity_id": self.identity_id, "kind": "agent", "owner_user_id": self.user_id,
+                "display_name": "Prior agent", "kem_public_key": BASE64.encode(self.kem.public.as_bytes()),
+                "signing_public_key": BASE64.encode([0u8; 32]), "key_provenance": {},
+                "created_at": "2026-10-20T00:00:00Z", "updated_at": "2026-10-20T00:00:00Z"
+            }})
+        }
+
+        async fn mock_access(
+            &self,
+            identity_status: u16,
+            sync_status: u16,
+            accessible: &[Uuid],
+            envelope: bool,
+        ) {
+            let authorization = if self.subject.is_user_api_key() {
+                "Bearer test-key"
+            } else {
+                "Bearer stored-agent-token"
+            };
+            let identity_body = if identity_status == 200 {
+                self.identity_response()
+            } else {
+                json!({"error": "secret-should-not-leak"})
+            };
+            let response = if envelope {
+                ResponseTemplate::new(200).set_body_json(
+                    json!({"data": {"status": identity_status, "body": identity_body}}),
+                )
+            } else {
+                ResponseTemplate::new(identity_status).set_body_json(identity_body)
+            };
+            Mock::given(method("GET"))
+                .and(path("/publishers/seren-passwords/identities/me"))
+                .and(header("authorization", authorization))
+                .respond_with(response)
+                .expect(1)
+                .mount(&self.gateway)
+                .await;
+            if identity_status != 200 {
+                return;
+            }
+            let vaults: Vec<_> = accessible.iter().map(|id| {
+                let key = generate_vault_key();
+                json!({"vault_id": id, "name_ciphertext": BASE64.encode(encrypt_vault_name(&key, id.as_bytes(), "Accessible vault")),
+                    "wrapped_vault_key": BASE64.encode(wrap_vault_key_for_identity(&key, &self.kem.public))})
+            }).collect();
+            let body = if sync_status == 200 {
+                json!({"data": {"vaults": vaults, "item_overviews": [], "memberships": []}})
+            } else {
+                json!({"error": "secret-should-not-leak"})
+            };
+            Mock::given(method("GET"))
+                .and(path("/publishers/seren-passwords/sync"))
+                .and(header("authorization", authorization))
+                .respond_with(ResponseTemplate::new(sync_status).set_body_json(body))
+                .expect(1)
+                .mount(&self.gateway)
+                .await;
+        }
+
+        async fn seed_pending(
+            &self,
+            identity_id: Uuid,
+            status: DelegationPolicyRequestStatus,
+            vault_ids: &[Uuid],
+        ) -> seren::DelegationPolicyRequestView {
+            let mut record = super::tests::sample_policy_request();
+            record.requester_user_id = self.user_id;
+            record.agent_identity_id = identity_id;
+            record.status = status;
+            record.agent_kem_public = BASE64.encode(self.kem.public.as_bytes());
+            record.agent_signing_public = BASE64.encode([0u8; 32]);
+            record.agent_display_name = "Replacement agent".into();
+            record.effective_vault_access = vault_ids
+                .iter()
+                .map(|id| seren::DelegationEffectiveVaultAccess {
+                    access_level: seren::AccessLevel::Read,
+                    vault_id: *id,
+                })
+                .collect();
+            self.store
+                .upsert_pending_hosted_passwords_agent(PendingHostedPasswordsAgentRequest {
+                    user_id: self.user_id,
+                    credential_subject: &self.subject.storage_key(),
+                    request_id: record.request_id,
+                    display_name: &record.agent_display_name,
+                    kem_public: &record.agent_kem_public,
+                    signing_public: &record.agent_signing_public,
+                    kem_private: &BASE64.encode(self.kem.private.as_bytes()),
+                    consent_capability: Some("synthetic-consent-capability"),
+                    expires_at: jiff::Timestamp::now() + jiff::SignedDuration::from_hours(1),
+                })
+                .await
+                .unwrap();
+            self.mock_policy(&record).await;
+            record
+        }
+
+        async fn mock_policy(&self, record: &seren::DelegationPolicyRequestView) {
+            Mock::given(method("GET"))
+                .and(path(format!(
+                    "/publishers/seren-passwords/delegations/{}",
+                    record.request_id
+                )))
+                .and(header("authorization", "Bearer test-key"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": record})))
+                .expect(1)
+                .mount(&self.gateway)
+                .await;
+        }
+
+        async fn mint_key(&self) -> Uuid {
+            let id = Uuid::new_v4();
+            Mock::given(method("POST")).and(path("/organizations/default/api-keys"))
+                .and(header("authorization", "Bearer test-key"))
+                .respond_with(ResponseTemplate::new(201).set_body_json(json!({"data": {
+                    "id": id, "key_id": "not-the-revocation-id", "api_key": "new-agent-token", "name": "Replacement agent (seren-passwords hosted MCP)",
+                    "organization_id": Uuid::new_v4(), "key_type": "agent", "created_at": "2026-10-25T00:00:00Z"
+                }}))).expect(1).mount(&self.gateway).await;
+            id
+        }
+
+        async fn finalize(&self, request_id: Uuid) -> Value {
+            output(
+                self.server
+                    .passwords_grant_status(
+                        Parameters(PasswordsGrantStatusParams { request_id }),
+                        self.extensions(),
+                    )
+                    .await
+                    .unwrap(),
+            )
+        }
+    }
+
+    fn output(result: CallToolResult) -> Value {
+        serde_json::from_str(&result.content[0].as_text().unwrap().text).unwrap()
+    }
+
+    #[tokio::test]
+    async fn hosted_grant_verification_distinguishes_access_and_service_failures() {
+        if !integration_tests_enabled() {
+            eprintln!("skipping hosted grant integration test");
+            return;
+        }
+        let (_container, store) = test_token_store().await;
+        let store = Arc::new(store);
+        for (name, identity_status, sync_status, count, status, detail, envelope) in [
+            (
+                "gateway unauthorized",
+                401,
+                200,
+                0,
+                "verification_failed",
+                "",
+                false,
+            ),
+            (
+                "gateway not found",
+                404,
+                200,
+                0,
+                "verification_failed",
+                "",
+                false,
+            ),
+            (
+                "producer unauthenticated",
+                401,
+                200,
+                0,
+                "verification_failed",
+                "",
+                true,
+            ),
+            (
+                "producer identity not found",
+                404,
+                200,
+                0,
+                "grant_unusable",
+                "identity_unavailable",
+                true,
+            ),
+            (
+                "zero",
+                200,
+                200,
+                0,
+                "grant_unusable",
+                "no_accessible_vaults",
+                false,
+            ),
+            ("partial", 200, 200, 1, "already_granted", "partial", false),
+            ("full", 200, 200, 2, "already_granted", "full", true),
+            (
+                "identity service failure",
+                503,
+                200,
+                0,
+                "verification_failed",
+                "",
+                false,
+            ),
+            (
+                "sync service failure",
+                200,
+                503,
+                0,
+                "verification_failed",
+                "",
+                false,
+            ),
+            (
+                "identity forbidden",
+                403,
+                200,
+                0,
+                "verification_failed",
+                "",
+                false,
+            ),
+        ] {
+            let fixture = HostedFixture::new(store.clone()).await;
+            fixture
+                .mock_access(
+                    identity_status,
+                    sync_status,
+                    &fixture.vault_ids[..count],
+                    envelope,
+                )
+                .await;
+            let before = fixture.snapshot().await;
+            let result = fixture.request_access(false).await;
+            assert_eq!(result["status"], status, "{name}: {result}");
+            assert!(result.get("consent_url").is_none());
+            assert!(!result.to_string().contains("secret-should-not-leak"));
+            match status {
+                "already_granted" => {
+                    assert_eq!(result["access"], detail);
+                    assert_eq!(
+                        result["accessible_vaults"],
+                        json!(
+                            fixture.vault_ids[..count]
+                                .iter()
+                                .map(|id| json!({"vault_id": id, "name": "Accessible vault"}))
+                                .collect::<Vec<_>>()
+                        )
+                    );
+                    assert_eq!(
+                        result["inaccessible_vault_ids"],
+                        json!(&fixture.vault_ids[count..])
+                    );
+                }
+                "grant_unusable" => assert_eq!(result["reason"], detail),
+                "verification_failed" => {
+                    assert!(result.get("reason").is_none());
+                    assert_eq!(result["next_step"], GRANT_RETRY_NEXT_STEP);
+                    assert!(!result["error"].as_str().unwrap().contains("no access"));
+                }
+                _ => unreachable!(),
+            }
+            assert_eq!(fixture.snapshot().await, before);
+            assert!(
+                store
+                    .get_pending_hosted_passwords_agent_for_subject(fixture.user_id, "user")
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(
+                fixture
+                    .gateway
+                    .received_requests()
+                    .await
+                    .unwrap()
+                    .iter()
+                    .all(|request| request.method == "GET")
+            );
+            fixture.gateway.verify().await;
+            eprintln!("verified {name}; saved row unchanged, no consent created");
+        }
+    }
+
+    #[tokio::test]
+    async fn saved_grant_credential_is_shared_by_verification_and_vault_tools() {
+        if !integration_tests_enabled() {
+            eprintln!("skipping hosted grant integration test");
+            return;
+        }
+        let (_container, store) = test_token_store().await;
+        let store = Arc::new(store);
+        for subject in [
+            crate::oauth::store::HostedPasswordsCredentialSubject::User,
+            crate::oauth::store::HostedPasswordsCredentialSubject::UserApiKey(Uuid::new_v4()),
+        ] {
+            let fixture = HostedFixture::new_for_subject(store.clone(), subject).await;
+            let before = fixture.snapshot().await;
+            fixture
+                .mock_access(200, 200, &fixture.vault_ids, false)
+                .await;
+            let verified = fixture.request_access(false).await;
+            assert_eq!(verified["status"], "already_granted");
+            assert_eq!(verified["access"], "full");
+            fixture.gateway.verify().await;
+            fixture.gateway.reset().await;
+
+            fixture
+                .mock_access(200, 200, &fixture.vault_ids, false)
+                .await;
+            let server = crate::server::tests::passwords_test_server(
+                &fixture.gateway.uri(),
+                None,
+                Some(store.clone()),
+            );
+            let vaults = output(
+                server
+                    .passwords_vaults_list(fixture.extensions())
+                    .await
+                    .unwrap(),
+            );
+            assert_eq!(vaults.as_array().unwrap().len(), fixture.vault_ids.len());
+            for id in &fixture.vault_ids {
+                assert!(vaults.as_array().unwrap().iter().any(|vault| {
+                    vault["vault_id"] == id.to_string() && vault["name"] == "Accessible vault"
+                }));
+            }
+            assert_eq!(fixture.snapshot().await, before);
+            fixture.gateway.verify().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelled_replacement_preserves_previous_grant() {
+        if !integration_tests_enabled() {
+            eprintln!("skipping hosted grant integration test");
+            return;
+        }
+        let (_container, store) = test_token_store().await;
+        let store = Arc::new(store);
+        for status in [
+            DelegationPolicyRequestStatus::Declined,
+            DelegationPolicyRequestStatus::Expired,
+            DelegationPolicyRequestStatus::Cancelled,
+        ] {
+            let fixture = HostedFixture::new(store.clone()).await;
+            let before = fixture.snapshot().await;
+            Mock::given(method("GET")).and(path("/organizations"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": [{
+                    "id": Uuid::new_v4(), "name": "Synthetic organization", "slug": "synthetic", "is_personal": true,
+                    "created_by": fixture.user_id, "created_at": "2026-10-25T00:00:00Z", "updated_at": "2026-10-25T00:00:00Z"
+                }]}))).expect(1).mount(&fixture.gateway).await;
+            let user_id = fixture.user_id;
+            let record_slot = Arc::new(std::sync::Mutex::new(None));
+            let response_record = record_slot.clone();
+            Mock::given(method("POST")).and(path("/publishers/seren-passwords/delegations"))
+                .respond_with(move |request: &wiremock::Request| {
+                    let body: Value = serde_json::from_slice(&request.body).unwrap();
+                    assert!(body.get("supersedes_request_id").is_none_or(Value::is_null));
+                    let mut record = super::tests::sample_policy_request();
+                    record.request_id = serde_json::from_value(body["request_id"].clone()).unwrap();
+                    record.requester_user_id = user_id;
+                    record.agent_kem_public = body["agent_kem_public"].as_str().unwrap().into();
+                    record.agent_signing_public = body["agent_signing_public"].as_str().unwrap().into();
+                    record.expires_at = jiff::Timestamp::now().checked_add(jiff::SignedDuration::from_hours(1)).unwrap();
+                    let wire = json!({"data": {"request": record, "participant_capabilities": [{
+                        "participant_id": Uuid::new_v4(), "role": "owner", "stage": 0, "participant_capability": "synthetic-consent-capability"
+                    }]}});
+                    *response_record.lock().unwrap() = Some(record);
+                    ResponseTemplate::new(200).set_body_json(wire)
+                }).expect(1).mount(&fixture.gateway).await;
+            let pending = fixture.request_access(true).await;
+            assert_eq!(pending["status"], "pending");
+            assert!(
+                pending["consent_url"]
+                    .as_str()
+                    .unwrap()
+                    .contains("/grant#capability=")
+            );
+            assert_eq!(fixture.snapshot().await, before);
+            let mut record = record_slot.lock().unwrap().take().unwrap();
+            record.status = status;
+            fixture.mock_policy(&record).await;
+            let result = fixture.finalize(record.request_id).await;
+            assert!(matches!(
+                result["status"].as_str(),
+                Some("denied" | "expired")
+            ));
+            assert!(
+                store
+                    .get_pending_hosted_passwords_agent_for_subject(fixture.user_id, "user")
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+            fixture
+                .mock_access(200, 200, &fixture.vault_ids, false)
+                .await;
+            assert_eq!(
+                fixture.request_access(false).await["status"],
+                "already_granted"
+            );
+            assert_eq!(fixture.snapshot().await, before);
+            let requests = fixture.gateway.received_requests().await.unwrap();
+            assert!(
+                !requests
+                    .iter()
+                    .any(|request| request.url.path().contains("revoke")
+                        || request.method == "DELETE"
+                        || request.url.path().ends_with("api-keys"))
+            );
+            fixture.gateway.verify().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn approval_without_vaults_explains_reconsent() {
+        if !integration_tests_enabled() {
+            eprintln!("skipping hosted grant integration test");
+            return;
+        }
+        let (_container, store) = test_token_store().await;
+        let fixture = HostedFixture::new(Arc::new(store)).await;
+        let record = fixture
+            .seed_pending(
+                fixture.identity_id,
+                DelegationPolicyRequestStatus::Approved,
+                &[],
+            )
+            .await;
+        fixture.mint_key().await;
+        let result = fixture.finalize(record.request_id).await;
+        assert_eq!(result["status"], "granted");
+        assert_eq!(result["granted_vault_ids"], json!([]));
+        assert_eq!(result["next_step"], EMPTY_APPROVAL_NEXT_STEP);
+        assert_eq!(
+            fixture
+                .store
+                .get_hosted_passwords_agent(fixture.user_id, "user")
+                .await
+                .unwrap()
+                .unwrap()
+                .granted_vaults,
+            json!([])
+        );
+        fixture.gateway.verify().await;
+    }
+
+    #[tokio::test]
+    async fn hosted_grant_verification_rejects_identity_binding_mismatch() {
+        if !integration_tests_enabled() {
+            eprintln!("skipping hosted grant integration test");
+            return;
+        }
+        let (_container, store) = test_token_store().await;
+        let store = Arc::new(store);
+        for field in ["identity_id", "owner_user_id"] {
+            let fixture = HostedFixture::new(store.clone()).await;
+            let before = fixture.snapshot().await;
+            let mut identity = fixture.identity_response();
+            identity["data"][field] = json!(Uuid::new_v4());
+            Mock::given(method("GET"))
+                .and(path("/publishers/seren-passwords/identities/me"))
+                .and(header("authorization", "Bearer stored-agent-token"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(identity))
+                .expect(1)
+                .mount(&fixture.gateway)
+                .await;
+            let result = fixture.request_access(false).await;
+            assert_eq!(result["status"], "verification_failed");
+            assert!(
+                result["error"]
+                    .as_str()
+                    .unwrap()
+                    .contains("saved identity binding")
+            );
+            assert_eq!(fixture.snapshot().await, before);
+            assert_eq!(fixture.gateway.received_requests().await.unwrap().len(), 1);
+            fixture.gateway.verify().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn hosted_user_api_key_forbidden_is_not_reported_as_revoked() {
+        if !integration_tests_enabled() {
+            eprintln!("skipping hosted grant integration test");
+            return;
+        }
+        let (_container, store) = test_token_store().await;
+        let store = Arc::new(store);
+        for envelope in [false, true] {
+            let fixture = HostedFixture::new_for_subject(
+                store.clone(),
+                crate::oauth::store::HostedPasswordsCredentialSubject::UserApiKey(Uuid::new_v4()),
+            )
+            .await;
+            let before = fixture.snapshot().await;
+            fixture.mock_access(403, 200, &[], envelope).await;
+            let result = fixture.request_access(false).await;
+            assert_eq!(result["status"], "verification_failed");
+            assert!(result.get("reason").is_none());
+            assert!(result["error"].as_str().unwrap().contains("HTTP 403"));
+            assert!(!result.to_string().contains("secret-should-not-leak"));
+            assert_eq!(fixture.snapshot().await, before);
+            assert_eq!(fixture.gateway.received_requests().await.unwrap().len(), 1);
+            fixture.gateway.verify().await;
+        }
     }
 }

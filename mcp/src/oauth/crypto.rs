@@ -36,6 +36,17 @@ impl TokenCipher {
             .filter(|v| !v.is_empty())
             .collect();
 
+        Self::parse_keys(&keys).map(Some)
+    }
+
+    #[cfg(test)]
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn from_keys(keys: &[&str]) -> Result<Self> {
+        Self::parse_keys(keys)
+    }
+
+    #[allow(clippy::result_large_err)]
+    fn parse_keys(keys: &[&str]) -> Result<Self> {
         if keys.is_empty() {
             return Err(McpError::Config(
                 "OAUTH_TOKEN_ENCRYPTION_KEYS is set but empty".into(),
@@ -52,7 +63,7 @@ impl TokenCipher {
         let primary = it.next().expect("at least one key");
         let fallbacks = it.collect();
 
-        Ok(Some(Self { primary, fallbacks }))
+        Ok(Self { primary, fallbacks })
     }
 
     pub(crate) fn is_encrypted(value: &str) -> bool {

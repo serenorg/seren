@@ -7615,7 +7615,13 @@ impl SerenMcpServer {
         self.passwords_api_client_for_bearer(&bearer, extensions)
     }
 
-    fn passwords_api_client_for_bearer(
+    pub(crate) fn validate_passwords_endpoint(&self) -> Result<(), McpError> {
+        seren_secrets_resolver::ResolverNetwork::HostEnvironment
+            .validate_endpoint(&self.passwords_api_base_url)
+            .map_err(crate::passwords::vault_err)
+    }
+
+    pub(crate) fn passwords_api_client_for_bearer(
         &self,
         bearer: &str,
         extensions: &Extensions,
@@ -7647,14 +7653,8 @@ impl SerenMcpServer {
         &self,
         extensions: &Extensions,
     ) -> Result<seren_secrets_resolver::VaultClient, McpError> {
-        use seren_secrets_resolver::{
-            ResolverNetwork, VaultClient, VaultClientConfig, VaultKeySource,
-        };
-
         let (bearer, kem_private) = self.passwords_vault_auth(extensions).await?;
-        ResolverNetwork::HostEnvironment
-            .validate_endpoint(&self.passwords_api_base_url)
-            .map_err(crate::passwords::vault_err)?;
+        self.validate_passwords_endpoint()?;
         let api_client = self.passwords_api_client_for_bearer(&bearer, extensions)?;
         let caller_identity_id =
             crate::passwords::passwords_gateway_data(api_client.identity_get_me().await)
@@ -7662,6 +7662,18 @@ impl SerenMcpServer {
                 .data
                 .identity_id;
 
+        self.passwords_vault_client_for_credential(bearer, kem_private, caller_identity_id)
+    }
+
+    pub(crate) fn passwords_vault_client_for_credential(
+        &self,
+        bearer: String,
+        kem_private: seren_secrets_crypto::keys::IdentityKemPrivateKey,
+        caller_identity_id: Uuid,
+    ) -> Result<seren_secrets_resolver::VaultClient, McpError> {
+        use seren_secrets_resolver::{
+            ResolverNetwork, VaultClient, VaultClientConfig, VaultKeySource,
+        };
         VaultClient::new(VaultClientConfig {
             base_url: self.passwords_api_base_url.clone(),
             bearer_token: bearer,
@@ -7719,27 +7731,7 @@ impl SerenMcpServer {
                         None,
                     )
                 })?;
-            let kem_bytes =
-                Zeroizing::new(BASE64.decode(agent.kem_private.as_bytes()).map_err(|_| {
-                    McpError::internal_error("Stored hosted agent key is invalid", None)
-                })?);
-            let kem_private = seren_secrets_crypto::keys::IdentityKemPrivateKey::from_slice(
-                &kem_bytes,
-            )
-            .map_err(|_| McpError::internal_error("Stored hosted agent key is invalid", None))?;
-            let bearer = match (credential_subject, agent.api_key.as_ref()) {
-                (crate::oauth::store::HostedPasswordsCredentialSubject::UserApiKey(_), _) => {
-                    self.bearer_token(extensions)?
-                }
-                (_, Some(api_key)) => api_key.as_str().to_owned(),
-                (_, None) => {
-                    return Err(McpError::internal_error(
-                        "Stored hosted agent API key is missing",
-                        None,
-                    ));
-                }
-            };
-            Ok((bearer, kem_private))
+            self.hosted_passwords_agent_auth(extensions, &agent)
         } else if !self.passwords_local_mode {
             Err(McpError::invalid_request(
                 "Vault access requires a delegated agent key in hosted mode.",
@@ -7751,6 +7743,33 @@ impl SerenMcpServer {
                 None,
             ))
         }
+    }
+
+    pub(crate) fn hosted_passwords_agent_auth(
+        &self,
+        extensions: &Extensions,
+        agent: &crate::oauth::store::HostedPasswordsAgent,
+    ) -> Result<(String, seren_secrets_crypto::keys::IdentityKemPrivateKey), McpError> {
+        let credential_subject = hosted_passwords_credential_subject_from_extensions(extensions)?;
+        let kem_bytes =
+            Zeroizing::new(BASE64.decode(agent.kem_private.as_bytes()).map_err(|_| {
+                McpError::internal_error("Stored hosted agent key is invalid", None)
+            })?);
+        let kem_private = seren_secrets_crypto::keys::IdentityKemPrivateKey::from_slice(&kem_bytes)
+            .map_err(|_| McpError::internal_error("Stored hosted agent key is invalid", None))?;
+        let bearer = match (credential_subject, agent.api_key.as_ref()) {
+            (crate::oauth::store::HostedPasswordsCredentialSubject::UserApiKey(_), _) => {
+                self.bearer_token(extensions)?
+            }
+            (_, Some(api_key)) => api_key.as_str().to_owned(),
+            (_, None) => {
+                return Err(McpError::internal_error(
+                    "Stored hosted agent API key is missing",
+                    None,
+                ));
+            }
+        };
+        Ok((bearer, kem_private))
     }
 
     pub(crate) async fn passwords_user_signing_auth(

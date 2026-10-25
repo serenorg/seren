@@ -1540,6 +1540,64 @@ impl TokenStore {
 }
 
 #[cfg(test)]
+pub(crate) fn integration_tests_enabled() -> bool {
+    std::env::var("SEREN_MCP_INTEGRATION_TESTS")
+        .ok()
+        .map(|v| v.trim().to_ascii_lowercase())
+        .is_some_and(|v| v == "1" || v == "true" || v == "yes" || v == "on")
+}
+
+#[cfg(test)]
+pub(crate) async fn test_token_store() -> (
+    testcontainers::ContainerAsync<testcontainers::GenericImage>,
+    TokenStore,
+) {
+    use testcontainers::{
+        GenericImage, ImageExt,
+        core::{IntoContainerPort, WaitFor},
+        runners::AsyncRunner,
+    };
+
+    let container = GenericImage::new("postgres", "11-alpine")
+        .with_wait_for(WaitFor::message_on_stderr(
+            "database system is ready to accept connections",
+        ))
+        .with_wait_for(WaitFor::message_on_stdout(
+            "database system is ready to accept connections",
+        ))
+        .with_exposed_port(5432.tcp())
+        .with_env_var("POSTGRES_DB", "postgres")
+        .with_env_var("POSTGRES_USER", "postgres")
+        .with_env_var("POSTGRES_PASSWORD", "postgres")
+        .with_cmd(["-c", "fsync=off"])
+        .with_mapped_port(0, 5432.tcp())
+        .with_host_config_modifier(|config| {
+            if let Some(ports) = config.port_bindings.as_mut() {
+                for bindings in ports.values_mut().flatten() {
+                    for binding in bindings {
+                        binding.host_ip = Some("127.0.0.1".into());
+                    }
+                }
+            }
+        })
+        .start()
+        .await
+        .unwrap();
+    let port = container.get_host_port_ipv4(5432).await.unwrap();
+    let database_url = format!("postgres://postgres:postgres@127.0.0.1:{}/postgres", port);
+
+    let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+    let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+    let migrator = sqlx::migrate::Migrator::new(migrations_dir).await.unwrap();
+    migrator.run(&pool).await.unwrap();
+
+    let mut store = TokenStore::new(pool);
+    store.token_cipher =
+        Some(TokenCipher::from_keys(&["synthetic-token-encryption-key-32-bytes"]).unwrap());
+    (container, store)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
