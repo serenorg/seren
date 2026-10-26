@@ -1698,10 +1698,24 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires disposable PostgreSQL through Docker"]
     async fn postgres_timestamps_preserve_instants_and_nullable_expiry() {
-        use testcontainers::{ImageExt, core::IntoContainerPort, runners::AsyncRunner};
-        use testcontainers_modules::postgres::Postgres;
+        use testcontainers::{
+            GenericImage, ImageExt,
+            core::{IntoContainerPort, WaitFor},
+            runners::AsyncRunner,
+        };
 
-        let container = Postgres::default()
+        let container = GenericImage::new("postgres", "11-alpine")
+            .with_wait_for(WaitFor::message_on_stderr(
+                "database system is ready to accept connections",
+            ))
+            .with_wait_for(WaitFor::message_on_stdout(
+                "database system is ready to accept connections",
+            ))
+            .with_exposed_port(5432.tcp())
+            .with_env_var("POSTGRES_DB", "postgres")
+            .with_env_var("POSTGRES_USER", "postgres")
+            .with_env_var("POSTGRES_PASSWORD", "postgres")
+            .with_cmd(["-c", "fsync=off"])
             .with_mapped_port(0, 5432.tcp())
             .with_host_config_modifier(|config| {
                 if let Some(ports) = config.port_bindings.as_mut() {
