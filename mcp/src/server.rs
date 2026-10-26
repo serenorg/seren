@@ -1174,7 +1174,7 @@ enum PublisherOperation {
 /// - Database publishers: provide `query` (and optionally `database`)
 /// - API publishers: provide `method`, `path`, `headers`, `body`, or `body_base64`
 /// - MCP publishers: provide `tool` + `tool_args` OR `resource_uri`
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 pub struct CallPublisherParams {
     /// Publisher slug or UUID
     pub publisher: String,
@@ -1234,6 +1234,30 @@ pub struct CallPublisherParams {
     /// Used for payment proxy mode where the client signs payments locally.
     #[serde(default, rename = "_x402_payment")]
     pub x402_payment: Option<String>,
+}
+
+impl std::fmt::Debug for CallPublisherParams {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CallPublisherParams")
+            .field("publisher", &self.publisher)
+            .field("query", &self.query)
+            .field("database", &self.database)
+            .field("method", &self.method)
+            .field("path", &self.path)
+            .field("headers", &self.headers.as_ref().map(|_| "[redacted]"))
+            .field("body", &self.body)
+            .field("body_base64", &self.body_base64)
+            .field("tool", &self.tool)
+            .field("tool_args", &self.tool_args)
+            .field("resource_uri", &self.resource_uri)
+            .field("connection_id", &self.connection_id)
+            .field("response_format", &self.response_format)
+            .field("request_id", &self.request_id)
+            .field("confirm", &self.confirm)
+            .field("x402_payment", &self.x402_payment)
+            .finish()
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -7162,6 +7186,60 @@ fn decode_call_publisher_body_base64(value: Option<&str>) -> Result<Option<Vec<u
         .map_err(|e| McpError::invalid_params(format!("Invalid body_base64: {}", e), None))
 }
 
+#[derive(Clone, Copy)]
+enum PublisherControlHeader {
+    OAuthConnection,
+    RunDispatch,
+}
+
+impl PublisherControlHeader {
+    fn name(self) -> &'static str {
+        match self {
+            Self::OAuthConnection => "x-seren-oauth-connection-id",
+            Self::RunDispatch => "x-seren-run-dispatch",
+        }
+    }
+
+    fn from_name(name: &str) -> Option<Self> {
+        [Self::OAuthConnection, Self::RunDispatch]
+            .into_iter()
+            .find(|header| name.eq_ignore_ascii_case(header.name()))
+    }
+}
+
+/// These are transport inputs, not locally authenticated run authority.
+/// Core validates dispatch binding and removes it before upstream delivery.
+fn publisher_control_headers(
+    headers: Option<&HashMap<String, String>>,
+) -> Result<HashMap<String, String>, McpError> {
+    let mut selected = HashMap::new();
+    for (name, value) in headers.into_iter().flatten() {
+        let Some(header) = PublisherControlHeader::from_name(name) else {
+            continue;
+        };
+        if selected.contains_key(header.name()) {
+            return Err(McpError::invalid_params(
+                "duplicate publisher control header",
+                None,
+            ));
+        }
+        if value.trim().is_empty() || reqwest::header::HeaderValue::from_str(value).is_err() {
+            return Err(McpError::invalid_params(
+                "invalid publisher control header",
+                None,
+            ));
+        }
+        let value = match header {
+            PublisherControlHeader::OAuthConnection => Uuid::parse_str(value.trim())
+                .map_err(|_| McpError::invalid_params("invalid OAuth connection header", None))?
+                .to_string(),
+            PublisherControlHeader::RunDispatch => value.clone(),
+        };
+        selected.insert(header.name().to_string(), value);
+    }
+    Ok(selected)
+}
+
 fn publisher_headers_with_oauth_connection(
     headers: Option<&HashMap<String, String>>,
     connection_id: Option<Uuid>,
@@ -7181,50 +7259,53 @@ fn publisher_headers_with_oauth_connection(
             None,
         ));
     }
+    let control_headers = publisher_control_headers(headers)?;
+    let mut headers = headers.cloned();
+    if let Some(headers) = headers.as_mut() {
+        headers.retain(|name, _| PublisherControlHeader::from_name(name).is_none());
+        headers.extend(control_headers);
+    }
     let Some(connection_id) = connection_id else {
-        return Ok(headers.cloned());
+        return Ok(headers);
     };
 
-    let mut headers = headers.cloned().unwrap_or_default();
-    if let Some((_, existing)) = headers
-        .iter()
-        .find(|(name, _)| name.eq_ignore_ascii_case("x-seren-oauth-connection-id"))
-    {
-        let existing = Uuid::parse_str(existing.trim()).map_err(|_| {
-            McpError::invalid_params(
-                "headers.X-Seren-OAuth-Connection-Id must be a UUID".to_string(),
-                None,
-            )
-        })?;
-        if existing != connection_id {
+    let headers = headers.get_or_insert_with(HashMap::new);
+    let name = PublisherControlHeader::OAuthConnection.name();
+    if let Some(existing) = headers.get(name) {
+        if existing != &connection_id.to_string() {
             return Err(McpError::invalid_params(
-                "connection_id conflicts with headers.X-Seren-OAuth-Connection-Id".to_string(),
+                "connection_id conflicts with headers.X-Seren-OAuth-Connection-Id",
                 None,
             ));
         }
-        return Ok(Some(headers));
+    } else {
+        headers.insert(name.to_string(), connection_id.to_string());
     }
-
-    headers.insert(
-        "X-Seren-OAuth-Connection-Id".to_string(),
-        connection_id.to_string(),
-    );
-    Ok(Some(headers))
+    Ok(Some(headers.clone()))
 }
 
-/// MCP tool and resource calls forward only the reserved OAuth selector
-/// header, not arbitrary caller headers. Managed runtimes deliver the
-/// deployment-bound connection through this header, so it must survive
-/// the tool-form and resource-form paths.
-fn oauth_connection_selector_headers(
+/// MCP tool and resource calls retain only the OAuth selector and opaque dispatch
+/// carrier for the gateway. Arbitrary caller headers remain isolated.
+fn mcp_publisher_transport_headers(
     headers: Option<&HashMap<String, String>>,
-) -> Option<HashMap<String, String>> {
-    headers.and_then(|headers| {
-        headers
-            .iter()
-            .find(|(name, _)| name.eq_ignore_ascii_case("x-seren-oauth-connection-id"))
-            .map(|(name, value)| HashMap::from([(name.clone(), value.clone())]))
-    })
+) -> Result<Option<HashMap<String, String>>, McpError> {
+    let selected = publisher_control_headers(headers)?;
+    Ok((!selected.is_empty()).then_some(selected))
+}
+
+fn publisher_http_header(
+    name: &str,
+    value: &str,
+) -> Option<(reqwest::header::HeaderName, reqwest::header::HeaderValue)> {
+    let name = reqwest::header::HeaderName::from_bytes(name.as_bytes()).ok()?;
+    let mut value = reqwest::header::HeaderValue::from_str(value).ok()?;
+    if matches!(
+        PublisherControlHeader::from_name(name.as_str()),
+        Some(PublisherControlHeader::RunDispatch)
+    ) {
+        value.set_sensitive(true);
+    }
+    Some((name, value))
 }
 
 fn extract_agent_metadata_from_extensions(extensions: &Extensions) -> AgentMetadata {
@@ -8274,9 +8355,7 @@ impl SerenMcpServer {
         let mut request_builder = http_client.request(method.clone(), &request_url);
         if let Some(headers) = headers {
             for (key, value) in headers {
-                if let Ok(header_name) = reqwest::header::HeaderName::from_bytes(key.as_bytes())
-                    && let Ok(header_value) = reqwest::header::HeaderValue::from_str(value)
-                {
+                if let Some((header_name, header_value)) = publisher_http_header(key, value) {
                     request_builder = request_builder.header(header_name, header_value);
                 }
             }
@@ -8332,9 +8411,7 @@ impl SerenMcpServer {
             .header("X-AGENT-WALLET", &wallet_address);
         if let Some(headers) = headers {
             for (key, value) in headers {
-                if let Ok(header_name) = reqwest::header::HeaderName::from_bytes(key.as_bytes())
-                    && let Ok(header_value) = reqwest::header::HeaderValue::from_str(value)
-                {
+                if let Some((header_name, header_value)) = publisher_http_header(key, value) {
                     request_builder = request_builder.header(header_name, header_value);
                 }
             }
@@ -8423,9 +8500,7 @@ impl SerenMcpServer {
             .header(payload.header_name(), payload_b64);
         if let Some(headers) = headers {
             for (key, value) in headers {
-                if let Ok(header_name) = reqwest::header::HeaderName::from_bytes(key.as_bytes())
-                    && let Ok(header_value) = reqwest::header::HeaderValue::from_str(value)
-                {
+                if let Some((header_name, header_value)) = publisher_http_header(key, value) {
                     request_builder = request_builder.header(header_name, header_value);
                 }
             }
@@ -8560,9 +8635,7 @@ impl SerenMcpServer {
             .header(payment_header, x402_payment);
         if let Some(headers) = headers {
             for (key, value) in headers {
-                if let Ok(header_name) = reqwest::header::HeaderName::from_bytes(key.as_bytes())
-                    && let Ok(header_value) = reqwest::header::HeaderValue::from_str(value)
-                {
+                if let Some((header_name, header_value)) = publisher_http_header(key, value) {
                     request_builder = request_builder.header(header_name, header_value);
                 }
             }
@@ -12896,7 +12969,7 @@ Examples:
 
         let body = serde_json::Value::Object(params.tool_args.clone().unwrap_or_default());
         let publisher_path = format!("/publishers/{}/_mcp/tools/{}", params.publisher, tool_path);
-        let selector_headers = oauth_connection_selector_headers(params.headers.as_ref());
+        let selector_headers = mcp_publisher_transport_headers(params.headers.as_ref())?;
         let headers = publisher_headers_with_oauth_connection(
             selector_headers.as_ref(),
             params.connection_id,
@@ -13064,7 +13137,7 @@ Examples:
         let publisher_path = format!("/publishers/{}/_mcp/resources", params.publisher);
         let query_string = format!("uri={}", encoded_uri);
         let method = reqwest::Method::GET;
-        let selector_headers = oauth_connection_selector_headers(params.headers.as_ref());
+        let selector_headers = mcp_publisher_transport_headers(params.headers.as_ref())?;
         let headers = publisher_headers_with_oauth_connection(
             selector_headers.as_ref(),
             params.connection_id,
@@ -21534,7 +21607,7 @@ mod tests {
     }
 
     #[test]
-    fn oauth_selector_headers_forward_only_the_reserved_header() {
+    fn publisher_transport_headers_forward_only_reserved_controls() {
         let mut headers = HashMap::new();
         headers.insert("Content-Type".to_string(), "application/json".to_string());
         headers.insert(
@@ -21542,7 +21615,8 @@ mod tests {
             Uuid::from_u128(1).to_string(),
         );
 
-        let selector = oauth_connection_selector_headers(Some(&headers))
+        let selector = mcp_publisher_transport_headers(Some(&headers))
+            .expect("valid transport headers")
             .expect("reserved selector header should be preserved");
 
         assert_eq!(selector.len(), 1);
@@ -21550,7 +21624,331 @@ mod tests {
             selector.get("x-seren-oauth-connection-id"),
             Some(&Uuid::from_u128(1).to_string())
         );
-        assert!(oauth_connection_selector_headers(None).is_none());
+        assert!(mcp_publisher_transport_headers(None).unwrap().is_none());
+    }
+
+    #[test]
+    fn publisher_control_headers_reject_case_duplicates_and_invalid_values() {
+        for name in ["X-Seren-Run-Dispatch", "X-Seren-OAuth-Connection-Id"] {
+            let first = if name == "X-Seren-OAuth-Connection-Id" {
+                Uuid::from_u128(1).to_string()
+            } else {
+                "private-dispatch-value".to_string()
+            };
+            let different = if name == "X-Seren-OAuth-Connection-Id" {
+                Uuid::from_u128(2).to_string()
+            } else {
+                "different-private-value".to_string()
+            };
+            for second in [&first, &different] {
+                let headers = HashMap::from([
+                    (name.to_string(), first.clone()),
+                    (name.to_ascii_lowercase(), second.clone()),
+                ]);
+                let error = mcp_publisher_transport_headers(Some(&headers)).unwrap_err();
+                assert_eq!(error.message, "duplicate publisher control header");
+                assert!(publisher_headers_with_oauth_connection(Some(&headers), None).is_err());
+            }
+        }
+        for value in ["", "   ", "private-value\r\ninvalid"] {
+            let headers = HashMap::from([("X-Seren-Run-Dispatch".to_string(), value.to_string())]);
+            let error = mcp_publisher_transport_headers(Some(&headers)).unwrap_err();
+            assert!(!error.message.contains("private-value"));
+            assert!(publisher_headers_with_oauth_connection(Some(&headers), None).is_err());
+        }
+        let headers = HashMap::from([(
+            "X-Seren-OAuth-Connection-Id".to_string(),
+            "not-a-uuid".to_string(),
+        )]);
+        assert!(mcp_publisher_transport_headers(Some(&headers)).is_err());
+    }
+
+    #[test]
+    fn publisher_params_debug_redacts_headers_without_changing_wire_values() {
+        let headers = serde_json::json!({
+            "X-Seren-Run-Dispatch": "private-dispatch-value",
+            "X-Seren-OAuth-Connection-Id": Uuid::from_u128(1),
+        });
+        let params: CallPublisherParams = serde_json::from_value(serde_json::json!({
+            "publisher": "example", "headers": headers, "confirm": false,
+        }))
+        .unwrap();
+        let debug = format!("{params:?}");
+        assert!(!debug.contains("private-dispatch-value"));
+        assert!(!debug.contains(&Uuid::from_u128(1).to_string()));
+        assert!(debug.contains("[redacted]"));
+        assert_eq!(serde_json::to_value(params).unwrap()["headers"], headers);
+    }
+
+    #[test]
+    fn publisher_dispatch_header_is_sensitive_and_preserves_opaque_bytes() {
+        let opaque = r#"{"transport_fixture":true}"#;
+        let (_, value) = publisher_http_header("X-Seren-Run-Dispatch", opaque).unwrap();
+        assert!(value.is_sensitive());
+        assert!(value.as_bytes() == opaque.as_bytes());
+        let (_, value) = publisher_http_header(
+            "X-Seren-OAuth-Connection-Id",
+            &Uuid::from_u128(1).to_string(),
+        )
+        .unwrap();
+        assert!(!value.is_sensitive());
+    }
+
+    #[tokio::test]
+    async fn publisher_dispatch_headers_reach_outer_http_from_real_mcp_calls() {
+        use rmcp::ServiceExt;
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        // This value tests opaque transport only; the mock does not authorize a run.
+        let dispatch = r#"{"transport_fixture":true}"#;
+        let connection_id = Uuid::from_u128(1);
+        for operation in [
+            PublisherOperation::Api,
+            PublisherOperation::McpTool,
+            PublisherOperation::McpResource,
+        ] {
+            let methods: &[&str] = match operation {
+                PublisherOperation::Api => &["GET", "POST"],
+                PublisherOperation::McpTool => &["POST"],
+                PublisherOperation::McpResource => &["GET"],
+                PublisherOperation::Database => unreachable!(),
+            };
+            for http_method in methods {
+                for managed in [false, true] {
+                    for response_format in ["json", "text"] {
+                        let proxy = MockServer::start().await;
+                        let target = match operation {
+                            PublisherOperation::Api => "/publishers/example/reports",
+                            PublisherOperation::McpTool => {
+                                "/publishers/example/_mcp/tools/read_report"
+                            }
+                            PublisherOperation::McpResource => "/publishers/example/_mcp/resources",
+                            PublisherOperation::Database => unreachable!(),
+                        };
+                        Mock::given(method(*http_method))
+                            .and(path(target))
+                            .respond_with(
+                                ResponseTemplate::new(200)
+                                    .set_body_json(serde_json::json!({"ok": true})),
+                            )
+                            .expect(1)
+                            .mount(&proxy)
+                            .await;
+                        let mut headers =
+                            HashMap::from([("X-Unrelated".to_string(), "isolated".to_string())]);
+                        if managed {
+                            headers
+                                .insert("X-SeReN-RuN-DiSpAtCh".to_string(), dispatch.to_string());
+                            headers.insert(
+                                "X-SeReN-OAuTh-CoNnEcTiOn-Id".to_string(),
+                                connection_id.to_string(),
+                            );
+                        }
+                        let mut arguments = serde_json::json!({
+                            "publisher": "example", "headers": headers, "confirm": false,
+                            "response_format": response_format,
+                        })
+                        .as_object()
+                        .unwrap()
+                        .clone();
+                        match operation {
+                            PublisherOperation::Api => {
+                                arguments
+                                    .insert("method".to_string(), serde_json::json!(http_method));
+                                arguments.insert("path".to_string(), serde_json::json!("/reports"));
+                                if *http_method == "POST" {
+                                    arguments.insert(
+                                        "body".to_string(),
+                                        serde_json::json!({"report": "daily"}),
+                                    );
+                                }
+                            }
+                            PublisherOperation::McpTool => {
+                                arguments
+                                    .insert("tool".to_string(), serde_json::json!("read_report"));
+                                arguments.insert(
+                                    "tool_args".to_string(),
+                                    serde_json::json!({"report": "daily"}),
+                                );
+                            }
+                            PublisherOperation::McpResource => {
+                                arguments.insert(
+                                    "resource_uri".to_string(),
+                                    serde_json::json!("file:///reports/daily?format=json"),
+                                );
+                            }
+                            PublisherOperation::Database => unreachable!(),
+                        }
+                        let server = SerenMcpServer::new("server-key", &proxy.uri()).unwrap();
+                        let (server_transport, client_transport) = tokio::io::duplex(4096);
+                        let server_task = tokio::spawn(async move {
+                            server
+                                .serve(server_transport)
+                                .await
+                                .unwrap()
+                                .waiting()
+                                .await
+                                .unwrap();
+                        });
+                        let client = ().serve(client_transport).await.unwrap();
+                        let result = client
+                            .call_tool(
+                                CallToolRequestParams::new("call_publisher")
+                                    .with_arguments(arguments),
+                            )
+                            .await
+                            .expect("publisher request reaches the local HTTP peer");
+                        assert!(!result.is_error.unwrap_or(false));
+                        let requests = proxy.received_requests().await.unwrap();
+                        assert_eq!(requests.len(), 1);
+                        let request = &requests[0];
+                        assert_eq!(
+                            request.headers.get("authorization").unwrap(),
+                            "Bearer server-key"
+                        );
+                        for name in ["x-seren-run-dispatch", "x-seren-oauth-connection-id"] {
+                            assert_eq!(
+                                request.headers.get_all(name).iter().count(),
+                                usize::from(managed)
+                            );
+                        }
+                        if managed {
+                            assert!(
+                                request
+                                    .headers
+                                    .get("x-seren-run-dispatch")
+                                    .unwrap()
+                                    .as_bytes()
+                                    == dispatch.as_bytes()
+                            );
+                            assert!(
+                                request
+                                    .headers
+                                    .get("x-seren-oauth-connection-id")
+                                    .unwrap()
+                                    .as_bytes()
+                                    == connection_id.to_string().as_bytes()
+                            );
+                        }
+                        assert_eq!(
+                            request.headers.contains_key("x-unrelated"),
+                            matches!(operation, PublisherOperation::Api)
+                        );
+                        if matches!(operation, PublisherOperation::McpResource) {
+                            assert_eq!(
+                                request.url.query_pairs().collect::<Vec<_>>(),
+                                [("uri".into(), "file:///reports/daily?format=json".into())]
+                            );
+                            assert!(request.body.is_empty());
+                        } else if *http_method == "POST" {
+                            assert_eq!(
+                                serde_json::from_slice::<serde_json::Value>(&request.body).unwrap(),
+                                serde_json::json!({"report": "daily"})
+                            );
+                        }
+                        client.cancel().await.unwrap();
+                        server_task.await.unwrap();
+                        proxy.verify().await;
+                    }
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn publisher_control_failures_stop_before_http_and_do_not_echo_values() {
+        use wiremock::MockServer;
+
+        let proxy = MockServer::start().await;
+        let server = SerenMcpServer::new("server-key", &proxy.uri()).unwrap();
+        let private = "private-dispatch-value";
+        let cases = [
+            HashMap::from([
+                ("X-Seren-Run-Dispatch".to_string(), private.to_string()),
+                ("x-seren-run-dispatch".to_string(), private.to_string()),
+            ]),
+            HashMap::from([
+                ("X-Seren-Run-Dispatch".to_string(), private.to_string()),
+                (
+                    "x-seren-run-dispatch".to_string(),
+                    "conflicting".to_string(),
+                ),
+            ]),
+            HashMap::from([(
+                "X-Seren-Run-Dispatch".to_string(),
+                format!("{private}\r\ninvalid"),
+            )]),
+            HashMap::from([("X-Seren-Run-Dispatch".to_string(), " ".to_string())]),
+            HashMap::from([(
+                "X-Seren-OAuth-Connection-Id".to_string(),
+                Uuid::from_u128(2).to_string(),
+            )]),
+        ];
+        for operation in [
+            PublisherOperation::Api,
+            PublisherOperation::McpTool,
+            PublisherOperation::McpResource,
+        ] {
+            for headers in &cases {
+                let mut params: CallPublisherParams = serde_json::from_value(serde_json::json!({
+                    "publisher": "example", "headers": headers, "confirm": false,
+                    "connection_id": Uuid::from_u128(1),
+                }))
+                .unwrap();
+                match operation {
+                    PublisherOperation::Api => {
+                        params.method = Some("POST".to_string());
+                        params.path = Some("/reports".to_string());
+                    }
+                    PublisherOperation::McpTool => {
+                        params.tool = Some("read_report".to_string());
+                    }
+                    PublisherOperation::McpResource => {
+                        params.resource_uri = Some("file:///reports/daily".to_string());
+                    }
+                    PublisherOperation::Database => unreachable!(),
+                }
+                let error = server
+                    .call_publisher(Parameters(params), extensions_with_headers(&[]))
+                    .await
+                    .unwrap_err();
+                assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_PARAMS);
+                assert!(!error.message.contains(private));
+            }
+        }
+        assert!(proxy.received_requests().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn publisher_dispatch_is_not_promoted_from_incoming_http_headers() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/publishers/example/_mcp/tools/read_report"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"ok": true})))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let server = SerenMcpServer::new("server-key", &proxy.uri()).unwrap();
+        let params: CallPublisherParams = serde_json::from_value(serde_json::json!({
+            "publisher": "example", "tool": "read_report", "confirm": false,
+        }))
+        .unwrap();
+        let result = server
+            .call_publisher(
+                Parameters(params),
+                extensions_with_headers(&[("X-Seren-Run-Dispatch", "untrusted-incoming-value")]),
+            )
+            .await
+            .unwrap();
+        assert!(!result.is_error.unwrap_or(false));
+        let requests = proxy.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(!requests[0].headers.contains_key("x-seren-run-dispatch"));
+        proxy.verify().await;
     }
 
     #[tokio::test]
