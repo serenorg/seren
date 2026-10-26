@@ -30,6 +30,9 @@ mod models;
 mod query_error;
 mod shared;
 
+#[cfg(test)]
+mod storage_tests;
+
 // Re-export the generated client and types
 pub use generated::Client;
 pub use generated::types::*;

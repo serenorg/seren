@@ -532,6 +532,154 @@
             }
         },
         "/buckets/{bucket_slug}/objects/{object_id}": {
+            "get": {
+                "tags": [
+                    "Objects"
+                ],
+                "operationId": "object_status",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "object_id",
+                        "in": "path",
+                        "description": "Storage object ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Object status including pending and terminal allocations",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ObjectStorageObject"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Object not found for this owner",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            },
+            "put": {
+                "tags": [
+                    "Objects"
+                ],
+                "operationId": "allocate_upload",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "object_id",
+                        "in": "path",
+                        "description": "Caller-retained non-nil allocation ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreateObjectStorageUploadRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Existing allocation with the same intent recovered",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ObjectStorageAllocation"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Immutable single upload allocation created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ObjectStorageAllocation"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid allocation ID or upload intent",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Bucket or allocation not found for this owner",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Allocation intent differs, the object key is in use, or the upload is no longer pending",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            },
             "delete": {
                 "tags": [
                     "Objects"
@@ -560,7 +708,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Storage object moved to trash",
+                        "description": "Uploaded object moved to trash, or pending upload cancelled with its recorded deletion state",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1393,6 +1541,47 @@
                     }
                 }
             },
+            "DataResponse_ObjectStorageAllocation": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "description": "A stable single-upload allocation. Uploaded allocations have no PUT URL.",
+                        "required": [
+                            "object",
+                            "upload_headers",
+                            "upload_expires_at"
+                        ],
+                        "properties": {
+                            "object": {
+                                "$ref": "#/components/schemas/ObjectStorageObject"
+                            },
+                            "upload_expires_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            "upload_headers": {
+                                "type": "object",
+                                "additionalProperties": {
+                                    "type": "string"
+                                },
+                                "propertyNames": {
+                                    "type": "string"
+                                }
+                            },
+                            "upload_url": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            }
+                        }
+                    }
+                }
+            },
             "DataResponse_ObjectStorageBucket": {
                 "type": "object",
                 "required": [
@@ -1669,6 +1858,7 @@
                             "uri",
                             "metadata",
                             "created_by_user_id",
+                            "upload_expires_at",
                             "created_at",
                             "updated_at"
                         ],
@@ -1716,6 +1906,20 @@
                                 "format": "uuid"
                             },
                             "metadata": {},
+                            "multipart_part_count": {
+                                "type": [
+                                    "integer",
+                                    "null"
+                                ],
+                                "format": "int32"
+                            },
+                            "multipart_part_size": {
+                                "type": [
+                                    "integer",
+                                    "null"
+                                ],
+                                "format": "int64"
+                            },
                             "object_key": {
                                 "type": "string"
                             },
@@ -1758,6 +1962,10 @@
                                 "format": "uuid"
                             },
                             "updated_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            "upload_expires_at": {
                                 "type": "string",
                                 "format": "date-time"
                             },
@@ -2328,6 +2536,39 @@
                     "writer"
                 ]
             },
+            "ObjectStorageAllocation": {
+                "type": "object",
+                "description": "A stable single-upload allocation. Uploaded allocations have no PUT URL.",
+                "required": [
+                    "object",
+                    "upload_headers",
+                    "upload_expires_at"
+                ],
+                "properties": {
+                    "object": {
+                        "$ref": "#/components/schemas/ObjectStorageObject"
+                    },
+                    "upload_expires_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "upload_headers": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "propertyNames": {
+                            "type": "string"
+                        }
+                    },
+                    "upload_url": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                }
+            },
             "ObjectStorageBucket": {
                 "type": "object",
                 "required": [
@@ -2636,6 +2877,7 @@
                     "uri",
                     "metadata",
                     "created_by_user_id",
+                    "upload_expires_at",
                     "created_at",
                     "updated_at"
                 ],
@@ -2683,6 +2925,20 @@
                         "format": "uuid"
                     },
                     "metadata": {},
+                    "multipart_part_count": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int32"
+                    },
+                    "multipart_part_size": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int64"
+                    },
                     "object_key": {
                         "type": "string"
                     },
@@ -2725,6 +2981,10 @@
                         "format": "uuid"
                     },
                     "updated_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "upload_expires_at": {
                         "type": "string",
                         "format": "date-time"
                     },
