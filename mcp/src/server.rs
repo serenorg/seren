@@ -25,7 +25,7 @@ use rmcp::{
     model::{
         CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock,
         Extensions, ListToolsResult, MetaObject, PaginatedRequestParams, ServerCapabilities,
-        ServerInfo,
+        ServerConfig,
     },
     service::{RequestContext, RoleServer},
     tool, tool_router,
@@ -20280,7 +20280,7 @@ impl ServerHandler for SerenMcpServer {
         Ok(tools_list_result(items))
     }
 
-    fn get_info(&self) -> ServerInfo {
+    fn get_info(&self) -> ServerConfig {
         let server_info =
             rmcp::model::Implementation::new(crate::MCP_SERVER_NAME, env!("CARGO_PKG_VERSION"))
                 .with_title("Seren MCP Server")
@@ -20289,7 +20289,7 @@ impl ServerHandler for SerenMcpServer {
                 )
                 .with_website_url("https://serendb.com");
 
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(server_info)
             .with_instructions(
                 r#"Seren MCP Server - Manage Seren projects, databases, publishers, managed agents, and seren-cloud deployments.

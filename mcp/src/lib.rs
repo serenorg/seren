@@ -2119,7 +2119,7 @@ mod tests {
     use axum::body::Body;
     use axum::http::Request;
     use rmcp::ServerHandler;
-    use rmcp::model::{ServerCapabilities, ServerInfo};
+    use rmcp::model::{ServerCapabilities, ServerConfig};
     use rmcp::transport::streamable_http_server::{
         StreamableHttpService, session::never::NeverSessionManager,
     };
@@ -2131,8 +2131,8 @@ mod tests {
     struct TransportTestServer;
 
     impl ServerHandler for TransportTestServer {
-        fn get_info(&self) -> ServerInfo {
-            ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+        fn get_info(&self) -> ServerConfig {
+            ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
         }
     }
 
@@ -2204,11 +2204,11 @@ mod tests {
         authority: &str,
     ) -> rmcp::service::RunningService<rmcp::RoleClient, rmcp::model::InitializeRequestParams> {
         use rmcp::ServiceExt;
-        use rmcp::model::{ClientCapabilities, ClientInfo, Implementation, ProtocolVersion};
+        use rmcp::model::{ClientCapabilities, ClientConfig, Implementation, ProtocolVersion};
         use rmcp::transport::StreamableHttpClientTransport;
 
         let transport = StreamableHttpClientTransport::from_uri(format!("http://{authority}/mcp"));
-        ClientInfo::new(
+        ClientConfig::new(
             ClientCapabilities::default(),
             Implementation::new("legacy-reconnect-test-client", "1.0.0"),
         )
