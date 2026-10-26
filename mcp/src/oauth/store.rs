@@ -5,12 +5,13 @@
 
 use super::crypto::TokenCipher;
 use crate::error::{McpError, Result};
+use jiff::{SignedDuration, Timestamp};
+use jiff_sqlx::ToSqlx;
 use lru::LruCache;
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
-use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -65,8 +66,10 @@ pub struct Client {
     pub client_uri: Option<String>,
     pub software_id: Option<String>,
     pub software_version: Option<String>,
-    pub created_at: OffsetDateTime,
-    pub updated_at: OffsetDateTime,
+    #[sqlx(try_from = "jiff_sqlx::Timestamp")]
+    pub created_at: Timestamp,
+    #[sqlx(try_from = "jiff_sqlx::Timestamp")]
+    pub updated_at: Timestamp,
 }
 
 impl Client {
@@ -130,8 +133,10 @@ pub struct AuthRequest {
     pub code_challenge: String,
     pub code_challenge_method: PkceMethod,
     pub upstream_code_verifier: String,
-    pub expires_at: OffsetDateTime,
-    pub created_at: OffsetDateTime,
+    #[sqlx(try_from = "jiff_sqlx::Timestamp")]
+    pub expires_at: Timestamp,
+    #[sqlx(try_from = "jiff_sqlx::Timestamp")]
+    pub created_at: Timestamp,
 }
 
 /// Authorization code (short-lived, exchanged for tokens)
@@ -144,28 +149,53 @@ pub struct AuthorizationCode {
     pub scope: String,
     pub code_challenge: Option<String>,
     pub code_challenge_method: Option<PkceMethod>,
-    pub expires_at: OffsetDateTime,
-    pub created_at: OffsetDateTime,
+    #[sqlx(try_from = "jiff_sqlx::Timestamp")]
+    pub expires_at: Timestamp,
+    #[sqlx(try_from = "jiff_sqlx::Timestamp")]
+    pub created_at: Timestamp,
     pub upstream_access_token: String,
     pub upstream_refresh_token: Option<String>,
-    pub upstream_expires_at: OffsetDateTime,
+    #[sqlx(try_from = "jiff_sqlx::Timestamp")]
+    pub upstream_expires_at: Timestamp,
 }
 
 /// MCP refresh token with server-side upstream token storage.
 /// The MCP refresh token is what clients use; upstream tokens are used internally for API calls.
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RefreshToken {
     /// Hash of the refresh token (SHA-256 hex). We never store plaintext refresh tokens.
     pub token_hash: String,
     pub client_id: String,
     pub user_id: Uuid,
     pub scope: String,
-    pub expires_at: Option<OffsetDateTime>,
-    pub created_at: OffsetDateTime,
+    pub expires_at: Option<Timestamp>,
+    pub created_at: Timestamp,
     // Upstream token vault (server-side only, never exposed to clients)
     pub upstream_access_token: String,
     pub upstream_refresh_token: Option<String>,
-    pub upstream_expires_at: OffsetDateTime,
+    pub upstream_expires_at: Timestamp,
+}
+
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for RefreshToken {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> std::result::Result<Self, sqlx::Error> {
+        Ok(Self {
+            token_hash: row.try_get("token_hash")?,
+            client_id: row.try_get("client_id")?,
+            user_id: row.try_get("user_id")?,
+            scope: row.try_get("scope")?,
+            expires_at: row
+                .try_get::<Option<jiff_sqlx::Timestamp>, _>("expires_at")?
+                .map(jiff_sqlx::Timestamp::to_jiff),
+            created_at: row
+                .try_get::<jiff_sqlx::Timestamp, _>("created_at")?
+                .to_jiff(),
+            upstream_access_token: row.try_get("upstream_access_token")?,
+            upstream_refresh_token: row.try_get("upstream_refresh_token")?,
+            upstream_expires_at: row
+                .try_get::<jiff_sqlx::Timestamp, _>("upstream_expires_at")?
+                .to_jiff(),
+        })
+    }
 }
 
 /// Pending consent prompt during the OAuth callback flow.
@@ -179,8 +209,10 @@ pub struct PendingConsent {
     pub client_state: Option<String>,
     pub scope: String,
     pub csrf_token: String,
-    pub expires_at: OffsetDateTime,
-    pub created_at: OffsetDateTime,
+    #[sqlx(try_from = "jiff_sqlx::Timestamp")]
+    pub expires_at: Timestamp,
+    #[sqlx(try_from = "jiff_sqlx::Timestamp")]
+    pub created_at: Timestamp,
 }
 
 /// Hosted Seren Passwords agent credential decrypted from the token vault.
@@ -238,7 +270,7 @@ pub struct PendingHostedPasswordsAgentRequest<'a> {
     pub signing_public: &'a str,
     pub kem_private: &'a str,
     pub consent_capability: Option<&'a str>,
-    pub expires_at: OffsetDateTime,
+    pub expires_at: Timestamp,
 }
 
 pub struct HostedPasswordsAgentUpsert<'a> {
@@ -518,7 +550,7 @@ impl TokenStore {
         .bind(request.kem_public)
         .bind(request.signing_public)
         .bind(&credential_ciphertext)
-        .bind(request.expires_at)
+        .bind(request.expires_at.to_sqlx())
         .execute(&self.pool)
         .await
         .map_err(McpError::Database)?;
@@ -867,7 +899,7 @@ impl TokenStore {
         .bind(&req.code_challenge)
         .bind(req.code_challenge_method)
         .bind(&req.upstream_code_verifier)
-        .bind(req.expires_at)
+        .bind(req.expires_at.to_sqlx())
         .execute(&self.pool)
         .await
         .map_err(McpError::Database)?;
@@ -920,10 +952,10 @@ impl TokenStore {
         .bind(&code.scope)
         .bind(&code.code_challenge)
         .bind(code.code_challenge_method)
-        .bind(code.expires_at)
+        .bind(code.expires_at.to_sqlx())
         .bind(&upstream_access_token)
         .bind(upstream_refresh_token.as_deref())
-        .bind(code.upstream_expires_at)
+        .bind(code.upstream_expires_at.to_sqlx())
         .execute(&self.pool)
         .await
         .map_err(McpError::Database)?;
@@ -984,10 +1016,10 @@ impl TokenStore {
         .bind(&token.client_id)
         .bind(token.user_id)
         .bind(&token.scope)
-        .bind(token.expires_at)
+        .bind(token.expires_at.map(ToSqlx::to_sqlx))
         .bind(&upstream_access_token)
         .bind(upstream_refresh_token.as_deref())
-        .bind(token.upstream_expires_at)
+        .bind(token.upstream_expires_at.to_sqlx())
         .execute(&self.pool)
         .await
         .map_err(McpError::Database)?;
@@ -1108,8 +1140,8 @@ impl TokenStore {
     pub async fn extend_refresh_token_expiry_if_needed(
         &self,
         refresh_token_or_hash: &str,
-        new_expires_at: OffsetDateTime,
-        renew_before: OffsetDateTime,
+        new_expires_at: Timestamp,
+        renew_before: Timestamp,
     ) -> Result<bool> {
         let token_hash = if Self::looks_like_sha256_hex(refresh_token_or_hash) {
             refresh_token_or_hash.to_string()
@@ -1129,8 +1161,8 @@ impl TokenStore {
         )
         .bind(&token_hash)
         .bind(refresh_token_or_hash)
-        .bind(new_expires_at)
-        .bind(renew_before)
+        .bind(new_expires_at.to_sqlx())
+        .bind(renew_before.to_sqlx())
         .execute(&self.pool)
         .await
         .map_err(McpError::Database)?;
@@ -1147,7 +1179,7 @@ impl TokenStore {
         refresh_token_or_hash: &str,
         upstream_access_token: &str,
         upstream_refresh_token: Option<&str>,
-        upstream_expires_at: OffsetDateTime,
+        upstream_expires_at: Timestamp,
     ) -> Result<bool> {
         let token_hash = if Self::looks_like_sha256_hex(refresh_token_or_hash) {
             refresh_token_or_hash.to_string()
@@ -1174,7 +1206,7 @@ impl TokenStore {
         .bind(&token_hash)
         .bind(&upstream_access_token)
         .bind(upstream_refresh_token.as_deref())
-        .bind(upstream_expires_at)
+        .bind(upstream_expires_at.to_sqlx())
         .bind(refresh_token_or_hash)
         .execute(&self.pool)
         .await
@@ -1191,14 +1223,14 @@ impl TokenStore {
     pub async fn get_upstream_token(
         &self,
         refresh_token_or_hash: &str,
-    ) -> Result<Option<(String, OffsetDateTime)>> {
+    ) -> Result<Option<(String, Timestamp)>> {
         let token_hash = if Self::looks_like_sha256_hex(refresh_token_or_hash) {
             refresh_token_or_hash.to_string()
         } else {
             Self::hash_refresh_token(refresh_token_or_hash)
         };
 
-        let result: Option<(String, OffsetDateTime)> = sqlx::query_as(
+        let result: Option<(String, jiff_sqlx::Timestamp)> = sqlx::query_as(
             r#"
             SELECT upstream_access_token, upstream_expires_at
             FROM mcp_oauth.refresh_tokens
@@ -1215,7 +1247,7 @@ impl TokenStore {
         match result {
             Some((token, expires_at)) => {
                 let token = self.decrypt_upstream_token(&token)?;
-                Ok(Some((token, expires_at)))
+                Ok(Some((token, expires_at.to_jiff())))
             }
             None => Ok(None),
         }
@@ -1364,7 +1396,7 @@ impl TokenStore {
         .bind(&consent.client_state)
         .bind(&consent.scope)
         .bind(&consent.csrf_token)
-        .bind(consent.expires_at)
+        .bind(consent.expires_at.to_sqlx())
         .execute(&self.pool)
         .await
         .map_err(McpError::Database)?;
@@ -1497,13 +1529,13 @@ impl TokenStore {
     }
 
     /// Create token expiry time
-    pub fn token_expiry(duration_hours: i64) -> OffsetDateTime {
-        OffsetDateTime::now_utc() + Duration::hours(duration_hours)
+    pub fn token_expiry(duration_hours: i64) -> Timestamp {
+        Timestamp::now() + SignedDuration::from_hours(duration_hours)
     }
 
     /// Create authorization code expiry (short-lived, 10 minutes)
-    pub fn code_expiry() -> OffsetDateTime {
-        OffsetDateTime::now_utc() + Duration::minutes(10)
+    pub fn code_expiry() -> Timestamp {
+        Timestamp::now() + SignedDuration::from_mins(10)
     }
 }
 
@@ -1581,8 +1613,8 @@ mod tests {
             client_uri: None,
             software_id: None,
             software_version: None,
-            created_at: OffsetDateTime::now_utc(),
-            updated_at: OffsetDateTime::now_utc(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
 
         assert!(client.allows_redirect_uri("http://localhost:8080/callback"));
@@ -1601,8 +1633,8 @@ mod tests {
             client_uri: None,
             software_id: None,
             software_version: None,
-            created_at: OffsetDateTime::now_utc(),
-            updated_at: OffsetDateTime::now_utc(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
 
         // Valid localhost wildcards
@@ -1634,8 +1666,8 @@ mod tests {
             client_uri: None,
             software_id: None,
             software_version: None,
-            created_at: OffsetDateTime::now_utc(),
-            updated_at: OffsetDateTime::now_utc(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
 
         assert!(client.allows_redirect_uri("http://127.0.0.1:8080/callback"));
@@ -1655,12 +1687,225 @@ mod tests {
             client_uri: None,
             software_id: None,
             software_version: None,
-            created_at: OffsetDateTime::now_utc(),
-            updated_at: OffsetDateTime::now_utc(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
 
         // Non-localhost wildcards should be rejected for security
         assert!(!client.allows_redirect_uri("https://example.com/callback"));
         assert!(!client.allows_redirect_uri("https://example.com/anything"));
+    }
+    #[tokio::test]
+    #[ignore = "requires disposable PostgreSQL through Docker"]
+    async fn postgres_timestamps_preserve_instants_and_nullable_expiry() {
+        use testcontainers::{ImageExt, core::IntoContainerPort, runners::AsyncRunner};
+        use testcontainers_modules::postgres::Postgres;
+
+        let container = Postgres::default()
+            .with_mapped_port(0, 5432.tcp())
+            .with_host_config_modifier(|config| {
+                if let Some(ports) = config.port_bindings.as_mut() {
+                    for bindings in ports.values_mut().flatten() {
+                        for binding in bindings {
+                            binding.host_ip = Some("127.0.0.1".into());
+                        }
+                    }
+                }
+            })
+            .start()
+            .await
+            .unwrap();
+        let port = container.get_host_port_ipv4(5432).await.unwrap();
+        let pool = PgPool::connect(&format!(
+            "postgres://postgres:postgres@127.0.0.1:{port}/postgres"
+        ))
+        .await
+        .unwrap();
+        let user_id = Uuid::new_v4();
+        for (input, expected) in [
+            (
+                "1960-01-02T03:04:05.123456-05:30",
+                "1960-01-02T03:04:05.123456-05:30",
+            ),
+            (
+                "2030-01-02T03:04:05.987654+05:30",
+                "2030-01-02T03:04:05.987654+05:30",
+            ),
+            (
+                "1960-01-02T03:04:05.123456789-05:30",
+                "1960-01-02T03:04:05.123457-05:30",
+            ),
+            (
+                "2030-01-02T03:04:05.987654321+05:30",
+                "2030-01-02T03:04:05.987654+05:30",
+            ),
+        ] {
+            let instant: Timestamp = input.parse().unwrap();
+            let expected: Timestamp = expected.parse().unwrap();
+            for expiry in [None, Some(instant)] {
+                let token = sqlx::query_as::<_, RefreshToken>(
+                    "SELECT 'hash'::TEXT AS token_hash, 'client'::TEXT AS client_id,
+                        $1::UUID AS user_id, 'scope'::TEXT AS scope,
+                        $2::TIMESTAMPTZ AS expires_at, $3::TIMESTAMPTZ AS created_at,
+                        'access'::TEXT AS upstream_access_token,
+                        NULL::TEXT AS upstream_refresh_token,
+                        $3::TIMESTAMPTZ AS upstream_expires_at",
+                )
+                .bind(user_id)
+                .bind(expiry.map(ToSqlx::to_sqlx))
+                .bind(instant.to_sqlx())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+                assert_eq!(token.expires_at, expiry.map(|_| expected));
+                assert_eq!(token.created_at, expected);
+                assert_eq!(token.upstream_expires_at, expected);
+                assert_eq!(token.user_id, user_id);
+                assert_eq!(token.upstream_access_token, "access");
+                assert_eq!(token.upstream_refresh_token, None);
+            }
+        }
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO mcp_oauth.clients
+            (id, name, redirect_uris, grants, scopes)
+            VALUES ('timestamp-client', 'Timestamp client',
+                ARRAY['http://localhost/callback'], ARRAY['authorization_code'], ARRAY['api'])",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let mut store = TokenStore::new(pool.clone());
+        let now = Timestamp::from_microsecond(Timestamp::now().as_microsecond()).unwrap();
+        let future = now + SignedDuration::from_hours(1);
+        for (index, expiry) in [None, Some(future), Some(now - SignedDuration::from_mins(1))]
+            .into_iter()
+            .enumerate()
+        {
+            let hash = TokenStore::hash_refresh_token(&format!("timestamp-token-{index}"));
+            store
+                .save_refresh_token(&RefreshToken {
+                    token_hash: hash.clone(),
+                    client_id: "timestamp-client".into(),
+                    user_id,
+                    scope: "api".into(),
+                    expires_at: expiry,
+                    created_at: now,
+                    upstream_access_token: "initial-access".into(),
+                    upstream_refresh_token: Some("initial-refresh".into()),
+                    upstream_expires_at: future,
+                })
+                .await
+                .unwrap();
+            let active = expiry.is_none_or(|expires| expires > now);
+            assert_eq!(
+                store
+                    .get_refresh_token_by_hash(&hash)
+                    .await
+                    .unwrap()
+                    .is_some(),
+                active
+            );
+            let renewed = future + SignedDuration::from_hours(1);
+            assert_eq!(
+                store
+                    .extend_refresh_token_expiry_if_needed(&hash, renewed, renewed)
+                    .await
+                    .unwrap(),
+                expiry.is_some() && active
+            );
+            let persisted: Option<jiff_sqlx::Timestamp> = sqlx::query_scalar(
+                "SELECT expires_at FROM mcp_oauth.refresh_tokens WHERE token_hash = $1",
+            )
+            .bind(&hash)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(
+                persisted.map(jiff_sqlx::Timestamp::to_jiff),
+                if expiry.is_some() && active {
+                    Some(renewed)
+                } else {
+                    expiry
+                }
+            );
+            let upstream_expiry = future + SignedDuration::from_mins(15);
+            assert_eq!(
+                store
+                    .update_upstream_tokens(
+                        &hash,
+                        "updated-access",
+                        Some("updated-refresh"),
+                        upstream_expiry
+                    )
+                    .await
+                    .unwrap(),
+                active
+            );
+            let upstream = store.get_upstream_token(&hash).await.unwrap();
+            assert_eq!(
+                upstream,
+                active.then(|| ("updated-access".into(), upstream_expiry))
+            );
+            if let Some(token) = store.get_refresh_token_by_hash(&hash).await.unwrap() {
+                assert_eq!(token.upstream_expires_at, upstream_expiry);
+                assert_eq!(
+                    token.upstream_refresh_token.as_deref(),
+                    Some("updated-refresh")
+                );
+            }
+        }
+        // Build the existing cipher from a scoped disposable key before any await.
+        store.token_cipher = temp_env::with_var(
+            "OAUTH_TOKEN_ENCRYPTION_KEYS",
+            Some("0707070707070707070707070707070707070707070707070707070707070707"),
+            || TokenCipher::from_env().unwrap(),
+        );
+        let request_id = Uuid::new_v4();
+        for expiry in [future, future + SignedDuration::from_mins(30)] {
+            store
+                .upsert_pending_hosted_passwords_agent(PendingHostedPasswordsAgentRequest {
+                    user_id,
+                    credential_subject: "user",
+                    request_id,
+                    display_name: "Fixture",
+                    kem_public: "fixture-public",
+                    signing_public: "fixture-signing",
+                    kem_private: "fixture-private",
+                    consent_capability: Some("fixture-consent"),
+                    expires_at: expiry,
+                })
+                .await
+                .unwrap();
+            let persisted: jiff_sqlx::Timestamp = sqlx::query_scalar(
+                "SELECT expires_at FROM mcp_oauth.hosted_passwords_agent_requests
+                    WHERE user_id = $1 AND credential_subject = 'user'",
+            )
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(persisted.to_jiff(), expiry);
+            assert!(
+                store
+                    .get_pending_hosted_passwords_agent(user_id, "user", request_id)
+                    .await
+                    .unwrap()
+                    .is_some()
+            );
+        }
+        pool.close().await;
+    }
+
+    #[test]
+    fn token_and_code_expiry_use_absolute_durations() {
+        let before = Timestamp::now();
+        let token_expiry = TokenStore::token_expiry(24);
+        let code_expiry = TokenStore::code_expiry();
+        let after = Timestamp::now();
+        assert!(token_expiry >= before + SignedDuration::from_hours(24));
+        assert!(token_expiry <= after + SignedDuration::from_hours(24));
+        assert!(code_expiry >= before + SignedDuration::from_mins(10));
+        assert!(code_expiry <= after + SignedDuration::from_mins(10));
     }
 }

@@ -5,10 +5,10 @@
 //!
 //! Upstream API tokens are stored server-side and never exposed to clients.
 
+use jiff::Timestamp;
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use time::OffsetDateTime;
 use uuid::Uuid;
 
 /// MCP access token TTL (10 years — effectively permanent).
@@ -146,15 +146,15 @@ impl McpJwtSigner {
         name: Option<&str>,
         refresh_token_hash: Option<&str>,
     ) -> Result<(String, i64), JwtError> {
-        let now = OffsetDateTime::now_utc();
-        let exp = now.unix_timestamp() + ACCESS_TOKEN_TTL_SECS;
+        let now = Timestamp::now();
+        let exp = now.as_second() + ACCESS_TOKEN_TTL_SECS;
 
         let claims = McpClaims {
             sub: user_id.to_string(),
             iss: self.issuer.clone(),
             aud: self.audience.clone(),
             exp,
-            iat: now.unix_timestamp(),
+            iat: now.as_second(),
             jti: Self::generate_jti(),
             client_id: client_id.to_string(),
             scope: scope.to_string(),
@@ -213,6 +213,7 @@ mod tests {
         let signer = McpJwtSigner::new(secret, "https://mcp.example.com");
         let user_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
 
+        let before = Timestamp::now().as_second();
         let (token, expires_in) = signer
             .sign_access_token(
                 user_id,
@@ -224,9 +225,12 @@ mod tests {
             )
             .unwrap();
 
+        let after = Timestamp::now().as_second();
         assert_eq!(expires_in, ACCESS_TOKEN_TTL_SECS);
 
         let claims = signer.validate_access_token(&token).unwrap();
+        assert!(claims.iat >= before && claims.iat <= after);
+        assert_eq!(claims.exp - claims.iat, ACCESS_TOKEN_TTL_SECS);
         assert_eq!(claims.sub, "550e8400-e29b-41d4-a716-446655440000");
         assert_eq!(claims.client_id, "client-456");
         assert_eq!(claims.scope, "api");

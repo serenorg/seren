@@ -654,7 +654,7 @@ async fn cache_refresh_token_lookup(
     let ttl = refresh_token
         .expires_at
         .map(|expiry| {
-            std::time::Duration::try_from(expiry - time::OffsetDateTime::now_utc())
+            std::time::Duration::try_from(expiry.duration_since(jiff::Timestamp::now()))
                 .unwrap_or_default()
                 .min(maximum_ttl)
         })
@@ -725,7 +725,7 @@ where
                 circuit_breaker.record_success();
                 if refresh_token
                     .expires_at
-                    .is_some_and(|expiry| expiry <= time::OffsetDateTime::now_utc())
+                    .is_some_and(|expiry| expiry <= jiff::Timestamp::now())
                 {
                     return Err(OAuthTokenLookupError::NotFound);
                 }
@@ -804,7 +804,7 @@ where
                 && cached
                     .refresh_token
                     .expires_at
-                    .is_none_or(|expiry| expiry > time::OffsetDateTime::now_utc())
+                    .is_none_or(|expiry| expiry > jiff::Timestamp::now())
             {
                 tracing::debug!(
                     event = "oauth_token_cache_hit",
@@ -1158,9 +1158,9 @@ async fn require_oauth_auth(
     };
 
     // Ensure the upstream access token is fresh for backend API calls.
-    let refresh_window = time::Duration::seconds(60);
+    let refresh_window = jiff::SignedDuration::from_secs(60);
 
-    if refresh_token.upstream_expires_at <= time::OffsetDateTime::now_utc() + refresh_window {
+    if refresh_token.upstream_expires_at <= jiff::Timestamp::now() + refresh_window {
         let refresh_token_hash = refresh_token.token_hash.clone();
 
         // Refresh can race across concurrent requests; serialize per refresh_token_hash
@@ -1249,7 +1249,7 @@ async fn require_oauth_auth(
         }
 
         if lock_result.is_none()
-            && refresh_token.upstream_expires_at <= time::OffsetDateTime::now_utc() + refresh_window
+            && refresh_token.upstream_expires_at <= jiff::Timestamp::now() + refresh_window
         {
             tracing::debug!(
                 event = "oauth_auth_upstream_token_expired",
@@ -1327,9 +1327,9 @@ async fn require_oauth_auth(
                         ..
                     } = token_body;
 
-                    let refresh_now = time::OffsetDateTime::now_utc();
+                    let refresh_now = jiff::Timestamp::now();
                     let new_upstream_expires_at =
-                        refresh_now + time::Duration::seconds(expires_in.max(0));
+                        refresh_now + jiff::SignedDuration::from_secs(expires_in.max(0));
 
                     match state
                         .store
@@ -1416,10 +1416,11 @@ async fn require_oauth_auth(
 
     // Sliding expiry: extend the server-side session without requiring client re-login.
     if let Some(expires_at) = refresh_token.expires_at {
-        let now = time::OffsetDateTime::now_utc();
-        let new_expires_at = now + time::Duration::hours(oauth::store::REFRESH_TOKEN_TTL_HOURS);
+        let now = jiff::Timestamp::now();
+        let new_expires_at =
+            now + jiff::SignedDuration::from_hours(oauth::store::REFRESH_TOKEN_TTL_HOURS);
         let renew_before = now
-            + time::Duration::hours(
+            + jiff::SignedDuration::from_hours(
                 oauth::store::REFRESH_TOKEN_TTL_HOURS
                     - oauth::store::SLIDING_EXPIRY_RENEWAL_INTERVAL_HOURS,
             );
@@ -2828,10 +2829,10 @@ mod tests {
             user_id: Uuid::new_v4(),
             scope: "api".to_string(),
             expires_at: None,
-            created_at: time::OffsetDateTime::now_utc(),
+            created_at: jiff::Timestamp::now(),
             upstream_access_token: "upstream-access".to_string(),
             upstream_refresh_token: Some("upstream-refresh".to_string()),
-            upstream_expires_at: time::OffsetDateTime::now_utc() + time::Duration::hours(1),
+            upstream_expires_at: jiff::Timestamp::now() + jiff::SignedDuration::from_hours(1),
         }
     }
 
@@ -2944,11 +2945,11 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn oauth_token_cache_expires_at_session_deadline_or_short_ttl() {
-        for lifetime in [None, Some(time::Duration::seconds(5))] {
+        for lifetime in [None, Some(jiff::SignedDuration::from_secs(5))] {
             let cache = empty_oauth_token_cache();
             let breaker = oauth::circuit_breaker::create_oauth_circuit_breaker();
             let mut token = make_refresh_token("expiry-hash");
-            token.expires_at = lifetime.map(|duration| time::OffsetDateTime::now_utc() + duration);
+            token.expires_at = lifetime.map(|duration| jiff::Timestamp::now() + duration);
             cache_refresh_token_lookup(&cache, &token.token_hash, &token).await;
             let elapsed = if lifetime.is_some() { 6 } else { 61 };
             tokio::time::advance(std::time::Duration::from_secs(elapsed)).await;
@@ -2970,7 +2971,7 @@ mod tests {
         let cache = empty_oauth_token_cache();
         let breaker = oauth::circuit_breaker::create_oauth_circuit_breaker();
         let mut token = make_refresh_token("expired-hash");
-        token.expires_at = Some(time::OffsetDateTime::now_utc() - time::Duration::seconds(1));
+        token.expires_at = Some(jiff::Timestamp::now() - jiff::SignedDuration::from_secs(1));
         cache_refresh_token_lookup(&cache, &token.token_hash, &token).await;
         assert!(cache.lock().await.is_empty());
         // Even a cache entry with an unexpired timer cannot extend the session's absolute expiry.

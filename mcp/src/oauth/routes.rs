@@ -23,9 +23,9 @@ use axum::{
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
 };
+use jiff::{SignedDuration, Timestamp};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use time::{Duration, OffsetDateTime};
 use tower_governor::{
     GovernorLayer, governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor,
 };
@@ -390,7 +390,7 @@ async fn authorize(
         code_challenge_method,
         upstream_code_verifier,
         expires_at: TokenStore::code_expiry(),
-        created_at: OffsetDateTime::now_utc(),
+        created_at: Timestamp::now(),
     };
 
     state
@@ -537,7 +537,7 @@ async fn callback(
     }
 
     let upstream_expires_at =
-        OffsetDateTime::now_utc() + Duration::seconds(token_body.expires_in.max(0));
+        Timestamp::now() + SignedDuration::from_secs(token_body.expires_in.max(0));
 
     let user_id = fetch_user_id(
         &state.upstream_api_base_url,
@@ -565,7 +565,7 @@ async fn callback(
         code_challenge: Some(auth_request.code_challenge),
         code_challenge_method: Some(auth_request.code_challenge_method),
         expires_at: TokenStore::code_expiry(),
-        created_at: OffsetDateTime::now_utc(),
+        created_at: Timestamp::now(),
         upstream_access_token: token_body.access_token,
         upstream_refresh_token: token_body.refresh_token,
         upstream_expires_at,
@@ -602,7 +602,7 @@ async fn callback(
     // Not yet approved: create a pending consent record and redirect to a local consent page.
     let consent_id = TokenStore::generate_token();
     let csrf_token = TokenStore::generate_token();
-    let consent_expires_at = OffsetDateTime::now_utc() + Duration::minutes(10);
+    let consent_expires_at = Timestamp::now() + SignedDuration::from_mins(10);
     let consent = crate::oauth::store::PendingConsent {
         id: consent_id.clone(),
         user_id,
@@ -613,7 +613,7 @@ async fn callback(
         scope: auth_request.scope.clone(),
         csrf_token,
         expires_at: consent_expires_at,
-        created_at: OffsetDateTime::now_utc(),
+        created_at: Timestamp::now(),
     };
     state
         .store
@@ -782,7 +782,7 @@ async fn token(
                 user_id: auth_code.user_id,
                 scope: auth_code.scope.clone(),
                 expires_at: Some(TokenStore::token_expiry(REFRESH_TOKEN_TTL_HOURS)),
-                created_at: OffsetDateTime::now_utc(),
+                created_at: Timestamp::now(),
                 // Store upstream tokens server-side (never exposed to clients)
                 upstream_access_token: auth_code.upstream_access_token,
                 upstream_refresh_token: auth_code.upstream_refresh_token,
@@ -919,8 +919,8 @@ async fn token(
                 // Only refresh upstream tokens when the upstream access token is expired or near
                 // expiry. MCP access tokens are long-lived for client compatibility, while upstream
                 // grants still use expiring access tokens and single-use refresh tokens.
-                let refresh_window = Duration::seconds(60);
-                let now = OffsetDateTime::now_utc();
+                let refresh_window = SignedDuration::from_secs(60);
+                let now = Timestamp::now();
 
                 let mut upstream_access_token = refresh_token.upstream_access_token.clone();
                 let mut upstream_refresh_token_update: Option<String> = None;
@@ -954,7 +954,7 @@ async fn token(
                     upstream_access_token = token_body.access_token;
                     upstream_refresh_token_update = token_body.refresh_token;
                     upstream_expires_at =
-                        OffsetDateTime::now_utc() + Duration::seconds(token_body.expires_in.max(0));
+                        Timestamp::now() + SignedDuration::from_secs(token_body.expires_in.max(0));
                 } else {
                     debug!(
                         event = "oauth_upstream_refresh_skipped",
@@ -1002,8 +1002,8 @@ async fn token(
                     .extend_refresh_token_expiry_if_needed(
                         &refresh_token_str,
                         TokenStore::token_expiry(REFRESH_TOKEN_TTL_HOURS),
-                        OffsetDateTime::now_utc()
-                            + Duration::hours(
+                        Timestamp::now()
+                            + SignedDuration::from_hours(
                                 REFRESH_TOKEN_TTL_HOURS - SLIDING_EXPIRY_RENEWAL_INTERVAL_HOURS,
                             ),
                     )
@@ -1946,11 +1946,24 @@ mod tests {
             return;
         }
 
-        use testcontainers::runners::AsyncRunner;
+        use testcontainers::{ImageExt, core::IntoContainerPort, runners::AsyncRunner};
         use testcontainers_modules::postgres::Postgres;
 
         // Docker container must stay in scope for the duration of the test.
-        let container = Postgres::default().start().await.unwrap();
+        let container = Postgres::default()
+            .with_mapped_port(0, 5432.tcp())
+            .with_host_config_modifier(|config| {
+                if let Some(ports) = config.port_bindings.as_mut() {
+                    for bindings in ports.values_mut().flatten() {
+                        for binding in bindings {
+                            binding.host_ip = Some("127.0.0.1".into());
+                        }
+                    }
+                }
+            })
+            .start()
+            .await
+            .unwrap();
         let port = container.get_host_port_ipv4(5432).await.unwrap();
         let database_url = format!("postgres://postgres:postgres@127.0.0.1:{}/postgres", port);
 

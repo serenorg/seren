@@ -897,7 +897,7 @@ impl SerenMcpServer {
         let kem_public = BASE64.encode(kem.public.as_bytes());
         let signing_public = BASE64.encode(signing.public.as_bytes());
         let kem_private = Zeroizing::new(BASE64.encode(kem.private.as_bytes()));
-        let local_expires_at = time::OffsetDateTime::now_utc() + time::Duration::hours(1);
+        let local_expires_at = jiff::Timestamp::now() + jiff::SignedDuration::from_hours(1);
         store
             .upsert_pending_hosted_passwords_agent(PendingHostedPasswordsAgentRequest {
                 user_id,
@@ -939,19 +939,6 @@ impl SerenMcpServer {
                 return Err(err);
             }
         };
-        let server_expires_at = match jiff_timestamp_to_offset_datetime(created.expires_at) {
-            Ok(value) => value,
-            Err(err) => {
-                let _ = store
-                    .delete_pending_hosted_passwords_agent(
-                        user_id,
-                        &credential_subject_key,
-                        request_id,
-                    )
-                    .await;
-                return Err(err);
-            }
-        };
         store
             .upsert_pending_hosted_passwords_agent(PendingHostedPasswordsAgentRequest {
                 user_id,
@@ -962,7 +949,7 @@ impl SerenMcpServer {
                 signing_public: &signing_public,
                 kem_private: &kem_private,
                 consent_capability: Some(&created.consent_capability),
-                expires_at: server_expires_at,
+                expires_at: created.expires_at,
             })
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -3845,13 +3832,6 @@ fn vault_approval_mode_param(mode: &seren::VaultApprovalMode) -> &'static str {
     }
 }
 
-fn jiff_timestamp_to_offset_datetime(
-    timestamp: jiff::Timestamp,
-) -> Result<time::OffsetDateTime, McpError> {
-    time::OffsetDateTime::from_unix_timestamp_nanos(timestamp.as_nanosecond())
-        .map_err(|e| McpError::internal_error(e.to_string(), None))
-}
-
 fn hosted_seren_passwords_url() -> Result<String, McpError> {
     let raw = match std::env::var(PASSWORDS_URL_ENV) {
         Ok(value) if !value.trim().is_empty() => value,
@@ -5524,14 +5504,6 @@ mod tests {
                 );
             },
         );
-    }
-
-    #[test]
-    fn hosted_delegation_timestamp_conversion_preserves_instant() {
-        let timestamp: jiff::Timestamp = "2030-01-01T18:19:00.123456789Z".parse().unwrap();
-        let converted = jiff_timestamp_to_offset_datetime(timestamp).unwrap();
-
-        assert_eq!(converted.unix_timestamp_nanos(), timestamp.as_nanosecond());
     }
 
     #[test]

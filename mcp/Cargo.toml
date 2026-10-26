@@ -27,6 +27,7 @@ telemetry = [
 # Workspace - shared API client
 seren = { package = "seren-sdk", path = "../sdk" }
 jiff = { workspace = true }
+jiff-sqlx = { workspace = true }
 
 # MCP SDK
 rmcp = { workspace = true }
@@ -99,7 +100,6 @@ base64 = { workspace = true }
 async-trait = { workspace = true }
 async-stream = { workspace = true }
 futures = { workspace = true }
-time = { workspace = true }
 html-escape = { workspace = true }
 tower_governor = { workspace = true }
 lru = "0.18.0"
