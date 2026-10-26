@@ -22,26 +22,26 @@ async-stream = "0.3"
 async-trait = "0.1"
 axum = "0.8"
 base62 = "2"
-base64 = "0.22"
+base64 = "0.23"
 jiff = { version = "0.2", features = ["serde"] }
 jiff-sqlx = { version = "0.2", features = ["postgres"] }
 clap = { version = "4", features = ["derive", "env"] }
 comfy-table = "7"
 colored = "3"
 futures = "0.3"
-html-escape = "0.2"
-jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto"] }
+html-escape = "0.3"
+jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
 # Only the authorize-URL/PKCE builders are used; the token exchange goes
 # through the generated SDK, so oauth2's bundled reqwest 0.12 client is not
 # needed and would duplicate the reqwest 0.13 dependency tree.
-oauth2 = { version = "5.0", default-features = false }
+oauth2 = { version = "5", default-features = false }
 openapiv3 = "2"
-progenitor = "0.14"
-progenitor-client = "0.14"
-prettyplease = "0.2"
+progenitor = "0.15"
+progenitor-client = "0.15"
+prettyplease = "0.3"
 rand = "0.10"
-regress = "0.11"
-rmcp = { version = "3.1.2", features = ["server", "macros", "transport-io", "transport-streamable-http-server"] }
+regress = "0.12"
+rmcp = { version = "3", features = ["server", "macros", "transport-io", "transport-streamable-http-server"] }
 schemars = { version = "1", features = ["uuid1", "jiff02"] }
 tokio-util = "0.7"
 reqwest = { version = "0.13", default-features = false, features = ["form", "json", "rustls"] }
@@ -53,20 +53,20 @@ seren-secrets-resolver = { git = "https://github.com/serenorg/seren-secrets.git"
 sha2 = "0.11"
 subtle = "2"
 sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "uuid", "migrate", "tls-rustls"] }
-syn = { version = "2", default-features = false, features = ["full"] }
+syn = { version = "3", default-features = false, features = ["full"] }
 thiserror = "2"
-tokio = { version = "1", features = ["full"] }
-toml = "1.1"
+tokio = { version = "1.2", features = ["full"] }
+toml = "1"
 tower = "0.5"
 tower_governor = "0.8"
 tower-http = { version = "0.7", features = ["cors", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 uuid = { version = "1", features = ["serde", "v4"] }
-urlencoding = "2.1"
+urlencoding = "2"
 
 # Ethereum wallet support
-alloy = { version = "2.0", default-features = false, features = ["signers", "signer-local", "sol-types", "provider-http", "rpc-types", "contract", "reqwest"] }
+alloy = { version = "2", default-features = false, features = ["signers", "signer-local", "sol-types", "provider-http", "rpc-types", "contract", "reqwest"] }
 hex = "0.4"
 etcetera = "0.11"
 
