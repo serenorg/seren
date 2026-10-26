@@ -1340,14 +1340,9 @@ fn is_valid_redirect_uri(uri: &str) -> bool {
 }
 
 fn hash_secret(secret: &str) -> String {
-    use argon2::{
-        Argon2,
-        password_hash::{PasswordHasher, SaltString, rand_core::OsRng},
-    };
-    let salt = SaltString::generate(&mut OsRng);
-    let argon2 = Argon2::default();
-    argon2
-        .hash_password(secret.as_bytes(), &salt)
+    use argon2::{Argon2, password_hash::PasswordHasher};
+    Argon2::default()
+        .hash_password(secret.as_bytes())
         .expect("Failed to hash secret")
         .to_string()
 }
@@ -1355,7 +1350,7 @@ fn hash_secret(secret: &str) -> String {
 fn verify_secret(secret: &str, hash: &str) -> bool {
     use argon2::{
         Argon2,
-        password_hash::{PasswordHash, PasswordVerifier},
+        password_hash::{PasswordVerifier, phc::PasswordHash},
     };
     let parsed_hash = match PasswordHash::new(hash) {
         Ok(h) => h,
@@ -2442,5 +2437,47 @@ mod tests {
                 && !description.contains(raw),
             "error_description leaked driver text: {description}"
         );
+    }
+
+    #[test]
+    fn client_secret_hashes_preserve_parameters_and_use_independent_salts() {
+        let first = hash_secret("client-secret-fixture");
+        let second = hash_secret("client-secret-fixture");
+        assert!(first.starts_with("$argon2id$v=19$m=19456,t=2,p=1$"));
+        assert!(second.starts_with("$argon2id$v=19$m=19456,t=2,p=1$"));
+        assert_ne!(first, second);
+        use argon2::password_hash::phc::PasswordHash;
+        let first_hash = PasswordHash::new(&first).unwrap();
+        let second_hash = PasswordHash::new(&second).unwrap();
+        let first_salt = first_hash.salt.as_ref().unwrap();
+        let second_salt = second_hash.salt.as_ref().unwrap();
+        assert_eq!(first_salt.len(), 16);
+        assert_eq!(second_salt.len(), 16);
+        assert_ne!(first_salt.as_ref(), second_salt.as_ref());
+        assert_eq!(first_hash.hash.as_ref().unwrap().len(), 32);
+        assert_eq!(second_hash.hash.as_ref().unwrap().len(), 32);
+        assert!(verify_secret("client-secret-fixture", &first));
+        assert!(verify_secret("client-secret-fixture", &second));
+        assert!(!verify_secret("different-client-secret", &first));
+    }
+
+    #[test]
+    fn client_secret_verification_accepts_existing_phc_hashes() {
+        // Argon2 0.5's published known-answer fixture uses the stored PHC format.
+        let hash =
+            "$argon2id$v=19$m=256,t=2,p=1$c29tZXNhbHQ$nf65EOgLrQMR/uIPnA4rEsF5h7TKyQwu9U1bMCHGi/4";
+        assert!(verify_secret("password", hash));
+        assert!(!verify_secret("different-password", hash));
+    }
+
+    #[test]
+    fn client_secret_verification_rejects_malformed_hashes() {
+        for hash in [
+            "",
+            "not-a-phc-hash",
+            "$argon2id$v=19$m=invalid,t=2,p=1$c29tZXNhbHQ$invalid",
+        ] {
+            assert!(!verify_secret("password", hash));
+        }
     }
 }
