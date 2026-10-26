@@ -92,6 +92,13 @@ async fn invoke(
             format,
         ])
         .args(args);
+    // Windows socket providers resolve system DLL paths through SystemRoot.
+    #[cfg(windows)]
+    command.env(
+        "SystemRoot",
+        std::env::var_os("SystemRoot")
+            .expect("Windows provides SystemRoot for socket initialization"),
+    );
     let output = tokio::task::spawn_blocking(move || command.output().unwrap())
         .await
         .unwrap();
