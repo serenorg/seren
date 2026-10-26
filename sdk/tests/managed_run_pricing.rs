@@ -24,7 +24,7 @@ fn owner(deployment_id: Uuid, run_kinds: Value) -> Value {
     json!({
         "id": deployment_id, "organization_id": Uuid::from_u128(1), "name": "Pricing contract",
         "skill_slug": "pricing-contract", "mode": "always_on", "platform_managed": true,
-        "status": "running", "desired_lifecycle_state": "running",
+        "status": "running", "desired_lifecycle_state": "running", "serving_fallback": false,
         "template": {"slug": "pricing-contract", "display_name": "Pricing contract", "revision": 1},
         "run_kinds": run_kinds.clone(),
         "spend_limits": {
@@ -78,9 +78,11 @@ async fn managed_pricing_success_bodies_preserve_fee_and_cost_contracts() {
             .and(path("/publishers/seren-agent/templates"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": [{
                 "slug": "pricing-contract", "display_name": "Pricing contract",
-                "publisher": {"organization_id": Uuid::from_u128(1), "name": "Studio"},
+                "publisher": {"organization_id": Uuid::from_u128(1), "name": "Studio",
+                    "made_by_seren": false, "verified": false},
                 "owner_connection": "sign_in_only", "published_at": "2026-10-23T00:00:00Z",
-                "capabilities": [], "run_kinds": run_kinds.clone(),
+                "capabilities": [], "example_tasks": ["Run a pricing task"],
+                "works_in": ["slack"], "pronouns": "they/them", "run_kinds": run_kinds.clone(),
                 "spend_limit_defaults": {"per_task_atomic": 2000000, "per_day_atomic": 10000000}
             }]})))
             .expect(1)
@@ -94,6 +96,7 @@ async fn managed_pricing_success_bodies_preserve_fee_and_cost_contracts() {
             .unwrap()
             .into_inner();
         let detail = serde_json::to_value(detail).unwrap();
+        assert_eq!(detail["data"]["serving_fallback"], false);
         assert_prices(&detail["data"]["run_kinds"], &run_kinds);
         assert_prices(&detail["data"]["spend_limits"]["run_kinds"], &run_kinds);
         let list = client
@@ -102,6 +105,7 @@ async fn managed_pricing_success_bodies_preserve_fee_and_cost_contracts() {
             .unwrap()
             .into_inner();
         let list = serde_json::to_value(list).unwrap();
+        assert_eq!(list["data"][0]["serving_fallback"], false);
         assert_prices(&list["data"][0]["run_kinds"], &run_kinds);
         assert_prices(&list["data"][0]["spend_limits"]["run_kinds"], &run_kinds);
         let templates = client
@@ -109,10 +113,16 @@ async fn managed_pricing_success_bodies_preserve_fee_and_cost_contracts() {
             .await
             .unwrap()
             .into_inner();
-        assert_prices(
-            &serde_json::to_value(templates).unwrap()["data"][0]["run_kinds"],
-            &run_kinds,
+        let templates = serde_json::to_value(templates).unwrap();
+        assert_eq!(templates["data"][0]["publisher"]["made_by_seren"], false);
+        assert_eq!(templates["data"][0]["publisher"]["verified"], false);
+        assert_eq!(
+            templates["data"][0]["example_tasks"],
+            json!(["Run a pricing task"])
         );
+        assert_eq!(templates["data"][0]["works_in"], json!(["slack"]));
+        assert_eq!(templates["data"][0]["pronouns"], "they/them");
+        assert_prices(&templates["data"][0]["run_kinds"], &run_kinds);
         server.verify().await;
     }
 }
@@ -129,4 +139,26 @@ fn invalid_charge_or_missing_fee_amount_is_not_a_price() {
     let mut fee = prices(Value::Null)[0].clone();
     fee.as_object_mut().unwrap().remove("amount");
     assert!(serde_json::from_value::<seren::ManagedAgentRunKindPrice>(fee).is_err());
+}
+
+#[tokio::test]
+async fn managed_owner_pricing_rejects_missing_serving_fallback() {
+    let server = MockServer::start().await;
+    let deployment_id = Uuid::from_u128(42);
+    let mut owner = owner(deployment_id, prices(Value::Null));
+    owner.as_object_mut().unwrap().remove("serving_fallback");
+    Mock::given(method("GET"))
+        .and(path(format!(
+            "/publishers/seren-agent/deployments/{deployment_id}/managed"
+        )))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": owner})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let error = Client::new(&server.uri())
+        .seren_agent_get_managed_deployment(&deployment_id)
+        .await
+        .unwrap_err();
+    assert!(matches!(error, seren::Error::InvalidResponsePayload(_, _)));
+    server.verify().await;
 }
