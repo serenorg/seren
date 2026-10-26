@@ -53,7 +53,7 @@ pub async fn list_members(organization_id: &str, ctx: &CommandContext) -> Result
         OutputFormat::Table => {
             let mut table = Table::new();
             table
-                .load_preset(UTF8_FULL)
+                .load_style(UTF8_FULL)
                 .set_content_arrangement(ContentArrangement::Dynamic);
 
             table.set_header(vec![
@@ -95,7 +95,7 @@ pub async fn list_invites(organization_id: &str, ctx: &CommandContext) -> Result
         OutputFormat::Table => {
             let mut table = Table::new();
             table
-                .load_preset(UTF8_FULL)
+                .load_style(UTF8_FULL)
                 .set_content_arrangement(ContentArrangement::Dynamic);
 
             table.set_header(vec![

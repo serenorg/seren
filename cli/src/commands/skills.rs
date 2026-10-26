@@ -1067,7 +1067,7 @@ fn offer_agent_install_all(skills_base: &Path, yes: bool) -> Result<()> {
 fn print_skills_table(skills: &[SkillEntry]) {
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![

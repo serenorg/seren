@@ -319,7 +319,7 @@ pub async fn download_bundle(
 fn print_skills_table(skills: &[OrganizationCustomSkill]) {
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
     table.set_header(vec![
         Cell::new("Name").fg(Color::Green),
@@ -372,7 +372,7 @@ fn print_skill_detail(skill: &OrganizationCustomSkill) {
 fn print_revisions_table(revisions: &[OrganizationCustomSkillRevisionSummary]) {
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
     table.set_header(vec![
         Cell::new("Revision").fg(Color::Green),

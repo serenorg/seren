@@ -26,7 +26,7 @@ base64 = "0.23"
 jiff = { version = "0.2", features = ["serde"] }
 jiff-sqlx = { version = "0.2", features = ["postgres"] }
 clap = { version = "4", features = ["derive", "env"] }
-comfy-table = "7"
+comfy-table = "8"
 colored = "3"
 futures = "0.3"
 html-escape = "0.3"

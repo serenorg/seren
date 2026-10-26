@@ -500,7 +500,7 @@ pub fn resolve_download_output(key: &str, output: Option<PathBuf>) -> Result<Pat
 fn table_with_header<const N: usize>(header: [&str; N]) -> Table {
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_header(header.map(|label| Cell::new(label).fg(Color::Cyan)));
     table

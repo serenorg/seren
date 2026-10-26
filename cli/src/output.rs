@@ -39,7 +39,7 @@ pub fn print_json<T: Serialize + ?Sized>(data: &T) -> anyhow::Result<()> {
 pub fn print_key_value_table(title: Option<&str>, rows: &[(&str, String)]) {
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -67,7 +67,7 @@ pub fn print_list_table<T: std::fmt::Display>(title: Option<&str>, header: &str,
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![Cell::new(header).fg(Color::Green)]);
@@ -147,7 +147,7 @@ pub fn print_cloud_run_replay_comparison(
         println!("{}", "Summary Fields".bold());
         let mut table = Table::new();
         table
-            .load_preset(UTF8_FULL)
+            .load_style(UTF8_FULL)
             .set_content_arrangement(ContentArrangement::Dynamic);
         table.set_header(vec![
             Cell::new("Field").fg(Color::Green),
@@ -220,7 +220,7 @@ pub fn print_projects_table(projects: &[seren::Project]) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -268,7 +268,7 @@ pub fn print_project(project: &seren::Project, format: OutputFormat) -> anyhow::
         OutputFormat::Table => {
             let mut table = Table::new();
             table
-                .load_preset(UTF8_FULL)
+                .load_style(UTF8_FULL)
                 .set_content_arrangement(ContentArrangement::Dynamic);
 
             table.add_row(vec![
@@ -329,7 +329,7 @@ pub fn print_create_project_response(
         OutputFormat::Table => {
             let mut table = Table::new();
             table
-                .load_preset(UTF8_FULL)
+                .load_style(UTF8_FULL)
                 .set_content_arrangement(ContentArrangement::Dynamic);
 
             table.add_row(vec![
@@ -386,7 +386,7 @@ pub fn print_branches_table(branches: &[seren::Branch]) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -420,7 +420,7 @@ pub fn print_branch(branch: &seren::Branch, format: OutputFormat) -> anyhow::Res
         OutputFormat::Table => {
             let mut table = Table::new();
             table
-                .load_preset(UTF8_FULL)
+                .load_style(UTF8_FULL)
                 .set_content_arrangement(ContentArrangement::Dynamic);
 
             table.add_row(vec![
@@ -483,7 +483,7 @@ pub fn print_databases_table(databases: &[seren::DatabaseWithOwner]) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -514,7 +514,7 @@ pub fn print_usage_summaries_table(summaries: &[seren::UsageSummary]) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -599,7 +599,7 @@ pub fn print_payment_methods_table(methods: &[seren::PaymentMethod]) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -647,7 +647,7 @@ pub fn print_payment_methods_table(methods: &[seren::PaymentMethod]) {
 pub fn print_billing_health_table(health: &seren::DataResponseBillingHealth) {
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -692,7 +692,7 @@ pub fn print_billing_health_table(health: &seren::DataResponseBillingHealth) {
     if !health.data.jobs.is_empty() {
         let mut jobs_table = Table::new();
         jobs_table
-            .load_preset(UTF8_FULL)
+            .load_style(UTF8_FULL)
             .set_content_arrangement(ContentArrangement::Dynamic);
 
         jobs_table.set_header(vec![
@@ -739,7 +739,7 @@ pub fn print_publishers_table(publishers: &[seren::PublisherResponse]) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -802,7 +802,7 @@ pub fn print_wallet_transfers_table(transfers: &[seren::WalletTransferListItem])
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -838,7 +838,7 @@ pub fn print_store_publisher(
         OutputFormat::Table => {
             let mut table = Table::new();
             table
-                .load_preset(UTF8_FULL)
+                .load_style(UTF8_FULL)
                 .set_content_arrangement(ContentArrangement::Dynamic);
 
             table.set_header(vec![
@@ -914,7 +914,7 @@ pub fn print_store_publisher(
             {
                 let mut pricing_table = Table::new();
                 pricing_table
-                    .load_preset(UTF8_FULL)
+                    .load_style(UTF8_FULL)
                     .set_content_arrangement(ContentArrangement::Dynamic);
 
                 pricing_table.set_header(vec![
@@ -965,7 +965,7 @@ pub fn print_database(
         OutputFormat::Table => {
             let mut table = Table::new();
             table
-                .load_preset(UTF8_FULL)
+                .load_style(UTF8_FULL)
                 .set_content_arrangement(ContentArrangement::Dynamic);
 
             table.add_row(vec![
@@ -998,7 +998,7 @@ pub fn print_roles_table(roles: &[seren::RoleInfo]) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -1029,7 +1029,7 @@ pub fn print_role_with_password(
         OutputFormat::Table => {
             let mut table = Table::new();
             table
-                .load_preset(UTF8_FULL)
+                .load_style(UTF8_FULL)
                 .set_content_arrangement(ContentArrangement::Dynamic);
 
             table.add_row(vec![
@@ -1063,7 +1063,7 @@ pub fn print_endpoints_table(endpoints: &[seren::EndpointResponse]) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -1101,7 +1101,7 @@ pub fn print_endpoint(
         OutputFormat::Table => {
             let mut table = Table::new();
             table
-                .load_preset(UTF8_FULL)
+                .load_style(UTF8_FULL)
                 .set_content_arrangement(ContentArrangement::Dynamic);
 
             table.add_row(vec![
@@ -1157,7 +1157,7 @@ pub fn print_create_endpoint_response(
         OutputFormat::Table => {
             let mut table = Table::new();
             table
-                .load_preset(UTF8_FULL)
+                .load_style(UTF8_FULL)
                 .set_content_arrangement(ContentArrangement::Dynamic);
 
             table.add_row(vec![
@@ -1216,7 +1216,7 @@ pub fn print_connection_string(
         OutputFormat::Table => {
             let mut table = Table::new();
             table
-                .load_preset(UTF8_FULL)
+                .load_style(UTF8_FULL)
                 .set_content_arrangement(ContentArrangement::Dynamic);
 
             table.add_row(vec![
@@ -1251,7 +1251,7 @@ pub fn print_created_endpoints(
         OutputFormat::Table => {
             let mut table = Table::new();
             table
-                .load_preset(UTF8_FULL)
+                .load_style(UTF8_FULL)
                 .set_content_arrangement(ContentArrangement::Dynamic);
 
             table.set_header(vec![
@@ -1304,7 +1304,7 @@ pub fn print_operations_table(operations: &serde_json::Value) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -1338,7 +1338,7 @@ pub fn print_operation(operation: &serde_json::Value, format: OutputFormat) -> a
         OutputFormat::Table => {
             let mut table = Table::new();
             table
-                .load_preset(UTF8_FULL)
+                .load_style(UTF8_FULL)
                 .set_content_arrangement(ContentArrangement::Dynamic);
 
             table.add_row(vec![
@@ -1404,7 +1404,7 @@ pub fn print_operation(operation: &serde_json::Value, format: OutputFormat) -> a
 pub fn print_user(user: &seren::DataResponseUserMe) -> anyhow::Result<()> {
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.add_row(vec![
@@ -1439,7 +1439,7 @@ pub fn print_organizations_table(organizations: &[seren::Organization]) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -1469,7 +1469,7 @@ pub fn print_organization_memberships_table(memberships: &[seren::OrganizationMe
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -1502,7 +1502,7 @@ pub fn print_ip_allow_list_table(ips: &[seren::IpAllowList]) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -1533,7 +1533,7 @@ pub fn print_org_vpc_endpoints_table(endpoints: &[seren::OrganizationVpcEndpoint
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -1570,7 +1570,7 @@ pub fn print_project_vpc_endpoints_table(assignments: &serde_json::Value) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -1612,7 +1612,7 @@ pub fn print_sessions_table(sessions: &[seren::Session]) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -1645,7 +1645,7 @@ pub fn print_webhooks_table(webhooks: &[seren::WebhookInfo]) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -1679,7 +1679,7 @@ pub fn print_webhook_deliveries_table(deliveries: &[seren::WebhookDelivery]) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -1731,7 +1731,7 @@ pub fn print_audit_logs_table(logs: &[seren::AuditLog]) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -1776,7 +1776,7 @@ pub fn print_rbac_roles_table(roles: &[seren::RbacRole]) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -1817,7 +1817,7 @@ pub fn print_permissions_table(permissions: &[seren::Permission]) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -1848,7 +1848,7 @@ pub fn print_branch_protection_table(rules: &[seren::BranchProtection]) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -1889,7 +1889,7 @@ pub fn print_publications_table(publications: &[seren::PublicationInfo]) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -1925,7 +1925,7 @@ pub fn print_replication_slots_table(slots: &[seren::ReplicationSlotInfo]) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -2169,7 +2169,7 @@ pub fn print_agent_balance_summary(summary: &serde_json::Value) {
         Some(arr) if !arr.is_empty() => {
             let mut table = Table::new();
             table
-                .load_preset(UTF8_FULL)
+                .load_style(UTF8_FULL)
                 .set_content_arrangement(ContentArrangement::Dynamic);
 
             table.set_header(vec![
@@ -2257,7 +2257,7 @@ pub fn print_agent_publisher_balances(balances: &serde_json::Value) {
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
@@ -2325,7 +2325,7 @@ pub fn print_invoice(invoice: &seren::Invoice) {
 
     let mut items_table = Table::new();
     items_table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     items_table.set_header(vec![

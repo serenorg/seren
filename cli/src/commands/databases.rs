@@ -162,7 +162,7 @@ pub async fn list_all(project_id: Option<&str>, ctx: &CommandContext) -> Result<
                 println!("{}", "No databases found.".yellow());
             } else {
                 let mut table = Table::new();
-                table.load_preset(UTF8_FULL_CONDENSED);
+                table.load_style(UTF8_FULL_CONDENSED);
                 table.set_header(vec![
                     Cell::new("Project").fg(Color::Cyan),
                     Cell::new("Branch").fg(Color::Cyan),
