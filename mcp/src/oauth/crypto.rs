@@ -66,10 +66,7 @@ impl TokenCipher {
 
         let ciphertext = self
             .primary
-            .encrypt(
-                aes_gcm::Nonce::from_slice(&nonce_bytes),
-                plaintext.as_bytes(),
-            )
+            .encrypt(&nonce_bytes.into(), plaintext.as_bytes())
             .map_err(|_| McpError::Config("Token encryption failed".into()))?;
 
         let nonce_b64 = base64::Engine::encode(
@@ -98,23 +95,19 @@ impl TokenCipher {
             McpError::Config("Invalid encrypted token format (missing '.')".into())
         })?;
 
-        let nonce = decode_key_material(nonce_b64).map_err(|_| {
-            McpError::Config("Invalid encrypted token format (nonce decode)".into())
-        })?;
-        if nonce.len() != 12 {
-            return Err(McpError::Config(
-                "Invalid encrypted token format (nonce length)".into(),
-            ));
-        }
+        let nonce: [u8; 12] = decode_key_material(nonce_b64)
+            .map_err(|_| McpError::Config("Invalid encrypted token format (nonce decode)".into()))?
+            .try_into()
+            .map_err(|_| {
+                McpError::Config("Invalid encrypted token format (nonce length)".into())
+            })?;
 
         let ciphertext = decode_key_material(ciphertext_b64).map_err(|_| {
             McpError::Config("Invalid encrypted token format (ciphertext decode)".into())
         })?;
 
         for cipher in std::iter::once(&self.primary).chain(self.fallbacks.iter()) {
-            if let Ok(plaintext) =
-                cipher.decrypt(aes_gcm::Nonce::from_slice(&nonce), ciphertext.as_ref())
-            {
+            if let Ok(plaintext) = cipher.decrypt(&nonce.into(), ciphertext.as_ref()) {
                 return String::from_utf8(plaintext)
                     .map_err(|_| McpError::Config("Decrypted token is not UTF-8".into()));
             }
@@ -213,5 +206,65 @@ mod tests {
         let encrypted = old_cipher.encrypt(plaintext).unwrap();
         let decrypted = new_cipher.decrypt_or_plain(&encrypted).unwrap();
         assert_eq!(decrypted, plaintext);
+    }
+
+    // AES-256-GCM zero-key/nonce known-answer vector, encoded in the stored token format.
+    const STORED_TOKEN: &str =
+        "enc_v1:AAAAAAAAAAAAAAAA.zqdAPU1ga24HTsXTuvOdGNDRyKeZmWvwJluYtdSKuRk";
+
+    fn zero_key_cipher() -> TokenCipher {
+        TokenCipher {
+            primary: Aes256Gcm::new_from_slice(&[0u8; 32]).unwrap(),
+            fallbacks: vec![],
+        }
+    }
+
+    #[test]
+    fn decrypts_existing_token_format_known_answer() {
+        assert_eq!(
+            zero_key_cipher().decrypt_or_plain(STORED_TOKEN).unwrap(),
+            "\0".repeat(16)
+        );
+    }
+
+    #[test]
+    fn rejects_modified_authentication_tag_and_wrong_key() {
+        let cipher = zero_key_cipher();
+        let (prefix, encoded) = STORED_TOKEN.rsplit_once('.').unwrap();
+        let mut ciphertext = decode_key_material(encoded).unwrap();
+        *ciphertext.last_mut().unwrap() ^= 1;
+        let encoded = base64::Engine::encode(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+            ciphertext,
+        );
+        assert!(matches!(
+            cipher.decrypt_or_plain(&format!("{prefix}.{encoded}")),
+            Err(McpError::Config(message)) if message == "Token decryption failed"
+        ));
+        let wrong_key = TokenCipher {
+            primary: Aes256Gcm::new_from_slice(&[1u8; 32]).unwrap(),
+            fallbacks: vec![],
+        };
+        assert!(matches!(
+            wrong_key.decrypt_or_plain(STORED_TOKEN),
+            Err(McpError::Config(message)) if message == "Token decryption failed"
+        ));
+    }
+
+    #[test]
+    fn rejects_invalid_nonce_lengths_without_panicking() {
+        let cipher = zero_key_cipher();
+        let (_, ciphertext) = STORED_TOKEN.rsplit_once('.').unwrap();
+        for length in [0, 11, 13] {
+            let nonce = base64::Engine::encode(
+                &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+                vec![0u8; length],
+            );
+            assert!(matches!(
+                cipher.decrypt_or_plain(&format!("{TOKEN_PREFIX}{nonce}.{ciphertext}")),
+                Err(McpError::Config(message))
+                    if message == "Invalid encrypted token format (nonce length)"
+            ));
+        }
     }
 }
