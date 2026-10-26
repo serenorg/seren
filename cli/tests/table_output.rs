@@ -19,7 +19,8 @@ async fn table_output(args: Vec<String>, endpoint: String, body: Value) -> Strin
     let base = server.uri();
     let home = tempfile::tempdir().unwrap();
     let output = tokio::task::spawn_blocking(move || {
-        Command::new(env!("CARGO_BIN_EXE_seren"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_seren"));
+        command
             .env_clear()
             .env("HOME", home.path())
             .env("XDG_CONFIG_HOME", home.path())
@@ -34,9 +35,15 @@ async fn table_output(args: Vec<String>, endpoint: String, body: Value) -> Strin
                 "--format",
                 "table",
             ])
-            .args(args)
-            .output()
-            .unwrap()
+            .args(args);
+        // Windows socket providers resolve system DLL paths through SystemRoot.
+        #[cfg(windows)]
+        command.env(
+            "SystemRoot",
+            std::env::var_os("SystemRoot")
+                .expect("Windows provides SystemRoot for socket initialization"),
+        );
+        command.output().unwrap()
     })
     .await
     .unwrap();

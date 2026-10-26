@@ -11,7 +11,8 @@ async fn cli(server: &MockServer, args: Vec<String>) -> Output {
     let host = server.uri();
     let home = tempfile::tempdir().unwrap();
     tokio::task::spawn_blocking(move || {
-        Command::new(env!("CARGO_BIN_EXE_seren"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_seren"));
+        command
             .env_clear()
             .current_dir(home.path())
             .args(["--api-base", &host, "--api-key", "seren_test_key"])
@@ -19,9 +20,15 @@ async fn cli(server: &MockServer, args: Vec<String>) -> Output {
             .env("HOME", home.path())
             .env("XDG_CONFIG_HOME", home.path())
             .env("APPDATA", home.path())
-            .env("NO_COLOR", "1")
-            .output()
-            .unwrap()
+            .env("NO_COLOR", "1");
+        // Windows socket providers resolve system DLL paths through SystemRoot.
+        #[cfg(windows)]
+        command.env(
+            "SystemRoot",
+            std::env::var_os("SystemRoot")
+                .expect("Windows provides SystemRoot for socket initialization"),
+        );
+        command.output().unwrap()
     })
     .await
     .unwrap()
