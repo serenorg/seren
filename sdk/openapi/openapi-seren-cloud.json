@@ -24149,10 +24149,22 @@
               },
               "expected_cost_atomic": {
                 "type": "integer",
-                "format": "int64"
+                "format": "int64",
+                "description": "Initial running-cost reservation: the kind's 90th-percentile cost\nplus a cold wake, or $0.30 below 20 profiled runs. Not a typical\ncost, service fee, or maximum task price."
               },
               "key": {
                 "$ref": "#/components/schemas/ManagedAgentRunKindKey"
+              },
+              "measured_cost": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentRunMeasuredCost",
+                    "description": "This kind's latest measured running cost on the template's current\nmodel; null while that measurement holds fewer than 10 runs."
+                  }
+                ]
               },
               "name": {
                 "type": "string"
@@ -24183,10 +24195,22 @@
               },
               "expected_cost_atomic": {
                 "type": "integer",
-                "format": "int64"
+                "format": "int64",
+                "description": "Initial running-cost reservation: the kind's 90th-percentile cost\nplus a cold wake, or $0.30 below 20 profiled runs. Not a typical\ncost, service fee, or maximum task price."
               },
               "key": {
                 "$ref": "#/components/schemas/ManagedAgentRunKindKey"
+              },
+              "measured_cost": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentRunMeasuredCost",
+                    "description": "This kind's latest measured running cost on the template's current\nmodel; null while that measurement holds fewer than 10 runs."
+                  }
+                ]
               },
               "name": {
                 "type": "string"
@@ -24201,6 +24225,70 @@
           }
         ],
         "description": "Only a fee kind has an editable service price. Cost kinds bill recorded usage."
+      },
+      "ManagedAgentRunMeasuredCost": {
+        "type": "object",
+        "description": "The running cost (recorded model calls plus compute) of a run kind's\ncompleted hired runs on one model over a trailing window, as last measured.",
+        "required": [
+          "model_id",
+          "model_name",
+          "runs",
+          "window_days",
+          "average_atomic",
+          "median_atomic",
+          "p90_atomic",
+          "average_price_atomic",
+          "computed_at",
+          "price_list_version"
+        ],
+        "properties": {
+          "average_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Average running cost of a run."
+          },
+          "average_price_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Current task service fee plus average completed-run running cost,\nor the average alone for a cost kind. Not a measured full-task total."
+          },
+          "computed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "median_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "model_id": {
+            "type": "string",
+            "example": "opus-5-5"
+          },
+          "model_name": {
+            "type": "string",
+            "example": "Claude Opus 5.5"
+          },
+          "p90_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The cost 9 in 10 runs stay at or under."
+          },
+          "price_list_version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The version of the prices in effect when the figures were measured."
+          },
+          "runs": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Runs measured in the window."
+          },
+          "window_days": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
       },
       "ManagedAgentRunTrigger": {
         "type": "string",

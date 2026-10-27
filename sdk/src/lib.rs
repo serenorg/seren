@@ -561,6 +561,247 @@ mod tests {
         assert_eq!(serde_json::to_value(resources).unwrap(), wire);
     }
 
+    fn run_fee_measurement_fixture() -> serde_json::Value {
+        json!({
+            "model_id": "opus-5-5", "model_name": "Claude Opus 5.5",
+            "runs": 10, "window_days": 30, "average_atomic": 0,
+            "median_atomic": 0, "p90_atomic": 0, "average_price_atomic": 500000,
+            "computed_at": "2026-10-24T03:00:00Z", "price_list_version": 7
+        })
+    }
+
+    fn run_fee_view_fixture(measured: bool) -> serde_json::Value {
+        let measurement = run_fee_measurement_fixture();
+        json!({"data": {
+            "run_kind": "work", "name": "Work", "charge": "fee",
+            "atomic": 500000, "usd": "$0.50", "owner_share_atomic": 350000,
+            "minimum": {"atomic": 300000, "usd": "$0.30", "compute_atomic": 3600,
+                "model_atomic": 189400, "wake_atomic": 105000,
+                "computed_at": "2026-10-24T03:00:00Z", "price_list_version": 7},
+            "measured_cost": if measured { measurement.clone() } else { serde_json::Value::Null },
+            "measured_cost_by_model": if measured { vec![measurement] } else { vec![] }
+        }})
+    }
+
+    fn run_fee_history_fixture() -> serde_json::Value {
+        json!({"data": [
+            {"changed_at": "2026-10-25T03:00:00Z", "previous_atomic": 500000,
+                "current_atomic": 600000, "changed_by_user_id": null, "reason": "minimum"},
+            {"changed_at": "2026-10-24T03:00:00Z", "previous_atomic": 0,
+                "current_atomic": 500000, "changed_by_user_id": Uuid::from_u128(1), "reason": "owner"}
+        ]})
+    }
+
+    /// An absent optional value and an explicit null have the same contract meaning.
+    fn remove_null_field(value: &mut serde_json::Value, pointer: &str, field: &str) {
+        let object = value.pointer_mut(pointer).unwrap().as_object_mut().unwrap();
+        if object.get(field).is_some_and(serde_json::Value::is_null) {
+            object.remove(field);
+        }
+    }
+
+    /// Producer refusal bodies; only the conflict carries details.
+    fn run_fee_refusal_fixtures() -> Vec<(u16, serde_json::Value)> {
+        let minimum = run_fee_view_fixture(false)["data"]["minimum"].clone();
+        vec![
+            (
+                400,
+                json!({"error": "BadRequest",
+                "message": "run_fee_atomic must be nonnegative and a whole number of cents."}),
+            ),
+            (
+                401,
+                json!({"error": "Unauthorized", "message": "Authentication required"}),
+            ),
+            (
+                403,
+                json!({"error": "managed_agent_run_fee_owner_required",
+                "message": "Only a built-in Owner using an unrestricted direct credential of this organization can manage its Employee fees."}),
+            ),
+            (
+                404,
+                json!({"error": "managed_agent_run_fee_not_applicable",
+                "message": "This cost-only run kind has no service fee."}),
+            ),
+            (
+                409,
+                json!({"error": "run_fee_below_minimum",
+                "message": "An Employee's run fee can't be below its minimum of $0.30.",
+                "details": {"run_kind": "work", "run_fee_atomic": 0, "minimum": minimum}}),
+            ),
+        ]
+    }
+
+    #[tokio::test]
+    async fn managed_agent_run_fee_http_preserves_owner_measurements_and_history() {
+        use wiremock::matchers::header;
+        let organization_id = Uuid::from_u128(42);
+        let route = format!("/organizations/{organization_id}/templates/fee-test/fees/work");
+        for measured in [false, true] {
+            let server = MockServer::start().await;
+            let wire = run_fee_view_fixture(measured);
+            Mock::given(method("GET"))
+                .and(path(&route))
+                .and(header("authorization", "Bearer fee-owner-key"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(wire.clone()))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let client = Client::from_config(
+                &ClientConfig::new("fee-owner-key").with_base_url(server.uri()),
+            )
+            .unwrap();
+            let response = client
+                .get_managed_agent_run_fee(&organization_id, "fee-test", "work")
+                .await
+                .unwrap()
+                .into_inner();
+            let mut expected = wire;
+            let mut actual = serde_json::to_value(response).unwrap();
+            for value in [&mut expected, &mut actual] {
+                remove_null_field(value, "/data", "measured_cost");
+            }
+            assert_eq!(actual, expected);
+            server.verify().await;
+        }
+        let server = MockServer::start().await;
+        let request_wire = json!({"run_fee_atomic": 500000});
+        let amount = json!({"data": {"atomic": 500000, "usd": "$0.50"}});
+        Mock::given(method("PUT"))
+            .and(path(&route))
+            .and(header("authorization", "Bearer fee-owner-key"))
+            .and(body_json(request_wire.clone()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(amount.clone()))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let history = run_fee_history_fixture();
+        Mock::given(method("GET"))
+            .and(path(format!("{route}/history")))
+            .and(header("authorization", "Bearer fee-owner-key"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(history.clone()))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client =
+            Client::from_config(&ClientConfig::new("fee-owner-key").with_base_url(server.uri()))
+                .unwrap();
+        let request: crate::SetManagedAgentRunFee =
+            serde_json::from_value(request_wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&request).unwrap(), request_wire);
+        let response = client
+            .set_managed_agent_run_fee(&organization_id, "fee-test", "work", &request)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(serde_json::to_value(response).unwrap(), amount);
+        let response = client
+            .list_managed_agent_run_fee_changes(&organization_id, "fee-test", "work")
+            .await
+            .unwrap()
+            .into_inner();
+        let mut expected = history;
+        let mut actual = serde_json::to_value(response).unwrap();
+        // A minimum increase has no Owner actor.
+        for value in [&mut expected, &mut actual] {
+            remove_null_field(value, "/data/0", "changed_by_user_id");
+        }
+        assert_eq!(actual, expected);
+        assert_eq!(
+            actual["data"][1]["changed_by_user_id"],
+            json!(Uuid::from_u128(1))
+        );
+        server.verify().await;
+    }
+
+    #[tokio::test]
+    async fn managed_agent_run_fee_http_rejects_incomplete_or_invalid_contracts() {
+        let organization_id = Uuid::from_u128(42);
+        let route = format!("/organizations/{organization_id}/templates/fee-test/fees/work");
+        let mut invalid = Vec::new();
+        for field in ["owner_share_atomic", "measured_cost_by_model"] {
+            let mut wire = run_fee_view_fixture(true);
+            wire["data"].as_object_mut().unwrap().remove(field);
+            invalid.push(wire);
+        }
+        let mut wire = run_fee_view_fixture(true);
+        wire["data"]["measured_cost"]["computed_at"] = json!("not-a-timestamp");
+        invalid.push(wire);
+        let mut wire = run_fee_view_fixture(true);
+        wire["data"]["measured_cost_by_model"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("price_list_version");
+        invalid.push(wire);
+        // A measurement admits no extra figures, such as a derived total.
+        let mut wire = run_fee_view_fixture(true);
+        wire["data"]["measured_cost"]["total_atomic"] = json!(500000);
+        invalid.push(wire);
+        for wire in invalid {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path(&route))
+                .respond_with(ResponseTemplate::new(200).set_body_json(wire))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let result = Client::new(&server.uri())
+                .get_managed_agent_run_fee(&organization_id, "fee-test", "work")
+                .await;
+            assert!(matches!(
+                result,
+                Err(crate::Error::InvalidResponsePayload(..))
+            ));
+            server.verify().await;
+        }
+        let server = MockServer::start().await;
+        let mut wire = run_fee_history_fixture();
+        wire["data"][0]["reason"] = json!("unknown_reason");
+        Mock::given(method("GET"))
+            .and(path(format!("{route}/history")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(wire))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let result = Client::new(&server.uri())
+            .list_managed_agent_run_fee_changes(&organization_id, "fee-test", "work")
+            .await;
+        assert!(matches!(
+            result,
+            Err(crate::Error::InvalidResponsePayload(..))
+        ));
+        server.verify().await;
+    }
+
+    #[tokio::test]
+    async fn managed_agent_run_fee_http_preserves_refusal_status_and_body() {
+        for (status, wire) in run_fee_refusal_fixtures() {
+            let server = MockServer::start().await;
+            let organization_id = Uuid::from_u128(42);
+            Mock::given(method("PUT"))
+                .and(path(format!(
+                    "/organizations/{organization_id}/templates/fee-test/fees/work"
+                )))
+                .and(body_json(json!({"run_fee_atomic": 0})))
+                .respond_with(ResponseTemplate::new(status).set_body_json(wire.clone()))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let request: crate::SetManagedAgentRunFee =
+                serde_json::from_value(json!({"run_fee_atomic": 0})).unwrap();
+            let error = Client::new(&server.uri())
+                .set_managed_agent_run_fee(&organization_id, "fee-test", "work", &request)
+                .await
+                .unwrap_err();
+            let crate::Error::UnexpectedResponse(response) = error else {
+                panic!("fee refusal must retain its HTTP response");
+            };
+            assert_eq!(response.status().as_u16(), status);
+            assert_eq!(response.json::<serde_json::Value>().await.unwrap(), wire);
+            server.verify().await;
+        }
+    }
+
     fn template_release_request_wire() -> serde_json::Value {
         json!({
             "display_name": "Release test",
@@ -839,7 +1080,9 @@ mod tests {
     async fn public_template_list_decodes_each_template_with_its_publisher() {
         let server = MockServer::start().await;
         let organization_id = Uuid::new_v4();
-        let wire = public_template_list_wire(organization_id);
+        let mut wire = public_template_list_wire(organization_id);
+        // The listing's shared run-kind price must carry the recorded measurement.
+        wire["data"][0]["run_kinds"][0]["measured_cost"] = run_fee_measurement_fixture();
         Mock::given(method("GET"))
             .and(path("/publishers/seren-agent/templates"))
             .respond_with(ResponseTemplate::new(200).set_body_json(wire.clone()))

@@ -9082,7 +9082,7 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Upload one multipart `file`: PNG, JPEG or WebP, at most 2 MiB.\nThe picture is normalized to a square 512-pixel PNG.",
+        "summary": "Upload one multipart `file`: PNG, JPEG or WebP, at most 5 MiB, upright width at least 800 pixels and width-to-height ratio 0.64 through 0.70, at most 16,777,216 pixels. Accepted dimensions are preserved in a metadata-free JPEG master, with proportional display copies. A normalized master over 5 MiB is refused.",
         "operationId": "upload_managed_agent_template_avatar",
         "parameters": [
           {
@@ -9136,7 +9136,7 @@
             }
           },
           "400": {
-            "description": "The picture is invalid"
+            "description": "Invalid picture; avatar_shape, avatar_width or avatar_too_large explains how to correct it"
           },
           "401": {
             "description": "Authentication required"
@@ -9144,11 +9144,8 @@
           "403": {
             "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, the organization does not publish the template, or the template or its profile is suspended"
           },
-          "413": {
-            "description": "The picture exceeds 2 MiB"
-          },
           "503": {
-            "description": "Picture storage is unavailable"
+            "description": "Picture processing or storage is temporarily unavailable"
           }
         },
         "security": [
@@ -9611,6 +9608,71 @@
           },
           "409": {
             "description": "A service fee is below the run kind's minimum (`run_fee_below_minimum`); the error details carry the kind and its minimum"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/fees/{kind}/history": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "List a fee run kind's service fee changes, newest first. Cost-only kinds have no fee resource.",
+        "operationId": "list_managed_agent_run_fee_changes",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the managed agent",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "description": "Run kind key of the managed agent's current release",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run kind's fee changes, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_ManagedAgentRunFeeChange"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "An unrestricted direct Owner credential of the organization is required, the organization does not publish the managed agent, or the managed agent is suspended"
+          },
+          "404": {
+            "description": "Managed agent or run kind not found, or the kind has no service fee (`managed_agent_run_fee_not_applicable`)"
           }
         },
         "security": [
@@ -10577,7 +10639,7 @@
             }
           },
           "400": {
-            "description": "Deployment cannot be published with these settings"
+            "description": "Deployment cannot be published with these settings, including an `owner_connection` its skills do not use (`publication_owner_connection_unsupported`)"
           },
           "401": {
             "description": "Authentication required"
@@ -10589,7 +10651,7 @@
             "description": "Deployment not found"
           },
           "409": {
-            "description": "Template publication conflict, including a reserved slug for a new template (`managed_agent_template_slug_reserved`), or a publisher without a public name (`publisher_name_required`) or store address (`publisher_handle_required`)"
+            "description": "Template publication conflict, including a reserved slug for a new template (`managed_agent_template_slug_reserved`), a publisher without a public name (`publisher_name_required`) or store address (`publisher_handle_required`), or a deployment model hires cannot run without an `llm_connection` choice (`publication_model_choice_required`, with `source_model` and `allowed_private_models` details)"
           }
         },
         "security": [
@@ -10649,7 +10711,7 @@
             }
           },
           "400": {
-            "description": "Deployment cannot be published with these settings"
+            "description": "Deployment cannot be published with these settings, including an `owner_connection` its skills do not use (`publication_owner_connection_unsupported`)"
           },
           "401": {
             "description": "Authentication required"
@@ -10661,7 +10723,7 @@
             "description": "Deployment not found"
           },
           "409": {
-            "description": "Template publication conflict, including a reserved slug for a new template (`managed_agent_template_slug_reserved`), or a publisher without a public name (`publisher_name_required`) or store address (`publisher_handle_required`)"
+            "description": "Template publication conflict, including a reserved slug for a new template (`managed_agent_template_slug_reserved`), a publisher without a public name (`publisher_name_required`) or store address (`publisher_handle_required`), or a deployment model hires cannot run without an `llm_connection` choice (`publication_model_choice_required`, with `source_model` and `allowed_private_models` details)"
           }
         },
         "security": [
@@ -20548,9 +20610,17 @@
               "published_files",
               "removed_files",
               "deploy_defaults",
-              "omitted_tools"
+              "omitted_tools",
+              "changes"
             ],
             "properties": {
+              "changes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentTemplatePublicationChange"
+                },
+                "description": "Each setting hires run differently, in the order mode, model and\nowner connection. The owner connection is always listed."
+              },
               "deploy_defaults": {
                 "$ref": "#/components/schemas/ManagedAgentTemplateDeployDefaults"
               },
@@ -20559,7 +20629,7 @@
                 "items": {
                   "$ref": "#/components/schemas/ManagedAgentTemplateOmittedTool"
                 },
-                "description": "Prompt publisher operations outside mail and files. MCP, connector and\nremote-agent tool references never carry over and are not listed."
+                "description": "Prompt publisher operations outside mail and files, and every mail and\nfile prompt operation when hires grant sign-in only. MCP, connector and\nremote-agent tool references never carry over and are not listed."
               },
               "published_files": {
                 "type": "array",
@@ -21128,7 +21198,9 @@
               "charge",
               "atomic",
               "usd",
-              "minimum"
+              "minimum",
+              "owner_share_atomic",
+              "measured_cost_by_model"
             ],
             "properties": {
               "atomic": {
@@ -21139,11 +21211,34 @@
               "charge": {
                 "$ref": "#/components/schemas/ManagedAgentRunKindCharge"
               },
+              "measured_cost": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentRunMeasuredCost",
+                    "description": "This kind's latest measured running cost on the template's current\nmodel; null while that measurement holds fewer than 10 runs."
+                  }
+                ]
+              },
+              "measured_cost_by_model": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentRunMeasuredCost"
+                },
+                "description": "Every model with enough measured runs in the window, current model first."
+              },
               "minimum": {
                 "$ref": "#/components/schemas/ManagedAgentRunMinimum"
               },
               "name": {
                 "type": "string"
+              },
+              "owner_share_atomic": {
+                "type": "integer",
+                "format": "int64",
+                "description": "The publishing organization's 70% of the current task service fee."
               },
               "run_kind": {
                 "$ref": "#/components/schemas/ManagedAgentRunKindKey"
@@ -21489,6 +21584,16 @@
               "active": {
                 "type": "boolean",
                 "description": "Whether the platform has activated the template, independent of review and Owner listing."
+              },
+              "changes": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentTemplatePublicationChange"
+                },
+                "description": "Each setting hires run differently from the published deployment, as\nits preview lists them. Present only when publishing a deployment."
               },
               "created": {
                 "type": "boolean",
@@ -26081,6 +26186,64 @@
                 "updated_at": {
                   "type": "string",
                   "format": "date-time"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_ManagedAgentRunFeeChange": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One change of a run kind's service fee.",
+              "required": [
+                "changed_at",
+                "previous_atomic",
+                "current_atomic",
+                "reason"
+              ],
+              "properties": {
+                "changed_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "changed_by_user_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid",
+                  "description": "The Owner who changed the fee; null when Seren raised it to the minimum."
+                },
+                "current_atomic": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "previous_atomic": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "reason": {
+                  "$ref": "#/components/schemas/ManagedAgentRunFeeChangeReason"
                 }
               }
             }
@@ -31266,9 +31429,17 @@
           "published_files",
           "removed_files",
           "deploy_defaults",
-          "omitted_tools"
+          "omitted_tools",
+          "changes"
         ],
         "properties": {
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentTemplatePublicationChange"
+            },
+            "description": "Each setting hires run differently, in the order mode, model and\nowner connection. The owner connection is always listed."
+          },
           "deploy_defaults": {
             "$ref": "#/components/schemas/ManagedAgentTemplateDeployDefaults"
           },
@@ -31277,7 +31448,7 @@
             "items": {
               "$ref": "#/components/schemas/ManagedAgentTemplateOmittedTool"
             },
-            "description": "Prompt publisher operations outside mail and files. MCP, connector and\nremote-agent tool references never carry over and are not listed."
+            "description": "Prompt publisher operations outside mail and files, and every mail and\nfile prompt operation when hires grant sign-in only. MCP, connector and\nremote-agent tool references never carry over and are not listed."
           },
           "published_files": {
             "type": "array",
@@ -31361,7 +31532,7 @@
           "successful_runs": {
             "type": "integer",
             "format": "int64",
-            "description": "Completed runs with a settled charge, including cost-only charges."
+            "description": "Completed runs with a settled charge, excluding unfinished budget stops."
           },
           "template_id": {
             "type": "string",
@@ -31921,6 +32092,49 @@
           }
         }
       },
+      "ManagedAgentRunFeeChange": {
+        "type": "object",
+        "description": "One change of a run kind's service fee.",
+        "required": [
+          "changed_at",
+          "previous_atomic",
+          "current_atomic",
+          "reason"
+        ],
+        "properties": {
+          "changed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "changed_by_user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The Owner who changed the fee; null when Seren raised it to the minimum."
+          },
+          "current_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "previous_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/ManagedAgentRunFeeChangeReason"
+          }
+        }
+      },
+      "ManagedAgentRunFeeChangeReason": {
+        "type": "string",
+        "description": "Why a run kind's service fee changed.",
+        "enum": [
+          "owner",
+          "minimum"
+        ]
+      },
       "ManagedAgentRunFeeView": {
         "type": "object",
         "description": "One run kind's amount and expected cost; fee kinds cannot price below that cost.",
@@ -31930,7 +32144,9 @@
           "charge",
           "atomic",
           "usd",
-          "minimum"
+          "minimum",
+          "owner_share_atomic",
+          "measured_cost_by_model"
         ],
         "properties": {
           "atomic": {
@@ -31941,11 +32157,34 @@
           "charge": {
             "$ref": "#/components/schemas/ManagedAgentRunKindCharge"
           },
+          "measured_cost": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentRunMeasuredCost",
+                "description": "This kind's latest measured running cost on the template's current\nmodel; null while that measurement holds fewer than 10 runs."
+              }
+            ]
+          },
+          "measured_cost_by_model": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentRunMeasuredCost"
+            },
+            "description": "Every model with enough measured runs in the window, current model first."
+          },
           "minimum": {
             "$ref": "#/components/schemas/ManagedAgentRunMinimum"
           },
           "name": {
             "type": "string"
+          },
+          "owner_share_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The publishing organization's 70% of the current task service fee."
           },
           "run_kind": {
             "$ref": "#/components/schemas/ManagedAgentRunKindKey"
@@ -32005,6 +32244,70 @@
           "$ref": "#/components/schemas/ManagedAgentRunKind"
         },
         "description": "A release's run kinds. Every trigger maps to exactly one kind."
+      },
+      "ManagedAgentRunMeasuredCost": {
+        "type": "object",
+        "description": "The running cost (recorded model calls plus compute) of a run kind's\ncompleted hired runs on one model over a trailing window, as last measured.",
+        "required": [
+          "model_id",
+          "model_name",
+          "runs",
+          "window_days",
+          "average_atomic",
+          "median_atomic",
+          "p90_atomic",
+          "average_price_atomic",
+          "computed_at",
+          "price_list_version"
+        ],
+        "properties": {
+          "average_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Average running cost of a run."
+          },
+          "average_price_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Current task service fee plus average completed-run running cost,\nor the average alone for a cost kind. Not a measured full-task total."
+          },
+          "computed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "median_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "model_id": {
+            "type": "string",
+            "example": "opus-5-5"
+          },
+          "model_name": {
+            "type": "string",
+            "example": "Claude Opus 5.5"
+          },
+          "p90_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The cost 9 in 10 runs stay at or under."
+          },
+          "price_list_version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The version of the prices in effect when the figures were measured."
+          },
+          "runs": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Runs measured in the window."
+          },
+          "window_days": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
       },
       "ManagedAgentRunMinimum": {
         "type": "object",
@@ -32916,6 +33219,82 @@
           }
         }
       },
+      "ManagedAgentTemplatePublicationChange": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Hires run on `schedule` instead of the deployment's mode.",
+            "required": [
+              "from",
+              "to",
+              "schedule",
+              "field"
+            ],
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": [
+                  "mode"
+                ]
+              },
+              "from": {
+                "$ref": "#/components/schemas/CloudDeploymentMode"
+              },
+              "schedule": {
+                "type": "string"
+              },
+              "to": {
+                "$ref": "#/components/schemas/CloudDeploymentMode"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Hires run model `to`; absent `from` means the source names no model.",
+            "required": [
+              "to",
+              "field"
+            ],
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": [
+                  "model"
+                ]
+              },
+              "from": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "to": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The access each hirer is asked for.",
+            "required": [
+              "to",
+              "field"
+            ],
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": [
+                  "owner_connection"
+                ]
+              },
+              "to": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateOwnerConnection"
+              }
+            }
+          }
+        ],
+        "description": "A setting hires run differently from the published deployment."
+      },
       "ManagedAgentTemplateRelease": {
         "type": "object",
         "description": "The template's current revision after a release was published.",
@@ -32933,6 +33312,16 @@
           "active": {
             "type": "boolean",
             "description": "Whether the platform has activated the template, independent of review and Owner listing."
+          },
+          "changes": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentTemplatePublicationChange"
+            },
+            "description": "Each setting hires run differently from the published deployment, as\nits preview lists them. Present only when publishing a deployment."
           },
           "created": {
             "type": "boolean",
@@ -36532,6 +36921,17 @@
             "description": "The Owner's listing preference when this publication creates the template.\nListing also requires platform approval and activation. Later releases preserve the preference.",
             "default": true
           },
+          "llm_connection": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplateLlmConnection",
+                "description": "The model hires run. A concrete model choice is required when the source\nnames a model without a connection; refused when it has a connection.\nOptional when the source names no model."
+              }
+            ]
+          },
           "max_runtime_seconds": {
             "type": [
               "integer",
@@ -36540,6 +36940,17 @@
             "format": "int32",
             "description": "Required when the source has no runtime limit; refused otherwise.",
             "minimum": 0
+          },
+          "owner_connection": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplateOwnerConnection",
+                "description": "The access hirers grant. Follows the managed agent's skills: `mail_and_files`\nwhen they declare a mail or file connector, `sign_in_only` otherwise.\nWhen given, it must equal that value."
+              }
+            ]
           },
           "release_note": {
             "type": [

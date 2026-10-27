@@ -2674,6 +2674,25 @@ pub struct UpdateOrganizationParams {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct SerenAgentTemplateRunFeeParams {
+    pub organization_id: Uuid,
+    pub slug: String,
+    /// Run kind key declared by the template's current release.
+    pub kind: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetSerenAgentTemplateRunFeeParams {
+    pub organization_id: Uuid,
+    pub slug: String,
+    /// Run kind key declared by the template's current release.
+    pub kind: String,
+    pub request: seren::SetManagedAgentRunFee,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PublishSerenAgentTemplateReleaseParams {
     pub organization_id: Uuid,
     pub slug: String,
@@ -16433,6 +16452,73 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "Read an Employee run kind's service fee, minimum, recorded Owner share, and measured running costs by model. The service fee is charged once per completed task; model and compute costs are measured per run. average_price_atomic adds the current task fee to average running cost for one run, not a measured full-task total. A null or absent measured_cost means the current model has fewer than 10 measured runs. Requires an unrestricted direct Owner credential of the publishing organization; cost-only kinds have no fee resource.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_seren_agent_template_run_fee(
+        &self,
+        Parameters(params): Parameters<SerenAgentTemplateRunFeeParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .get_managed_agent_run_fee(&params.organization_id, &params.slug, &params.kind)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Set an Employee run kind's service fee for future task admissions after user authorization. run_fee_atomic is a nonnegative whole-cent amount in USD atomic units (1,000,000 = $1), at or above the current minimum. The service fee is charged once per completed task; running costs are additional and vary per run. Requires an unrestricted direct Owner credential of the publishing organization. Cost-only kinds have no editable fee; existing task prices are unchanged.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn set_seren_agent_template_run_fee(
+        &self,
+        Parameters(params): Parameters<SetSerenAgentTemplateRunFeeParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .set_managed_agent_run_fee(
+                &params.organization_id,
+                &params.slug,
+                &params.kind,
+                &params.request,
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Read an Employee run kind's service fee changes, newest first, with exact amounts, change times, and the Owner or minimum-change reason. A null or absent changed_by_user_id records a minimum increase without an Owner actor. Requires an unrestricted direct Owner credential of the publishing organization; cost-only kinds have no fee history resource.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_seren_agent_template_run_fee_changes(
+        &self,
+        Parameters(params): Parameters<SerenAgentTemplateRunFeeParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .list_managed_agent_run_fee_changes(&params.organization_id, &params.slug, &params.kind)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
         description = "Publish an Employee template release using an uploaded bundle and exact commit hash after user authorization. Requires a user API key of the publishing organization explicitly scoped managed-agent-template:publish; sessions and unrestricted keys cannot publish. New templates begin pending review; new hires require Seren approval, platform activation and Owner listing. Only its publishing organization can release it again, and a suspended template refuses releases. A release with no supported provider is refused; the result lists supported connected-account providers.",
         annotations(
             read_only_hint = false,
@@ -24569,6 +24655,9 @@ pub(crate) mod tests {
         for (name, read_only) in [
             ("list_organization_seren_agent_templates", true),
             ("get_seren_agent_template_profile", true),
+            ("get_seren_agent_template_run_fee", true),
+            ("set_seren_agent_template_run_fee", false),
+            ("list_seren_agent_template_run_fee_changes", true),
             ("update_seren_agent_template_profile", false),
             ("update_seren_agent_template_listing", false),
             ("request_seren_agent_template_review", false),
@@ -24633,6 +24722,270 @@ pub(crate) mod tests {
     fn template_catalog_result_json(result: CallToolResult) -> Value {
         let result = serde_json::to_value(result).unwrap();
         serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap()
+    }
+
+    fn fee_tool_measurement_fixture() -> Value {
+        serde_json::json!({
+            "model_id": "opus-5-5", "model_name": "Claude Opus 5.5",
+            "runs": 10, "window_days": 30, "average_atomic": 0,
+            "median_atomic": 0, "p90_atomic": 0, "average_price_atomic": 500000,
+            "computed_at": "2026-10-24T03:00:00Z", "price_list_version": 7
+        })
+    }
+
+    fn fee_tool_view_fixture(measured: bool) -> Value {
+        let measurement = fee_tool_measurement_fixture();
+        serde_json::json!({"data": {
+            "run_kind": "work", "name": "Work", "charge": "fee",
+            "atomic": 500000, "usd": "$0.50", "owner_share_atomic": 350000,
+            "minimum": {"atomic": 300000, "usd": "$0.30", "compute_atomic": 3600,
+                "model_atomic": 189400, "wake_atomic": 105000,
+                "computed_at": "2026-10-24T03:00:00Z", "price_list_version": 7},
+            "measured_cost": if measured { measurement.clone() } else { Value::Null },
+            "measured_cost_by_model": if measured { vec![measurement] } else { vec![] }
+        }})
+    }
+
+    /// An absent optional value and an explicit null have the same contract meaning.
+    fn fee_tool_remove_null_field(value: &mut Value, pointer: &str, field: &str) {
+        let object = value.pointer_mut(pointer).unwrap().as_object_mut().unwrap();
+        if object.get(field).is_some_and(Value::is_null) {
+            object.remove(field);
+        }
+    }
+
+    #[tokio::test]
+    async fn template_run_fee_tools_forward_owner_requests_and_recorded_metadata() {
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{body_json, header, method, path},
+        };
+        let organization_id = Uuid::from_u128(42);
+        let route = format!("/organizations/{organization_id}/templates/fee-test/fees/work");
+        for measured in [false, true] {
+            let proxy = MockServer::start().await;
+            let view = fee_tool_view_fixture(measured);
+            let amount = serde_json::json!({"data": {"atomic": 500000, "usd": "$0.50"}});
+            let history = serde_json::json!({"data": [
+                {"changed_at": "2026-10-25T03:00:00Z", "previous_atomic": 500000,
+                    "current_atomic": 600000, "changed_by_user_id": null, "reason": "minimum"},
+                {"changed_at": "2026-10-24T03:00:00Z", "previous_atomic": 0,
+                    "current_atomic": 500000, "changed_by_user_id": Uuid::from_u128(1), "reason": "owner"}
+            ]});
+            for (verb, endpoint, request, response) in [
+                ("GET", route.clone(), None, view.clone()),
+                (
+                    "PUT",
+                    route.clone(),
+                    Some(serde_json::json!({"run_fee_atomic": 500000})),
+                    amount.clone(),
+                ),
+                ("GET", format!("{route}/history"), None, history.clone()),
+            ] {
+                let mut mock = Mock::given(method(verb))
+                    .and(path(endpoint))
+                    .and(header("authorization", "Bearer fee-owner-key"));
+                if let Some(request) = request {
+                    mock = mock.and(body_json(request));
+                }
+                mock.respond_with(ResponseTemplate::new(200).set_body_json(response))
+                    .expect(1)
+                    .mount(&proxy)
+                    .await;
+            }
+            let server = SerenMcpServer::new("fee-owner-key", &proxy.uri()).unwrap();
+            let params = || SerenAgentTemplateRunFeeParams {
+                organization_id,
+                slug: "fee-test".into(),
+                kind: "work".into(),
+            };
+            let result = server
+                .get_seren_agent_template_run_fee(
+                    Parameters(params()),
+                    extensions_with_headers(&[("x-read-only", "true")]),
+                )
+                .await
+                .unwrap();
+            let mut expected = view;
+            let mut actual = template_catalog_result_json(result);
+            for value in [&mut expected, &mut actual] {
+                fee_tool_remove_null_field(value, "/data", "measured_cost");
+            }
+            assert_eq!(actual, expected);
+            let input = serde_json::json!({"organization_id": organization_id, "slug": "fee-test", "kind": "work",
+                "request": {"run_fee_atomic": 500000}});
+            let params: SetSerenAgentTemplateRunFeeParams =
+                serde_json::from_value(input.clone()).unwrap();
+            assert_eq!(serde_json::to_value(&params).unwrap(), input);
+            let result = server
+                .set_seren_agent_template_run_fee(Parameters(params), Extensions::default())
+                .await
+                .unwrap();
+            assert_eq!(template_catalog_result_json(result), amount);
+            let result = server
+                .list_seren_agent_template_run_fee_changes(
+                    Parameters(SerenAgentTemplateRunFeeParams {
+                        organization_id,
+                        slug: "fee-test".into(),
+                        kind: "work".into(),
+                    }),
+                    extensions_with_headers(&[("x-read-only", "true")]),
+                )
+                .await
+                .unwrap();
+            let mut expected = history;
+            let mut actual = template_catalog_result_json(result);
+            for value in [&mut expected, &mut actual] {
+                fee_tool_remove_null_field(value, "/data/0", "changed_by_user_id");
+            }
+            assert_eq!(actual, expected);
+            assert_eq!(proxy.received_requests().await.unwrap().len(), 3);
+            proxy.verify().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn template_run_fee_tools_keep_owner_and_write_boundaries() {
+        let proxy = wiremock::MockServer::start().await;
+        let server = SerenMcpServer::new("fee-owner-key", &proxy.uri()).unwrap();
+        let params = || SerenAgentTemplateRunFeeParams {
+            organization_id: Uuid::from_u128(42),
+            slug: "fee-test".into(),
+            kind: "work".into(),
+        };
+        let mutation = || SetSerenAgentTemplateRunFeeParams {
+            organization_id: Uuid::from_u128(42),
+            slug: "fee-test".into(),
+            kind: "work".into(),
+            request: serde_json::from_value(serde_json::json!({"run_fee_atomic": 0})).unwrap(),
+        };
+        let agent_key = crate::SerenRequestCredential::AgentApiKey {
+            api_key_id: None,
+            agent_identity_id: Some(Uuid::new_v4()),
+        };
+        let opaque_key = crate::SerenRequestCredential::ApiKey { api_key_id: None };
+        for credential in [Some(agent_key), Some(opaque_key), None] {
+            let blocked = || match credential.clone() {
+                Some(credential) => extensions_with_auth_context(crate::SerenRequestAuthContext {
+                    user_id: Uuid::new_v4(),
+                    email: None,
+                    credential,
+                }),
+                None => {
+                    let mut extensions = Extensions::default();
+                    extensions.insert(RuntimeWorkContextToken("work-context".into()));
+                    extensions
+                }
+            };
+            let expected = if credential.is_some() {
+                "owner's session or user API key"
+            } else {
+                "work context"
+            };
+            assert!(
+                server
+                    .get_seren_agent_template_run_fee(Parameters(params()), blocked())
+                    .await
+                    .unwrap_err()
+                    .message
+                    .contains(expected)
+            );
+            assert!(
+                server
+                    .set_seren_agent_template_run_fee(Parameters(mutation()), blocked())
+                    .await
+                    .unwrap_err()
+                    .message
+                    .contains(expected)
+            );
+            assert!(
+                server
+                    .list_seren_agent_template_run_fee_changes(Parameters(params()), blocked())
+                    .await
+                    .unwrap_err()
+                    .message
+                    .contains(expected)
+            );
+        }
+        assert!(
+            server
+                .set_seren_agent_template_run_fee(
+                    Parameters(mutation()),
+                    extensions_with_headers(&[("x-read-only", "true")])
+                )
+                .await
+                .unwrap_err()
+                .message
+                .contains("Read-only mode")
+        );
+        assert!(proxy.received_requests().await.unwrap().is_empty());
+        proxy.verify().await;
+    }
+
+    #[tokio::test]
+    async fn template_run_fee_tools_preserve_authoritative_refusals() {
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{body_json, header, method, path},
+        };
+        // Producer refusal bodies; only the conflict carries details.
+        let minimum = fee_tool_view_fixture(false)["data"]["minimum"].clone();
+        for (status, wire) in [
+            (
+                400,
+                serde_json::json!({"error": "BadRequest",
+                "message": "run_fee_atomic must be nonnegative and a whole number of cents."}),
+            ),
+            (
+                401,
+                serde_json::json!({"error": "Unauthorized", "message": "Authentication required"}),
+            ),
+            (
+                403,
+                serde_json::json!({"error": "managed_agent_run_fee_owner_required",
+                "message": "Only a built-in Owner using an unrestricted direct credential of this organization can manage its Employee fees."}),
+            ),
+            (
+                404,
+                serde_json::json!({"error": "managed_agent_run_fee_not_applicable",
+                "message": "This cost-only run kind has no service fee."}),
+            ),
+            (
+                409,
+                serde_json::json!({"error": "run_fee_below_minimum",
+                "message": "An Employee's run fee can't be below its minimum of $0.30.",
+                "details": {"run_kind": "work", "run_fee_atomic": 0, "minimum": minimum}}),
+            ),
+        ] {
+            let proxy = MockServer::start().await;
+            let organization_id = Uuid::from_u128(42);
+            Mock::given(method("PUT"))
+                .and(path(format!(
+                    "/organizations/{organization_id}/templates/fee-test/fees/work"
+                )))
+                .and(header("authorization", "Bearer fee-owner-key"))
+                .and(body_json(serde_json::json!({"run_fee_atomic": 0})))
+                .respond_with(ResponseTemplate::new(status).set_body_json(wire.clone()))
+                .expect(1)
+                .mount(&proxy)
+                .await;
+            let server = SerenMcpServer::new("fee-owner-key", &proxy.uri()).unwrap();
+            let params: SetSerenAgentTemplateRunFeeParams = serde_json::from_value(serde_json::json!({
+                "organization_id": organization_id, "slug": "fee-test", "kind": "work", "request": {"run_fee_atomic": 0}
+            })).unwrap();
+            let error = server
+                .set_seren_agent_template_run_fee(Parameters(params), Extensions::default())
+                .await
+                .unwrap_err();
+            let data = error.data.unwrap();
+            assert_eq!(data["status"], status);
+            assert_eq!(data["kind"], "http_error");
+            assert_eq!(
+                serde_json::from_str::<Value>(data["body"].as_str().unwrap()).unwrap(),
+                wire
+            );
+            proxy.verify().await;
+        }
     }
 
     #[tokio::test]
@@ -32335,7 +32688,11 @@ pub(crate) mod tests {
         };
         let proxy = MockServer::start().await;
         let deployment_id = Uuid::from_u128(42);
-        let prices = serde_json::json!([{"key":"work","name":"Work","charge":"fee","amount":{"atomic":1000000,"usd":"$1.00"},"changed_at":null,"triggers":["chat"],"expected_cost_atomic":300000},{"key":"care","name":"Care","charge":"cost","triggers":["hire_cron","schedule","webhook","api"],"expected_cost_atomic":300000}]);
+        let mut prices = serde_json::json!([{"key":"work","name":"Work","charge":"fee","amount":{"atomic":1000000,"usd":"$1.00"},"changed_at":null,"triggers":["chat"],"expected_cost_atomic":300000},{"key":"care","name":"Care","charge":"cost","triggers":["hire_cron","schedule","webhook","api"],"expected_cost_atomic":300000}]);
+        prices[0]["measured_cost"] = fee_tool_measurement_fixture();
+        prices[0]["measured_cost"]["average_price_atomic"] = serde_json::json!(1000000);
+        prices[1]["measured_cost"] = fee_tool_measurement_fixture();
+        prices[1]["measured_cost"]["average_price_atomic"] = serde_json::json!(0);
         let owner = serde_json::json!({"id":deployment_id,"organization_id":Uuid::from_u128(1),"name":"Pricing contract","skill_slug":"pricing-contract","mode":"always_on","platform_managed":true,"serving_fallback":false,"status":"running","desired_lifecycle_state":"running","template":{"slug":"pricing-contract","display_name":"Pricing contract","revision":1},"run_kinds":prices.clone(),"spend_limits":{"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":prices.clone()},"created_at":"2026-10-23T00:00:00Z","updated_at":"2026-10-23T00:00:00Z"});
         Mock::given(method("GET"))
             .and(path(format!(
@@ -32365,6 +32722,8 @@ pub(crate) mod tests {
             assert_eq!(list[0]["amount"], prices[0]["amount"]);
             assert_eq!(list[1]["charge"], "cost");
             assert_eq!(list[1]["expected_cost_atomic"], 300000);
+            assert_eq!(list[0]["measured_cost"], prices[0]["measured_cost"]);
+            assert_eq!(list[1]["measured_cost"], prices[1]["measured_cost"]);
             assert!(list[1].get("amount").is_none());
             assert!(list[1].get("changed_at").is_none());
             for price in list.as_array().unwrap() {
