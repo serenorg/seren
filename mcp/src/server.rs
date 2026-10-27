@@ -7163,6 +7163,114 @@ fn extract_runtime_work_context(
     Ok(())
 }
 
+const MAX_PUBLISHER_DISPATCH_TRANSPORT_BYTES: usize = 16 * 1024;
+
+/// Opaque transport assertion; only Core authenticates and verifies its dispatch.
+#[derive(Clone)]
+struct PublisherDispatchTransport(reqwest::header::HeaderValue);
+
+impl std::fmt::Debug for PublisherDispatchTransport {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("PublisherDispatchTransport([redacted])")
+    }
+}
+
+impl PublisherDispatchTransport {
+    fn parse(value: &str) -> Result<Self, McpError> {
+        // HTTP strips edge whitespace from field values, so it could not be preserved.
+        if value.trim().is_empty()
+            || value.trim_matches([' ', '\t']) != value
+            || value.len() > MAX_PUBLISHER_DISPATCH_TRANSPORT_BYTES
+        {
+            return Err(McpError::invalid_params(
+                "invalid publisher dispatch transport",
+                None,
+            ));
+        }
+        let mut value = reqwest::header::HeaderValue::from_str(value)
+            .map_err(|_| McpError::invalid_params("invalid publisher dispatch transport", None))?;
+        value.set_sensitive(true);
+        Ok(Self(value))
+    }
+}
+
+fn extract_publisher_dispatch_transport(
+    request: &mut CallToolRequestParams,
+    extensions: &mut Extensions,
+) -> Result<(), McpError> {
+    // An absent call must not inherit another call's assertion.
+    extensions.remove::<PublisherDispatchTransport>();
+    let Some(value) = request
+        .arguments
+        .as_mut()
+        .and_then(|args| args.remove("_seren_run_dispatch"))
+    else {
+        return Ok(());
+    };
+    if request.name.as_ref() != "call_publisher" {
+        return Err(McpError::invalid_params(
+            "publisher dispatch transport requires call_publisher",
+            None,
+        ));
+    }
+    let serde_json::Value::String(value) = value else {
+        return Err(McpError::invalid_params(
+            "invalid publisher dispatch transport",
+            None,
+        ));
+    };
+    extensions.insert(PublisherDispatchTransport::parse(&value)?);
+    Ok(())
+}
+
+/// A request-local assertion bound to one normalized Core publisher URL.
+struct PublisherDispatchTarget {
+    value: PublisherDispatchTransport,
+    url: reqwest::Url,
+}
+
+fn apply_publisher_dispatch_transport(
+    request: reqwest::RequestBuilder,
+    url: &str,
+    dispatch: Option<&PublisherDispatchTarget>,
+) -> Result<reqwest::RequestBuilder, McpError> {
+    let Some(dispatch) = dispatch else {
+        return Ok(request);
+    };
+    if reqwest::Url::parse(url).ok().as_ref() != Some(&dispatch.url) {
+        return Err(McpError::invalid_params(
+            "publisher dispatch target mismatch",
+            None,
+        ));
+    }
+    Ok(request.header("x-seren-run-dispatch", dispatch.value.0.clone()))
+}
+
+/// Matches every case variant, and the underscore spelling some proxies map to it.
+fn is_publisher_dispatch_header_name(name: &str) -> bool {
+    let expected = b"x-seren-run-dispatch";
+    name.len() == expected.len()
+        && name.bytes().zip(expected).all(|(actual, &expected)| {
+            actual.to_ascii_lowercase() == expected || (actual == b'_' && expected == b'-')
+        })
+}
+
+fn reject_publisher_dispatch_header(
+    headers: Option<&HashMap<String, String>>,
+) -> Result<(), McpError> {
+    if headers
+        .into_iter()
+        .flatten()
+        .any(|(name, _)| is_publisher_dispatch_header_name(name))
+    {
+        return Err(McpError::invalid_params(
+            "headers.X-Seren-Run-Dispatch is reserved",
+            None,
+        ));
+    }
+    Ok(())
+}
+
 struct CallPublisherErrorContext<'a, T: Serialize> {
     publisher: &'a str,
     publisher_type: &'a str,
@@ -7174,6 +7282,7 @@ struct CallPublisherErrorContext<'a, T: Serialize> {
     body: Option<&'a T>,
     raw_body: Option<&'a [u8]>,
     headers: Option<&'a HashMap<String, String>>,
+    dispatch: Option<&'a PublisherDispatchTarget>,
     agent_metadata: &'a AgentMetadata,
     return_text: bool,
 }
@@ -7208,29 +7317,27 @@ fn decode_call_publisher_body_base64(value: Option<&str>) -> Result<Option<Vec<u
 #[derive(Clone, Copy)]
 enum PublisherControlHeader {
     OAuthConnection,
-    RunDispatch,
 }
 
 impl PublisherControlHeader {
     fn name(self) -> &'static str {
         match self {
             Self::OAuthConnection => "x-seren-oauth-connection-id",
-            Self::RunDispatch => "x-seren-run-dispatch",
         }
     }
 
     fn from_name(name: &str) -> Option<Self> {
-        [Self::OAuthConnection, Self::RunDispatch]
+        [Self::OAuthConnection]
             .into_iter()
             .find(|header| name.eq_ignore_ascii_case(header.name()))
     }
 }
 
-/// These are transport inputs, not locally authenticated run authority.
-/// Core validates dispatch binding and removes it before upstream delivery.
+/// Only OAuth selection may originate in the caller's header map.
 fn publisher_control_headers(
     headers: Option<&HashMap<String, String>>,
 ) -> Result<HashMap<String, String>, McpError> {
+    reject_publisher_dispatch_header(headers)?;
     let mut selected = HashMap::new();
     for (name, value) in headers.into_iter().flatten() {
         let Some(header) = PublisherControlHeader::from_name(name) else {
@@ -7252,7 +7359,6 @@ fn publisher_control_headers(
             PublisherControlHeader::OAuthConnection => Uuid::parse_str(value.trim())
                 .map_err(|_| McpError::invalid_params("invalid OAuth connection header", None))?
                 .to_string(),
-            PublisherControlHeader::RunDispatch => value.clone(),
         };
         selected.insert(header.name().to_string(), value);
     }
@@ -7303,8 +7409,8 @@ fn publisher_headers_with_oauth_connection(
     Ok(Some(headers.clone()))
 }
 
-/// MCP tool and resource calls retain only the OAuth selector and opaque dispatch
-/// carrier for the gateway. Arbitrary caller headers remain isolated.
+/// MCP tool and resource calls retain only the OAuth selector.
+/// Arbitrary caller headers remain isolated.
 fn mcp_publisher_transport_headers(
     headers: Option<&HashMap<String, String>>,
 ) -> Result<Option<HashMap<String, String>>, McpError> {
@@ -7316,14 +7422,11 @@ fn publisher_http_header(
     name: &str,
     value: &str,
 ) -> Option<(reqwest::header::HeaderName, reqwest::header::HeaderValue)> {
-    let name = reqwest::header::HeaderName::from_bytes(name.as_bytes()).ok()?;
-    let mut value = reqwest::header::HeaderValue::from_str(value).ok()?;
-    if matches!(
-        PublisherControlHeader::from_name(name.as_str()),
-        Some(PublisherControlHeader::RunDispatch)
-    ) {
-        value.set_sensitive(true);
+    if is_publisher_dispatch_header_name(name) {
+        return None;
     }
+    let name = reqwest::header::HeaderName::from_bytes(name.as_bytes()).ok()?;
+    let value = reqwest::header::HeaderValue::from_str(value).ok()?;
     Some((name, value))
 }
 
@@ -7997,6 +8100,17 @@ impl SerenMcpServer {
         timeout: std::time::Duration,
         request_id: Option<Uuid>,
     ) -> Result<reqwest::Client, McpError> {
+        self.build_publisher_http_client(token, agent_metadata, timeout, request_id, None)
+    }
+
+    fn build_publisher_http_client(
+        &self,
+        token: &str,
+        agent_metadata: &AgentMetadata,
+        timeout: std::time::Duration,
+        request_id: Option<Uuid>,
+        dispatch: Option<&PublisherDispatchTarget>,
+    ) -> Result<reqwest::Client, McpError> {
         let mut headers = reqwest::header::HeaderMap::new();
         let auth_value = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", token))
             .map_err(|e| McpError::internal_error(format!("Invalid token: {}", e), None))?;
@@ -8014,31 +8128,40 @@ impl SerenMcpServer {
             );
         }
 
-        reqwest::Client::builder()
+        let builder = reqwest::Client::builder()
             .default_headers(headers)
             .timeout(timeout)
-            .connect_timeout(std::time::Duration::from_secs(10))
-            .build()
-            .map_err(|e| {
-                McpError::internal_error(format!("Failed to build HTTP client: {}", e), None)
-            })
+            .connect_timeout(std::time::Duration::from_secs(10));
+        let builder = if dispatch.is_some() {
+            builder.redirect(reqwest::redirect::Policy::none())
+        } else {
+            builder
+        };
+        builder.build().map_err(|e| {
+            McpError::internal_error(format!("Failed to build HTTP client: {}", e), None)
+        })
     }
 
     fn build_public_http_client(
         &self,
         agent_metadata: &AgentMetadata,
+        dispatch: Option<&PublisherDispatchTarget>,
     ) -> Result<reqwest::Client, McpError> {
         let mut headers = reqwest::header::HeaderMap::new();
         Self::insert_agent_metadata_headers(&mut headers, agent_metadata);
 
-        reqwest::Client::builder()
+        let builder = reqwest::Client::builder()
             .default_headers(headers)
             .timeout(std::time::Duration::from_secs(30))
-            .connect_timeout(std::time::Duration::from_secs(10))
-            .build()
-            .map_err(|e| {
-                McpError::internal_error(format!("Failed to build HTTP client: {}", e), None)
-            })
+            .connect_timeout(std::time::Duration::from_secs(10));
+        let builder = if dispatch.is_some() {
+            builder.redirect(reqwest::redirect::Policy::none())
+        } else {
+            builder
+        };
+        builder.build().map_err(|e| {
+            McpError::internal_error(format!("Failed to build HTTP client: {}", e), None)
+        })
     }
 
     pub(crate) fn api_client(&self, extensions: &Extensions) -> Result<seren::Client, McpError> {
@@ -8364,6 +8487,72 @@ impl SerenMcpServer {
         Ok(CallToolResult::success(content))
     }
 
+    fn publisher_dispatch_target(
+        &self,
+        extensions: &Extensions,
+        publisher: &str,
+        path: &str,
+        query: Option<&str>,
+    ) -> Result<Option<PublisherDispatchTarget>, McpError> {
+        let Some(value) = extensions.get::<PublisherDispatchTransport>() else {
+            return Ok(None);
+        };
+        let invalid = || McpError::invalid_params("invalid publisher dispatch target", None);
+        if publisher.is_empty()
+            || !publisher
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"-_".contains(&c))
+        {
+            return Err(invalid());
+        }
+        let base = reqwest::Url::parse(&self.api_base_url).map_err(|_| invalid())?;
+        if !matches!(base.scheme(), "http" | "https")
+            || !base.username().is_empty()
+            || base.password().is_some()
+            || base.query().is_some()
+            || base.fragment().is_some()
+        {
+            return Err(invalid());
+        }
+        let mut raw = format!(
+            "{}/{}",
+            self.api_base_url.trim_end_matches('/'),
+            path.trim_start_matches('/')
+        );
+        if let Some(query) = query {
+            raw.push('?');
+            raw.push_str(query);
+        }
+        let url = reqwest::Url::parse(&raw).map_err(|_| invalid())?;
+        let raw_path = format!(
+            "{}/{}",
+            base.path().trim_end_matches('/'),
+            path.trim_start_matches('/')
+                .split('?')
+                .next()
+                .unwrap_or_default()
+        );
+        let prefix = format!(
+            "{}/publishers/{publisher}",
+            base.path().trim_end_matches('/')
+        );
+        let lower = raw_path.to_ascii_lowercase();
+        if url.origin() != base.origin()
+            || url.fragment().is_some()
+            || url.path() != raw_path
+            || raw_path.contains('\\')
+            || lower.contains("%2f")
+            || lower.contains("%5c")
+            || !(url.path() == prefix || url.path().starts_with(&format!("{prefix}/")))
+        {
+            return Err(invalid());
+        }
+        Ok(Some(PublisherDispatchTarget {
+            value: value.clone(),
+            url,
+        }))
+    }
+
     // Returns `seren::Error` by value so proxy failures flow into the same
     // handling as the generated SDK operations.
     #[allow(clippy::too_many_arguments, clippy::result_large_err)]
@@ -8377,6 +8566,7 @@ impl SerenMcpServer {
         body: Option<&T>,
         raw_body: Option<&[u8]>,
         headers: Option<&HashMap<String, String>>,
+        dispatch: Option<&PublisherDispatchTarget>,
         request_id: Option<Uuid>,
         query_string: Option<&str>,
     ) -> Result<reqwest::Response, seren::Error<()>> {
@@ -8384,12 +8574,7 @@ impl SerenMcpServer {
             .bearer_token(extensions)
             .map_err(|e| seren::Error::InvalidRequest(e.to_string()))?;
         let http_client = self
-            .build_http_client_with_timeout_and_request_id(
-                &token,
-                agent_metadata,
-                timeout,
-                request_id,
-            )
+            .build_publisher_http_client(&token, agent_metadata, timeout, request_id, dispatch)
             .map_err(|e| seren::Error::InvalidRequest(e.to_string()))?;
         let mut request_url = format!(
             "{}/{}",
@@ -8415,6 +8600,9 @@ impl SerenMcpServer {
             request_builder = request_builder.json(body);
         }
 
+        let request_builder =
+            apply_publisher_dispatch_transport(request_builder, &request_url, dispatch)
+                .map_err(|e| seren::Error::InvalidRequest(e.to_string()))?;
         request_builder
             .send()
             .await
@@ -8429,6 +8617,7 @@ impl SerenMcpServer {
         body: Option<&T>,
         raw_body: Option<&[u8]>,
         headers: Option<&HashMap<String, String>>,
+        dispatch: Option<&PublisherDispatchTarget>,
         request_id: Option<Uuid>,
         confirm: bool,
         agent_metadata: &AgentMetadata,
@@ -8443,7 +8632,7 @@ impl SerenMcpServer {
         })?;
 
         let wallet_address = wallet.address().to_string();
-        let http_client = self.build_public_http_client(agent_metadata)?;
+        let http_client = self.build_public_http_client(agent_metadata, dispatch)?;
         let mut url = format!(
             "{}/{}",
             self.api_base_url.trim_end_matches('/'),
@@ -8473,6 +8662,7 @@ impl SerenMcpServer {
         } else if let Some(body) = body {
             request_builder = request_builder.json(body);
         }
+        let request_builder = apply_publisher_dispatch_transport(request_builder, &url, dispatch)?;
         let response = request_builder
             .send()
             .await
@@ -8571,6 +8761,7 @@ impl SerenMcpServer {
         } else if let Some(body) = body {
             request_builder = request_builder.json(body);
         }
+        let request_builder = apply_publisher_dispatch_transport(request_builder, &url, dispatch)?;
         let paid = request_builder
             .send()
             .await
@@ -8591,6 +8782,7 @@ impl SerenMcpServer {
         body: Option<&T>,
         raw_body: Option<&[u8]>,
         headers: Option<&HashMap<String, String>>,
+        dispatch: Option<&PublisherDispatchTarget>,
         request_id: Option<Uuid>,
         confirm: bool,
         agent_metadata: &AgentMetadata,
@@ -8603,6 +8795,7 @@ impl SerenMcpServer {
                 body,
                 raw_body,
                 headers,
+                dispatch,
                 request_id,
                 confirm,
                 agent_metadata,
@@ -8624,6 +8817,7 @@ impl SerenMcpServer {
         body: Option<&T>,
         raw_body: Option<&[u8]>,
         headers: Option<&HashMap<String, String>>,
+        dispatch: Option<&PublisherDispatchTarget>,
         request_id: Option<Uuid>,
         confirm: bool,
         agent_metadata: &AgentMetadata,
@@ -8636,6 +8830,7 @@ impl SerenMcpServer {
                 body,
                 raw_body,
                 headers,
+                dispatch,
                 request_id,
                 confirm,
                 agent_metadata,
@@ -8659,12 +8854,13 @@ impl SerenMcpServer {
         body: Option<&T>,
         raw_body: Option<&[u8]>,
         headers: Option<&HashMap<String, String>>,
+        dispatch: Option<&PublisherDispatchTarget>,
         request_id: Option<Uuid>,
         x402_payment: &str,
         agent_metadata: &AgentMetadata,
         query_string: Option<&str>,
     ) -> Result<reqwest::Response, PublisherPaymentError> {
-        let http_client = self.build_public_http_client(agent_metadata)?;
+        let http_client = self.build_public_http_client(agent_metadata, dispatch)?;
         let mut url = format!(
             "{}/{}",
             self.api_base_url.trim_end_matches('/'),
@@ -8697,6 +8893,7 @@ impl SerenMcpServer {
         } else if let Some(body) = body {
             request_builder = request_builder.json(body);
         }
+        let request_builder = apply_publisher_dispatch_transport(request_builder, &url, dispatch)?;
         let response = request_builder
             .send()
             .await
@@ -8718,6 +8915,7 @@ impl SerenMcpServer {
         body: Option<&T>,
         raw_body: Option<&[u8]>,
         headers: Option<&HashMap<String, String>>,
+        dispatch: Option<&PublisherDispatchTarget>,
         request_id: Option<Uuid>,
         x402_payment: &str,
         agent_metadata: &AgentMetadata,
@@ -8730,6 +8928,7 @@ impl SerenMcpServer {
                 body,
                 raw_body,
                 headers,
+                dispatch,
                 request_id,
                 x402_payment,
                 agent_metadata,
@@ -8752,6 +8951,7 @@ impl SerenMcpServer {
         body: Option<&T>,
         raw_body: Option<&[u8]>,
         headers: Option<&HashMap<String, String>>,
+        dispatch: Option<&PublisherDispatchTarget>,
         request_id: Option<Uuid>,
         x402_payment: &str,
         agent_metadata: &AgentMetadata,
@@ -8764,6 +8964,7 @@ impl SerenMcpServer {
                 body,
                 raw_body,
                 headers,
+                dispatch,
                 request_id,
                 x402_payment,
                 agent_metadata,
@@ -12579,6 +12780,7 @@ Examples:
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
+        reject_publisher_dispatch_header(params.headers.as_ref())?;
 
         let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
         let return_text = params.response_format.as_deref() == Some("text");
@@ -12621,6 +12823,15 @@ Examples:
             return Err(McpError::invalid_params(
                 "call_publisher: 'connection_id' is only valid for API and MCP publishers"
                     .to_string(),
+                None,
+            ));
+        }
+
+        if matches!(operation, PublisherOperation::Database)
+            && extensions.get::<PublisherDispatchTransport>().is_some()
+        {
+            return Err(McpError::invalid_params(
+                "publisher dispatch transport requires API or MCP operation",
                 None,
             ));
         }
@@ -12677,6 +12888,7 @@ Examples:
                         Some(&body),
                         None,
                         None,
+                        None,
                         params.request_id,
                         x402_payment,
                         agent_metadata,
@@ -12694,6 +12906,7 @@ Examples:
                         &reqwest::Method::POST,
                         &publisher_path,
                         Some(&body),
+                        None,
                         None,
                         None,
                         params.request_id,
@@ -12722,6 +12935,7 @@ Examples:
                     &reqwest::Method::POST,
                     &publisher_path,
                     Some(&body),
+                    None,
                     None,
                     None,
                     params.request_id,
@@ -12780,6 +12994,7 @@ Examples:
                 body: Some(&body),
                 raw_body: None,
                 headers: None,
+                dispatch: None,
                 agent_metadata,
                 return_text,
             },
@@ -12795,6 +13010,7 @@ Examples:
         agent_metadata: &AgentMetadata,
         return_text: bool,
     ) -> Result<CallToolResult, McpError> {
+        reject_publisher_dispatch_header(params.headers.as_ref())?;
         if params.body.is_some() && params.body_base64.is_some() {
             return Err(McpError::invalid_params(
                 "call_publisher: provide only one of 'body' or 'body_base64'".to_string(),
@@ -12837,6 +13053,9 @@ Examples:
         let headers =
             publisher_headers_with_oauth_connection(params.headers.as_ref(), params.connection_id)?;
 
+        let dispatch =
+            self.publisher_dispatch_target(extensions, &params.publisher, &publisher_path, None)?;
+
         // Payment proxy mode
         if let Some(ref x402_payment) = params.x402_payment {
             if return_text {
@@ -12847,6 +13066,7 @@ Examples:
                         body,
                         raw_body_ref,
                         headers.as_ref(),
+                        dispatch.as_ref(),
                         params.request_id,
                         x402_payment,
                         agent_metadata,
@@ -12866,6 +13086,7 @@ Examples:
                         body,
                         raw_body_ref,
                         headers.as_ref(),
+                        dispatch.as_ref(),
                         params.request_id,
                         x402_payment,
                         agent_metadata,
@@ -12899,6 +13120,7 @@ Examples:
                     body,
                     raw_body_ref,
                     headers.as_ref(),
+                    dispatch.as_ref(),
                     params.request_id,
                     None,
                 )
@@ -12965,6 +13187,7 @@ Examples:
                                 body,
                                 raw_body: raw_body_ref,
                                 headers: headers.as_ref(),
+                                dispatch: dispatch.as_ref(),
                                 agent_metadata,
                                 return_text,
                             },
@@ -12992,6 +13215,7 @@ Examples:
         agent_metadata: &AgentMetadata,
         return_text: bool,
     ) -> Result<CallToolResult, McpError> {
+        reject_publisher_dispatch_header(params.headers.as_ref())?;
         let tool_name = params.tool.as_ref().ok_or_else(|| {
             McpError::invalid_params("tool is required for MCP tool operations".to_string(), None)
         })?;
@@ -13018,11 +13242,21 @@ Examples:
 
         let body = serde_json::Value::Object(params.tool_args.clone().unwrap_or_default());
         let publisher_path = format!("/publishers/{}/_mcp/tools/{}", params.publisher, tool_path);
+        // A query in the tool name would move part of the target outside the path.
+        if extensions.get::<PublisherDispatchTransport>().is_some() && tool_path.contains('?') {
+            return Err(McpError::invalid_params(
+                "invalid publisher dispatch target",
+                None,
+            ));
+        }
         let selector_headers = mcp_publisher_transport_headers(params.headers.as_ref())?;
         let headers = publisher_headers_with_oauth_connection(
             selector_headers.as_ref(),
             params.connection_id,
         )?;
+
+        let dispatch =
+            self.publisher_dispatch_target(extensions, &params.publisher, &publisher_path, None)?;
 
         // Payment proxy mode
         if let Some(ref x402_payment) = params.x402_payment {
@@ -13034,6 +13268,7 @@ Examples:
                         Some(&body),
                         None,
                         headers.as_ref(),
+                        dispatch.as_ref(),
                         params.request_id,
                         x402_payment,
                         agent_metadata,
@@ -13053,6 +13288,7 @@ Examples:
                         Some(&body),
                         None,
                         headers.as_ref(),
+                        dispatch.as_ref(),
                         params.request_id,
                         x402_payment,
                         agent_metadata,
@@ -13078,6 +13314,7 @@ Examples:
                 Some(&body),
                 None,
                 headers.as_ref(),
+                dispatch.as_ref(),
                 params.request_id,
                 None,
             )
@@ -13152,6 +13389,7 @@ Examples:
                         body: Some(&body),
                         raw_body: None,
                         headers: headers.as_ref(),
+                        dispatch: dispatch.as_ref(),
                         agent_metadata,
                         return_text,
                     },
@@ -13169,6 +13407,7 @@ Examples:
         agent_metadata: &AgentMetadata,
         return_text: bool,
     ) -> Result<CallToolResult, McpError> {
+        reject_publisher_dispatch_header(params.headers.as_ref())?;
         let uri = params.resource_uri.as_ref().ok_or_else(|| {
             McpError::invalid_params(
                 "resource_uri is required for MCP resource operations".to_string(),
@@ -13192,6 +13431,13 @@ Examples:
             params.connection_id,
         )?;
 
+        let dispatch = self.publisher_dispatch_target(
+            extensions,
+            &params.publisher,
+            &publisher_path,
+            Some(&query_string),
+        )?;
+
         // Payment proxy mode
         if let Some(ref x402_payment) = params.x402_payment {
             if return_text {
@@ -13202,6 +13448,7 @@ Examples:
                         None,
                         None,
                         headers.as_ref(),
+                        dispatch.as_ref(),
                         params.request_id,
                         x402_payment,
                         agent_metadata,
@@ -13221,6 +13468,7 @@ Examples:
                         None,
                         None,
                         headers.as_ref(),
+                        dispatch.as_ref(),
                         params.request_id,
                         x402_payment,
                         agent_metadata,
@@ -13253,6 +13501,7 @@ Examples:
                     None,
                     None,
                     headers.as_ref(),
+                    dispatch.as_ref(),
                     params.request_id,
                     Some(&query_string),
                 )
@@ -13341,6 +13590,7 @@ Examples:
                                         body: None,
                                         raw_body: None,
                                         headers: headers.as_ref(),
+                                        dispatch: dispatch.as_ref(),
                                         agent_metadata,
                                         return_text,
                                     },
@@ -13459,6 +13709,7 @@ Examples:
                             ctx.body,
                             ctx.raw_body,
                             ctx.headers,
+                            ctx.dispatch,
                             ctx.request_id,
                             ctx.confirm,
                             ctx.agent_metadata,
@@ -13478,6 +13729,7 @@ Examples:
                             ctx.body,
                             ctx.raw_body,
                             ctx.headers,
+                            ctx.dispatch,
                             ctx.request_id,
                             ctx.confirm,
                             ctx.agent_metadata,
@@ -15039,6 +15291,7 @@ API endpoint: {endpoint}",
                     &reqwest::Method::POST,
                     &path,
                     Some(&body),
+                    None,
                     None,
                     None,
                     None,
@@ -20342,6 +20595,7 @@ impl ServerHandler for SerenMcpServer {
         let start = std::time::Instant::now();
 
         let result = async {
+            extract_publisher_dispatch_transport(&mut request, &mut context.extensions)?;
             extract_runtime_work_context(&mut request, &mut context.extensions)?;
             // Setup parameter errors must remain protocol errors before tool dispatch.
             let arguments =
@@ -21790,7 +22044,14 @@ pub(crate) mod tests {
                     (name.to_ascii_lowercase(), second.clone()),
                 ]);
                 let error = mcp_publisher_transport_headers(Some(&headers)).unwrap_err();
-                assert_eq!(error.message, "duplicate publisher control header");
+                assert_eq!(
+                    error.message,
+                    if name == "X-Seren-Run-Dispatch" {
+                        "headers.X-Seren-Run-Dispatch is reserved"
+                    } else {
+                        "duplicate publisher control header"
+                    }
+                );
                 assert!(publisher_headers_with_oauth_connection(Some(&headers), None).is_err());
             }
         }
@@ -21827,15 +22088,359 @@ pub(crate) mod tests {
     #[test]
     fn publisher_dispatch_header_is_sensitive_and_preserves_opaque_bytes() {
         let opaque = r#"{"transport_fixture":true}"#;
-        let (_, value) = publisher_http_header("X-Seren-Run-Dispatch", opaque).unwrap();
-        assert!(value.is_sensitive());
-        assert!(value.as_bytes() == opaque.as_bytes());
+        let transport = PublisherDispatchTransport::parse(opaque).unwrap();
+        assert!(transport.0.is_sensitive());
+        assert_eq!(transport.0.as_bytes(), opaque.as_bytes());
+        assert!(!format!("{transport:?}").contains(opaque));
+        assert!(publisher_http_header("X-Seren-Run-Dispatch", opaque).is_none());
         let (_, value) = publisher_http_header(
             "X-Seren-OAuth-Connection-Id",
             &Uuid::from_u128(1).to_string(),
         )
         .unwrap();
         assert!(!value.is_sensitive());
+    }
+
+    #[test]
+    fn publisher_dispatch_hidden_input_is_bounded_and_call_local() {
+        let wire = r#"{"dispatch_fixture":true}"#;
+        let mut request = CallToolRequestParams::new("call_publisher").with_arguments(
+            serde_json::json!({"publisher": "example", "_seren_run_dispatch": wire})
+                .as_object()
+                .unwrap()
+                .clone(),
+        );
+        let mut extensions = Extensions::default();
+        extract_publisher_dispatch_transport(&mut request, &mut extensions).unwrap();
+        assert!(
+            !request
+                .arguments
+                .as_ref()
+                .unwrap()
+                .contains_key("_seren_run_dispatch")
+        );
+        assert_eq!(
+            extensions
+                .get::<PublisherDispatchTransport>()
+                .unwrap()
+                .0
+                .as_bytes(),
+            wire.as_bytes()
+        );
+        extract_publisher_dispatch_transport(&mut request, &mut extensions).unwrap();
+        assert!(extensions.get::<PublisherDispatchTransport>().is_none());
+        let at_bound = "x".repeat(MAX_PUBLISHER_DISPATCH_TRANSPORT_BYTES);
+        assert_eq!(
+            PublisherDispatchTransport::parse(&at_bound)
+                .unwrap()
+                .0
+                .as_bytes(),
+            at_bound.as_bytes()
+        );
+        for value in [
+            serde_json::Value::Null,
+            serde_json::json!({}),
+            serde_json::json!(""),
+            serde_json::json!(" assertion"),
+            serde_json::json!("assertion\t"),
+            serde_json::json!("assertion\r\ninvalid"),
+            serde_json::json!("x".repeat(MAX_PUBLISHER_DISPATCH_TRANSPORT_BYTES + 1)),
+        ] {
+            let mut request = CallToolRequestParams::new("call_publisher").with_arguments(
+                serde_json::json!({"_seren_run_dispatch": value})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            );
+            assert!(extract_publisher_dispatch_transport(&mut request, &mut extensions).is_err());
+            assert!(extensions.get::<PublisherDispatchTransport>().is_none());
+        }
+        let mut request = CallToolRequestParams::new("list_publishers").with_arguments(
+            serde_json::json!({"_seren_run_dispatch": wire})
+                .as_object()
+                .unwrap()
+                .clone(),
+        );
+        assert!(extract_publisher_dispatch_transport(&mut request, &mut extensions).is_err());
+        let schema = serde_json::to_value(schemars::schema_for!(CallPublisherParams)).unwrap();
+        assert!(schema["properties"].get("_seren_run_dispatch").is_none());
+        let server = SerenMcpServer::new("test-key", "http://localhost").unwrap();
+        let served = server
+            .tool_router
+            .list_all()
+            .into_iter()
+            .map(normalize_tool_input_schema)
+            .find(|tool| tool.name == "call_publisher")
+            .unwrap();
+        let served_schema = Value::Object((*served.input_schema).clone());
+        let properties = served_schema["properties"]
+            .as_object()
+            .expect("served object properties");
+        assert!(!properties.contains_key("_seren_run_dispatch"));
+    }
+
+    /// Sends each call over one real MCP session, in order.
+    async fn publisher_dispatch_test_peer(
+        server: SerenMcpServer,
+        calls: Vec<serde_json::Value>,
+    ) -> Vec<CallToolResult> {
+        use rmcp::ServiceExt;
+        let (server_transport, client_transport) = tokio::io::duplex(4096);
+        let task = tokio::spawn(async move {
+            server
+                .serve(server_transport)
+                .await
+                .unwrap()
+                .waiting()
+                .await
+                .unwrap();
+        });
+        let client = ().serve(client_transport).await.unwrap();
+        let mut results = Vec::new();
+        for arguments in calls {
+            results.push(
+                client
+                    .call_tool(
+                        CallToolRequestParams::new("call_publisher")
+                            .with_arguments(arguments.as_object().unwrap().clone()),
+                    )
+                    .await
+                    .unwrap(),
+            );
+        }
+        client.cancel().await.unwrap();
+        task.await.unwrap();
+        results
+    }
+
+    #[tokio::test]
+    async fn publisher_dispatch_proxy_payments_preserve_original_assertion_only() {
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{method, path},
+        };
+        let assertion = "dispatch-proxy-payment-fixture";
+        let payment = BASE64.encode(serde_json::json!({"x402Version":2}).to_string());
+        for (selector, target, verb) in [
+            (
+                serde_json::json!({"method":"POST", "path":"/reports", "body":{"report":"daily"}}),
+                "/publishers/example/reports",
+                "POST",
+            ),
+            (
+                serde_json::json!({"tool":"read_report", "tool_args":{"report":"daily"}}),
+                "/publishers/example/_mcp/tools/read_report",
+                "POST",
+            ),
+            (
+                serde_json::json!({"resource_uri":"file:///reports/daily"}),
+                "/publishers/example/_mcp/resources",
+                "GET",
+            ),
+        ] {
+            let proxy = MockServer::start().await;
+            Mock::given(method(verb))
+                .and(path(target))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(serde_json::json!({"ok":true})),
+                )
+                .expect(2)
+                .mount(&proxy)
+                .await;
+            let mut plain = serde_json::json!({"publisher":"example", "_x402_payment":payment});
+            plain
+                .as_object_mut()
+                .unwrap()
+                .extend(selector.as_object().unwrap().clone());
+            let mut asserted = plain.clone();
+            asserted["_seren_run_dispatch"] = serde_json::json!(assertion);
+            // The second call in the same session must not inherit the first assertion.
+            let results = publisher_dispatch_test_peer(
+                SerenMcpServer::new("test-key", &proxy.uri()).unwrap(),
+                vec![asserted, plain],
+            )
+            .await;
+            assert!(
+                results
+                    .iter()
+                    .all(|result| !result.is_error.unwrap_or(false))
+            );
+            let requests = proxy.received_requests().await.unwrap();
+            assert_eq!(requests.len(), 2);
+            assert_eq!(
+                requests[0]
+                    .headers
+                    .get_all("x-seren-run-dispatch")
+                    .iter()
+                    .count(),
+                1
+            );
+            assert_eq!(
+                requests[0]
+                    .headers
+                    .get("x-seren-run-dispatch")
+                    .unwrap()
+                    .as_bytes(),
+                assertion.as_bytes()
+            );
+            assert!(!requests[1].headers.contains_key("x-seren-run-dispatch"));
+            for request in &requests {
+                assert_eq!(
+                    request.headers.get("payment-signature").unwrap(),
+                    payment.as_str()
+                );
+                assert!(!request.headers.contains_key("authorization"));
+                if verb == "POST" {
+                    assert_eq!(
+                        serde_json::from_slice::<serde_json::Value>(&request.body).unwrap(),
+                        serde_json::json!({"report":"daily"})
+                    );
+                } else {
+                    assert!(request.body.is_empty());
+                }
+            }
+            proxy.verify().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn publisher_dispatch_refuses_redirects_but_preserves_ordinary_transport() {
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{method, path},
+        };
+        for paid in [false, true] {
+            for asserted in [false, true] {
+                let origin = MockServer::start().await;
+                let outside = MockServer::start().await;
+                Mock::given(method("GET"))
+                    .and(path("/publishers/example/reports"))
+                    .respond_with(
+                        ResponseTemplate::new(307)
+                            .insert_header("location", format!("{}/redirected", outside.uri())),
+                    )
+                    .expect(1)
+                    .mount(&origin)
+                    .await;
+                Mock::given(method("GET"))
+                    .and(path("/redirected"))
+                    .respond_with(
+                        ResponseTemplate::new(200).set_body_json(serde_json::json!({"ok":true})),
+                    )
+                    .expect(usize::from(!asserted) as u64)
+                    .mount(&outside)
+                    .await;
+                let mut arguments =
+                    serde_json::json!({"publisher":"example", "method":"GET", "path":"/reports"});
+                if asserted {
+                    arguments["_seren_run_dispatch"] =
+                        serde_json::json!("dispatch-redirect-fixture");
+                }
+                if paid {
+                    arguments["_x402_payment"] = serde_json::json!(
+                        BASE64.encode(serde_json::json!({"x402Version":2}).to_string())
+                    );
+                }
+                let server = SerenMcpServer::new("test-key", &origin.uri()).unwrap();
+                let mut request = CallToolRequestParams::new("call_publisher")
+                    .with_arguments(arguments.as_object().unwrap().clone());
+                let mut extensions = Extensions::default();
+                extract_publisher_dispatch_transport(&mut request, &mut extensions).unwrap();
+                let params =
+                    serde_json::from_value(serde_json::Value::Object(request.arguments.unwrap()))
+                        .unwrap();
+                let result = server.call_publisher(Parameters(params), extensions).await;
+                if !asserted {
+                    assert!(!result.unwrap().is_error.unwrap_or(false));
+                } else {
+                    assert!(result.is_err() || result.unwrap().is_error.unwrap_or(false));
+                }
+                assert_eq!(
+                    outside.received_requests().await.unwrap().len(),
+                    usize::from(!asserted)
+                );
+                if asserted {
+                    assert_eq!(
+                        origin.received_requests().await.unwrap()[0]
+                            .headers
+                            .get("x-seren-run-dispatch")
+                            .unwrap(),
+                        "dispatch-redirect-fixture"
+                    );
+                }
+                origin.verify().await;
+                outside.verify().await;
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn publisher_dispatch_rejects_spoof_and_path_escape_before_http() {
+        let proxy = wiremock::MockServer::start().await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let mut extensions = Extensions::default();
+        extensions.insert(PublisherDispatchTransport::parse("dispatch-target-fixture").unwrap());
+        for selector in [
+            serde_json::json!({"path":"/../outside"}),
+            serde_json::json!({"path":"/%2e%2e/outside"}),
+            serde_json::json!({"path":"/a/../../outside"}),
+            serde_json::json!({"path":"/reports#fragment"}),
+            serde_json::json!({"path":"/%2foutside"}),
+            serde_json::json!({"path":"/reports\\..\\outside"}),
+            serde_json::json!({"path":"/%2Foutside"}),
+            serde_json::json!({"path":"/reports%5C..%5Coutside"}),
+            serde_json::json!({"publisher":"../outside"}),
+            serde_json::json!({"tool":"../../../../outside"}),
+            serde_json::json!({"tool":"read_report?scope=other"}),
+        ] {
+            let mut arguments = serde_json::json!({"publisher":"example", "method":"POST"});
+            arguments
+                .as_object_mut()
+                .unwrap()
+                .extend(selector.as_object().unwrap().clone());
+            let params = serde_json::from_value(arguments).unwrap();
+            let error = server
+                .call_publisher(Parameters(params), extensions.clone())
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_PARAMS);
+            assert!(!error.message.contains("dispatch-target-fixture"));
+        }
+        for name in [
+            "X-Seren-Run-Dispatch",
+            "x-SeReN-rUn-DiSpAtCh",
+            "X_Seren_Run_Dispatch",
+        ] {
+            for asserted in [false, true] {
+                let headers = HashMap::from([(name.to_string(), "caller-override".to_string())]);
+                let params = serde_json::from_value(serde_json::json!({"publisher":"example", "method":"POST", "path":"/reports", "headers":headers})).unwrap();
+                let context = if asserted {
+                    extensions.clone()
+                } else {
+                    Extensions::default()
+                };
+                assert!(
+                    server
+                        .call_publisher(Parameters(params), context)
+                        .await
+                        .is_err()
+                );
+            }
+        }
+        let target = server
+            .publisher_dispatch_target(&extensions, "example", "/publishers/example/reports", None)
+            .unwrap()
+            .unwrap();
+        let wrong = reqwest::Client::new().get(format!("{}/outside", proxy.uri()));
+        assert!(
+            apply_publisher_dispatch_transport(
+                wrong,
+                &format!("{}/outside", proxy.uri()),
+                Some(&target)
+            )
+            .is_err()
+        );
+        assert!(proxy.received_requests().await.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -21882,8 +22487,6 @@ pub(crate) mod tests {
                         let mut headers =
                             HashMap::from([("X-Unrelated".to_string(), "isolated".to_string())]);
                         if managed {
-                            headers
-                                .insert("X-SeReN-RuN-DiSpAtCh".to_string(), dispatch.to_string());
                             headers.insert(
                                 "X-SeReN-OAuTh-CoNnEcTiOn-Id".to_string(),
                                 connection_id.to_string(),
@@ -21896,6 +22499,12 @@ pub(crate) mod tests {
                         .as_object()
                         .unwrap()
                         .clone();
+                        if managed {
+                            arguments.insert(
+                                "_seren_run_dispatch".to_string(),
+                                serde_json::json!(dispatch),
+                            );
+                        }
                         match operation {
                             PublisherOperation::Api => {
                                 arguments
@@ -25597,6 +26206,7 @@ pub(crate) mod tests {
                 })),
                 None,
                 Some(&passthrough_headers),
+                None,
                 Some(request_id),
                 None,
             )
@@ -26007,6 +26617,7 @@ pub(crate) mod tests {
                     body: None,
                     raw_body: None,
                     headers: None,
+                    dispatch: None,
                     agent_metadata: &agent_metadata,
                     return_text: false,
                 },
@@ -27183,6 +27794,17 @@ pub(crate) mod tests {
             .await;
 
         let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let mut extensions = Extensions::default();
+        extensions.insert(PublisherDispatchTransport::parse("dispatch-payment-fixture").unwrap());
+        let dispatch = server
+            .publisher_dispatch_target(
+                &extensions,
+                "test-publisher",
+                "/publishers/test-publisher/_mcp/resources",
+                Some(&query_string),
+            )
+            .unwrap()
+            .unwrap();
         let result = server
             .execute_with_proxy_payment_json::<serde_json::Value>(
                 &reqwest::Method::GET,
@@ -27190,6 +27812,7 @@ pub(crate) mod tests {
                 None,
                 None,
                 None,
+                Some(&dispatch),
                 None,
                 &x402_payload,
                 &AgentMetadata::default(),
@@ -27199,6 +27822,16 @@ pub(crate) mod tests {
             .unwrap();
 
         assert_eq!(result, wrapped_response);
+        let requests = proxy.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1);
+        for request in requests {
+            assert_eq!(
+                request.headers.get("x-seren-run-dispatch").unwrap(),
+                "dispatch-payment-fixture"
+            );
+            assert!(request.body.is_empty());
+        }
+        proxy.verify().await;
     }
 
     #[tokio::test]
@@ -27270,6 +27903,17 @@ pub(crate) mod tests {
         ));
         server.signer_config.auto_approve_limit_micros = 1_000_000;
 
+        let mut extensions = Extensions::default();
+        extensions.insert(PublisherDispatchTransport::parse("dispatch-payment-fixture").unwrap());
+        let dispatch = server
+            .publisher_dispatch_target(
+                &extensions,
+                "test-publisher",
+                "/publishers/test-publisher/_mcp/resources",
+                Some(&query_string),
+            )
+            .unwrap()
+            .unwrap();
         let result = server
             .execute_x402_roundtrip_json::<serde_json::Value>(
                 &reqwest::Method::GET,
@@ -27277,6 +27921,7 @@ pub(crate) mod tests {
                 None,
                 None,
                 None,
+                Some(&dispatch),
                 None,
                 false,
                 &AgentMetadata::default(),
@@ -27286,6 +27931,16 @@ pub(crate) mod tests {
             .unwrap();
 
         assert_eq!(result, wrapped_response);
+        let requests = proxy.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 2);
+        for request in requests {
+            assert_eq!(
+                request.headers.get("x-seren-run-dispatch").unwrap(),
+                "dispatch-payment-fixture"
+            );
+            assert!(request.body.is_empty());
+        }
+        proxy.verify().await;
     }
 
     #[tokio::test]
