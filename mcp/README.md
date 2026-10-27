@@ -15,7 +15,7 @@ Seren MCP is the agent-facing control plane for Seren. Once connected, an assist
 | Publisher integrations | Discover Seren publishers, inspect and select user OAuth account identities, list MCP tools/resources exposed by a publisher, estimate cost, and call SQL/API/MCP publishers through one interface |
 | Backend context | List projects, branches, databases, roles, endpoints, connection strings, and organization resources so the assistant understands the current environment |
 | Database work | Create projects and branches, run SQL, inspect schema differences, manage databases/roles, and prepare connection strings for application code |
-| Object storage | List Seren Storage buckets, upload base64 payloads, create presigned uploads, list and download objects, delete by object ID or key, and manage agent grants and workspace snapshots |
+| Object storage | List Seren Storage buckets, upload base64 payloads, create presigned uploads, list and download objects, delete by object ID or key, and manage agent grants |
 | Payments | Use prepaid balance flows for publisher access, request wallet transfers, or use local x402 wallet signing when running a local MCP server |
 
 ## Publisher caller identity

@@ -2971,15 +2971,6 @@ enum StorageAction {
         #[command(subcommand)]
         action: StorageGrantAction,
     },
-    /// Manage workspace snapshots for a Seren Storage bucket
-    Snapshots {
-        /// Seren Storage bucket slug
-        #[arg(long)]
-        bucket: String,
-
-        #[command(subcommand)]
-        action: StorageSnapshotAction,
-    },
 }
 
 #[derive(Subcommand)]
@@ -3023,49 +3014,6 @@ enum StorageGrantAction {
         /// Agent identity ID to revoke
         #[arg(long)]
         agent: Uuid,
-    },
-}
-
-#[derive(Subcommand)]
-enum StorageSnapshotAction {
-    /// List workspace snapshots for a deployment
-    List {
-        /// Deployment ID to list snapshots for
-        #[arg(long)]
-        deployment: Uuid,
-        /// Maximum number of snapshots to return
-        #[arg(long)]
-        limit: Option<i64>,
-    },
-    /// Fetch the latest workspace snapshot for a deployment
-    Latest {
-        /// Deployment ID to fetch the latest snapshot for
-        #[arg(long)]
-        deployment: Uuid,
-        /// Optional destination file to download the snapshot archive to
-        #[arg(long)]
-        output: Option<std::path::PathBuf>,
-    },
-    /// Record a workspace snapshot from an already-uploaded archive object
-    Create {
-        /// Deployment the snapshot belongs to
-        #[arg(long)]
-        deployment: Uuid,
-        /// Object ID of the uploaded archive
-        #[arg(long)]
-        object_id: Uuid,
-        /// SHA-256 hex digest of the archive
-        #[arg(long)]
-        archive_sha256: String,
-        /// Number of files in the archive
-        #[arg(long)]
-        file_count: i64,
-        /// Uncompressed size of the archive in bytes
-        #[arg(long)]
-        uncompressed_bytes: i64,
-        /// Optional number of snapshots to retain
-        #[arg(long)]
-        retention_count: Option<i32>,
     },
 }
 
@@ -6121,36 +6069,6 @@ async fn main() -> anyhow::Result<()> {
                 }
                 StorageGrantAction::Revoke { agent } => {
                     commands::storage::revoke_grant(&bucket, agent, &ctx).await?
-                }
-            },
-            StorageAction::Snapshots { bucket, action } => match action {
-                StorageSnapshotAction::List { deployment, limit } => {
-                    commands::storage::list_snapshots(&bucket, deployment, limit, &ctx).await?
-                }
-                StorageSnapshotAction::Latest { deployment, output } => {
-                    commands::storage::latest_snapshot(&bucket, deployment, output, &ctx).await?
-                }
-                StorageSnapshotAction::Create {
-                    deployment,
-                    object_id,
-                    archive_sha256,
-                    file_count,
-                    uncompressed_bytes,
-                    retention_count,
-                } => {
-                    commands::storage::create_snapshot(
-                        &bucket,
-                        commands::storage::CreateSnapshotOptions {
-                            deployment_id: deployment,
-                            object_id,
-                            archive_sha256,
-                            file_count,
-                            uncompressed_bytes,
-                            retention_count,
-                        },
-                        &ctx,
-                    )
-                    .await?
                 }
             },
         },
@@ -12323,7 +12241,7 @@ mod tests {
     }
 
     #[test]
-    fn seren_storage_grant_and_snapshot_commands_parse() {
+    fn seren_storage_grant_commands_parse() {
         let grant = parse_cli_with_large_stack(vec![
             "seren",
             "storage",
@@ -12345,36 +12263,48 @@ mod tests {
                 }
             }
         ));
+    }
 
-        let snapshot = parse_cli_with_large_stack(vec![
-            "seren",
-            "storage",
-            "snapshots",
-            "--bucket",
-            "employee-files",
-            "create",
-            "--deployment",
-            "11111111-1111-1111-1111-111111111111",
-            "--object-id",
-            "22222222-2222-2222-2222-222222222222",
-            "--archive-sha256",
-            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-            "--file-count",
-            "4",
-            "--uncompressed-bytes",
-            "1024",
-            "--retention-count",
-            "10",
-        ]);
-        assert!(matches!(
-            snapshot.command,
-            Commands::Storage {
-                action: StorageAction::Snapshots {
-                    action: StorageSnapshotAction::Create { .. },
-                    ..
-                }
-            }
-        ));
+    #[test]
+    fn seren_storage_snapshot_commands_are_unavailable() {
+        for action in ["list", "latest", "create"] {
+            let error = try_parse_cli_with_large_stack(vec![
+                "seren",
+                "storage",
+                "snapshots",
+                "--bucket",
+                "employee-files",
+                action,
+            ])
+            .err()
+            .expect("public workspace snapshot commands must be unavailable");
+            assert_eq!(error.kind(), clap::error::ErrorKind::InvalidSubcommand);
+        }
+
+        let help = try_parse_cli_with_large_stack(vec!["seren", "storage", "--help"])
+            .err()
+            .expect("storage help must be rendered");
+        assert_eq!(help.kind(), clap::error::ErrorKind::DisplayHelp);
+        assert!(!help.to_string().contains("snapshot"));
+
+        // Description text also names buckets and objects, so check the command tree itself.
+        let storage_commands = std::thread::Builder::new()
+            .name("cli-command-test".to_string())
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                use clap::CommandFactory;
+                Cli::command()
+                    .find_subcommand("storage")
+                    .expect("storage command exists")
+                    .get_subcommands()
+                    .map(|command| command.get_name().to_owned())
+                    .filter(|name| name != "help")
+                    .collect::<Vec<_>>()
+            })
+            .expect("failed to spawn command thread")
+            .join()
+            .expect("command thread panicked");
+        assert_eq!(storage_commands, ["health", "buckets", "objects", "grants"]);
     }
 
     #[test]

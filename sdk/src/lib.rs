@@ -180,6 +180,56 @@ mod tests {
         matchers::{body_json, method, path},
     };
 
+    #[tokio::test]
+    async fn storage_http_preserves_provisioning_retry_metadata() {
+        for retry_after in [None, Some(json!(null)), Some(json!(0)), Some(json!(5))] {
+            let server = MockServer::start().await;
+            let object_id = Uuid::from_u128(42);
+            let mut wire = json!({
+                "error": "storage_organization_provisioning",
+                "message": "Organization storage is being provisioned."
+            });
+            // The producer sends Retry-After exactly when the body carries a delay.
+            let retry_header = retry_after
+                .as_ref()
+                .and_then(serde_json::Value::as_u64)
+                .map(|seconds| seconds.to_string());
+            if let Some(retry_after) = retry_after {
+                wire["retry_after_seconds"] = retry_after;
+            }
+            let mut refusal = ResponseTemplate::new(503).set_body_json(wire.clone());
+            if let Some(seconds) = &retry_header {
+                refusal = refusal.insert_header("Retry-After", seconds.as_str());
+            }
+            Mock::given(method("GET"))
+                .and(path(format!(
+                    "/publishers/seren-storage/buckets/files/objects/{object_id}"
+                )))
+                .respond_with(refusal)
+                .expect(1)
+                .mount(&server)
+                .await;
+
+            let error = Client::new(&server.uri())
+                .seren_storage_object_status("files", &object_id)
+                .await
+                .expect_err("provisioning must remain an HTTP refusal");
+            let crate::Error::UnexpectedResponse(response) = error else {
+                panic!("storage provisioning refusal must retain its HTTP response");
+            };
+            assert_eq!(response.status().as_u16(), 503);
+            assert_eq!(
+                response
+                    .headers()
+                    .get("Retry-After")
+                    .map(|value| value.to_str().unwrap().to_owned()),
+                retry_header
+            );
+            assert_eq!(response.json::<serde_json::Value>().await.unwrap(), wire);
+            server.verify().await;
+        }
+    }
+
     #[test]
     fn conversation_tasks_preserve_setup_hold_and_queue_reasons() {
         for reason in ["setup_pending", "setup_failed"] {

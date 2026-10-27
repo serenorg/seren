@@ -16,7 +16,7 @@ The `seren` binary is the operational interface for SerenDB and the surrounding 
 | Agent automation | Use stable command groups, `-o json`, and saved context so coding agents can inspect state, make changes, and verify results without scraping the dashboard |
 | SerenDB projects | Create projects, list branches, manage databases and roles, fetch direct or pooled connection strings, configure endpoints, and initialize `.env` files |
 | Branching and recovery | Create development branches, restore a branch from a timestamp, compare schemas, set branch expiration, protect production branches, and reset or delete branches |
-| Object storage | Browse Seren Storage buckets, upload/download objects, manage agent grants and workspace snapshots, and support files for Seren agents, employees, and applications |
+| Object storage | Browse Seren Storage buckets, upload/download objects, manage agent grants, and support files for Seren agents, employees, and applications |
 | Publishers and payments | Discover publishers, call paid SQL/API/MCP integrations, estimate cost, manage prepaid balance, and prepare x402 payment flows |
 
 ## CLI vs MCP
