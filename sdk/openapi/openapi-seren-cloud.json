@@ -3867,6 +3867,9 @@
               }
             }
           },
+          "403": {
+            "description": "Run artifacts are not available to this caller"
+          },
           "404": {
             "description": "Not found"
           }
@@ -3984,6 +3987,9 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Run eval records are not available to this caller"
           },
           "404": {
             "description": "Not found"
@@ -4899,6 +4905,67 @@
         ]
       }
     },
+    "/deployments/{id}/snapshots/latest": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_get_latest_workspace_snapshot",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Latest workspace snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_WorkspaceSnapshotDownload"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request included a body or query parameters"
+          },
+          "401": {
+            "description": "Workspace authentication required"
+          },
+          "403": {
+            "description": "Workspace credential does not match this deployment"
+          },
+          "404": {
+            "description": "No workspace snapshot is available"
+          },
+          "409": {
+            "description": "Workspace storage is in a conflicting state"
+          },
+          "410": {
+            "description": "The workspace archive is no longer available"
+          },
+          "502": {
+            "description": "Storage returned an unusable response"
+          },
+          "503": {
+            "description": "Workspace is temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/spend": {
       "get": {
         "tags": [
@@ -5115,7 +5182,7 @@
         "tags": [
           "seren-cloud"
         ],
-        "summary": "Attach an organization storage bucket to a managed agent and optionally\nkeep its workspace portable across runtime restarts.",
+        "summary": "Attach an organization storage bucket to an owned deployment for file access. This endpoint does not accept workspace policy or enable snapshot capture or automatic restoration.",
         "operationId": "seren_cloud_attach_storage",
         "parameters": [
           {
@@ -6016,7 +6083,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Eval case results listed",
+            "description": "Eval case results the caller may read; results of another user's private or interactive runs are omitted from the page and its total",
             "content": {
               "application/json": {
                 "schema": {
@@ -6085,6 +6152,9 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Eval case result is not available to this caller"
           },
           "404": {
             "description": "Eval case result not found"
@@ -7564,6 +7634,9 @@
               }
             }
           },
+          "403": {
+            "description": "Run artifacts are not available to this caller"
+          },
           "404": {
             "description": "Not found"
           }
@@ -7791,6 +7864,9 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Run eval records are not available to this caller"
           },
           "404": {
             "description": "Not found"
@@ -10736,7 +10812,8 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ManagedStorageWorkspaceRequest"
+                "$ref": "#/components/schemas/ManagedStorageWorkspaceRequest",
+                "description": "Workspace policy is not accepted by the storage-attachment endpoint."
               }
             ]
           }
@@ -22416,6 +22493,56 @@
           }
         }
       },
+      "DataResponse_WorkspaceSnapshotDownload": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "snapshot",
+              "download_url",
+              "download_headers",
+              "download_expires_at"
+            ],
+            "properties": {
+              "download_expires_at": {
+                "$ref": "#/components/schemas/StorageTimestamp"
+              },
+              "download_headers": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                }
+              },
+              "download_url": {
+                "type": "string"
+              },
+              "snapshot": {
+                "$ref": "#/components/schemas/WorkspaceSnapshot"
+              }
+            },
+            "additionalProperties": false
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DeploymentSpendSummary": {
         "type": "object",
         "description": "Aggregated spend summary for a single cloud deployment.",
@@ -26441,6 +26568,218 @@
         },
         "additionalProperties": false
       },
+      "StorageChecksum": {
+        "type": "object",
+        "required": [
+          "algorithm",
+          "value"
+        ],
+        "properties": {
+          "algorithm": {
+            "$ref": "#/components/schemas/StorageChecksumAlgorithm"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "StorageChecksumAlgorithm": {
+        "type": "string",
+        "enum": [
+          "sha256",
+          "crc32c"
+        ]
+      },
+      "StorageObject": {
+        "type": "object",
+        "required": [
+          "id",
+          "organization_id",
+          "bucket_id",
+          "bucket_slug",
+          "object_key",
+          "content_type",
+          "byte_length",
+          "checksum",
+          "upload_mode",
+          "status",
+          "uri",
+          "metadata",
+          "created_by_user_id",
+          "upload_expires_at",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "bucket_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "bucket_slug": {
+            "type": "string"
+          },
+          "byte_length": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "checksum": {
+            "$ref": "#/components/schemas/StorageChecksum"
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/StorageTimestamp"
+          },
+          "created_by_user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "etag": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expires_at": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/StorageTimestamp"
+              }
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "metadata": {},
+          "multipart_part_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "multipart_part_size": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "object_key": {
+            "type": "string"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "purge_after": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/StorageTimestamp"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/StorageObjectStatus"
+          },
+          "trash_reason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/StorageTrashReason"
+              }
+            ]
+          },
+          "trashed_at": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/StorageTimestamp"
+              }
+            ]
+          },
+          "trashed_by_user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/StorageTimestamp"
+          },
+          "upload_expires_at": {
+            "$ref": "#/components/schemas/StorageTimestamp"
+          },
+          "upload_mode": {
+            "$ref": "#/components/schemas/StorageUploadMode"
+          },
+          "uploaded_at": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/StorageTimestamp"
+              }
+            ]
+          },
+          "uploaded_by_user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "uri": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "StorageObjectStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "uploaded",
+          "trashed",
+          "delete_pending",
+          "delete_failed",
+          "deleted"
+        ]
+      },
+      "StorageTimestamp": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "StorageTrashReason": {
+        "type": "string",
+        "enum": [
+          "user_deleted",
+          "expired",
+          "workspace_retention"
+        ]
+      },
+      "StorageUploadMode": {
+        "type": "string",
+        "enum": [
+          "single",
+          "multipart"
+        ]
+      },
       "TaskLabel": {
         "type": "string",
         "description": "Organization-defined policy selector in canonical form.\n\nThe syntax is enforced during deserialization rather than by convention, so\nevery producer and consumer of an [`OrganizationWorkContext`] agrees on which labels\nexist without each one repeating the check.",
@@ -27277,6 +27616,127 @@
           }
         },
         "additionalProperties": false
+      },
+      "WorkspaceSnapshot": {
+        "type": "object",
+        "required": [
+          "id",
+          "organization_id",
+          "bucket_id",
+          "bucket_slug",
+          "deployment_id",
+          "object",
+          "archive_sha256",
+          "file_count",
+          "uncompressed_bytes",
+          "status",
+          "created_by_user_id",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "archive_sha256": {
+            "type": "string"
+          },
+          "base_snapshot_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "bucket_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "bucket_slug": {
+            "type": "string"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/StorageTimestamp"
+          },
+          "created_by_user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "file_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "object": {
+            "$ref": "#/components/schemas/StorageObject"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "retired_at": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/StorageTimestamp"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/WorkspaceSnapshotStatus"
+          },
+          "uncompressed_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/StorageTimestamp"
+          }
+        },
+        "additionalProperties": false
+      },
+      "WorkspaceSnapshotDownload": {
+        "type": "object",
+        "required": [
+          "snapshot",
+          "download_url",
+          "download_headers",
+          "download_expires_at"
+        ],
+        "properties": {
+          "download_expires_at": {
+            "$ref": "#/components/schemas/StorageTimestamp"
+          },
+          "download_headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "download_url": {
+            "type": "string"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/WorkspaceSnapshot"
+          }
+        },
+        "additionalProperties": false
+      },
+      "WorkspaceSnapshotStatus": {
+        "type": "string",
+        "enum": [
+          "active",
+          "retired"
+        ]
       }
     },
     "securitySchemes": {

@@ -181,6 +181,213 @@ mod tests {
     };
 
     #[tokio::test]
+    async fn workspace_snapshot_http_reads_typed_download_with_explicit_credential() {
+        use wiremock::matchers::header;
+        let timestamp = "2026-10-28T00:15:00.123456Z";
+        let expected: jiff::Timestamp = timestamp.parse().unwrap();
+        let conversions: [Result<crate::StorageTimestamp, jiff::Error>; 3] = [
+            timestamp.parse(),
+            crate::StorageTimestamp::try_from(timestamp),
+            crate::StorageTimestamp::try_from(timestamp.to_owned()),
+        ];
+        for converted in conversions {
+            assert_eq!(jiff::Timestamp::from(converted.unwrap()), expected);
+        }
+        let invalid = "not-a-timestamp";
+        let failures: [Result<crate::StorageTimestamp, jiff::Error>; 3] = [
+            invalid.parse(),
+            crate::StorageTimestamp::try_from(invalid),
+            crate::StorageTimestamp::try_from(invalid.to_owned()),
+        ];
+        for failure in failures {
+            assert!(failure.is_err());
+        }
+        let deployment_id = Uuid::from_u128(42);
+        let route = format!("/publishers/seren-cloud/deployments/{deployment_id}/snapshots/latest");
+        for (algorithm, checksum) in [
+            ("sha256", "a".repeat(64)),
+            ("crc32c", "AAAAAA==".to_owned()),
+        ] {
+            let server = MockServer::start().await;
+            let archive = MockServer::start().await;
+            let timestamp = "2026-10-28T00:00:00Z";
+            let owner = Uuid::from_u128(1);
+            let organization = Uuid::from_u128(2);
+            let bucket = Uuid::from_u128(3);
+            let wire = json!({"data": {
+                "snapshot": {
+                    "id": Uuid::from_u128(4), "organization_id": organization,
+                    "bucket_id": bucket, "bucket_slug": "workspaces", "deployment_id": deployment_id,
+                    "base_snapshot_id": null,
+                    "object": {
+                        "id": Uuid::from_u128(5), "organization_id": organization,
+                        "bucket_id": bucket, "bucket_slug": "workspaces", "object_key": "archive.zst",
+                        "content_type": "application/zstd", "byte_length": 27,
+                        "checksum": {"algorithm": algorithm, "value": checksum},
+                        "upload_mode": "single", "status": "uploaded",
+                        "uri": "seren-storage://workspaces/archive.zst", "metadata": {"fixture": true},
+                        "created_by_user_id": owner, "uploaded_by_user_id": owner,
+                        "uploaded_at": timestamp, "upload_expires_at": timestamp,
+                        "created_at": timestamp, "updated_at": timestamp,
+                        "multipart_part_size": null, "multipart_part_count": null,
+                        "etag": null, "expires_at": null, "purge_after": null,
+                        "trashed_at": null, "trashed_by_user_id": null, "trash_reason": null
+                    },
+                    "archive_sha256": "c".repeat(64), "file_count": 2, "uncompressed_bytes": 41,
+                    "status": "active", "created_by_user_id": owner,
+                    "created_at": timestamp, "updated_at": timestamp, "retired_at": null
+                },
+                "download_url": format!("{}/archive?signature=synthetic", archive.uri()),
+                "download_headers": {"x-fixture": "required"},
+                "download_expires_at": "2026-10-28T00:15:00.123456Z"
+            }});
+            Mock::given(method("GET"))
+                .and(path(&route))
+                .and(header("authorization", "Bearer synthetic-workspace-key"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(wire.clone()))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let client = Client::from_config(
+                &ClientConfig::new("synthetic-workspace-key").with_base_url(server.uri()),
+            )
+            .unwrap();
+            let response = client
+                .seren_cloud_get_latest_workspace_snapshot(&deployment_id)
+                .await
+                .unwrap()
+                .into_inner();
+            let mut actual = serde_json::to_value(response).unwrap();
+            let mut expected = wire;
+            for value in [&mut actual, &mut expected] {
+                for field in ["base_snapshot_id", "retired_at"] {
+                    remove_null_field(value, "/data/snapshot", field);
+                }
+                for field in [
+                    "multipart_part_size",
+                    "multipart_part_count",
+                    "etag",
+                    "expires_at",
+                    "purge_after",
+                    "trashed_at",
+                    "trashed_by_user_id",
+                    "trash_reason",
+                ] {
+                    remove_null_field(value, "/data/snapshot/object", field);
+                }
+            }
+            assert_eq!(actual, expected);
+            let requests = server.received_requests().await.unwrap();
+            assert_eq!(requests.len(), 1);
+            assert_eq!(requests[0].url.query(), None);
+            assert!(requests[0].body.is_empty());
+            assert!(archive.received_requests().await.unwrap().is_empty());
+            server.verify().await;
+
+            // A response outside the contract is a decode failure, not a partial download.
+            let mut invalid = Vec::new();
+            for (pointer, value) in [
+                ("/data/snapshot/object/checksum/algorithm", json!("md5")),
+                ("/data/snapshot/status", json!("deleted")),
+                ("/data/download_expires_at", json!("not-a-timestamp")),
+            ] {
+                let mut body = expected.clone();
+                *body.pointer_mut(pointer).unwrap() = value;
+                invalid.push(body);
+            }
+            let mut body = expected.clone();
+            body["data"]
+                .as_object_mut()
+                .unwrap()
+                .remove("download_expires_at");
+            invalid.push(body);
+            let mut body = expected.clone();
+            body["data"]["snapshot"]["object"]["checksum"]["encoding"] = json!("hex");
+            invalid.push(body);
+            for body in invalid {
+                let server = MockServer::start().await;
+                Mock::given(method("GET"))
+                    .and(path(&route))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(body))
+                    .expect(1)
+                    .mount(&server)
+                    .await;
+                let result = Client::from_config(
+                    &ClientConfig::new("synthetic-workspace-key").with_base_url(server.uri()),
+                )
+                .unwrap()
+                .seren_cloud_get_latest_workspace_snapshot(&deployment_id)
+                .await;
+                assert!(matches!(
+                    result,
+                    Err(crate::Error::InvalidResponsePayload(..))
+                ));
+                server.verify().await;
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn workspace_snapshot_http_preserves_refusals_without_credential_fallback() {
+        use wiremock::matchers::header;
+        let deployment_id = Uuid::from_u128(42);
+        let route = format!("/publishers/seren-cloud/deployments/{deployment_id}/snapshots/latest");
+        // Core refusal codes; Storage refusals keep their body and retry hint.
+        // These bodies test transport only and do not prove Core authorization.
+        for (status, code, retry) in [
+            (400, "BadRequest", false),
+            (401, "Unauthorized", false),
+            (403, "Forbidden", false),
+            (404, "workspace_snapshot_not_found", false),
+            (409, "storage_conflict", true),
+            (410, "workspace_archive_unavailable", false),
+            (502, "storage_response_unrecognized", false),
+            (503, "storage_organization_provisioning", true),
+        ] {
+            let server = MockServer::start().await;
+            let mut wire = json!({"error": code, "message": "Synthetic refusal."});
+            let mut refusal = ResponseTemplate::new(status);
+            if retry {
+                wire["retry_after_seconds"] = json!(5);
+                refusal = refusal.insert_header("retry-after", "5");
+            }
+            let refusal = refusal.set_body_json(wire.clone());
+            Mock::given(method("GET"))
+                .and(path(&route))
+                .and(header("authorization", "Bearer synthetic-workspace-key"))
+                .respond_with(refusal)
+                .expect(1)
+                .mount(&server)
+                .await;
+            let client = Client::from_config(
+                &ClientConfig::new("synthetic-workspace-key").with_base_url(server.uri()),
+            )
+            .unwrap();
+            let error = client
+                .seren_cloud_get_latest_workspace_snapshot(&deployment_id)
+                .await
+                .unwrap_err();
+            let crate::Error::UnexpectedResponse(response) = error else {
+                panic!("snapshot refusal must retain its raw HTTP response");
+            };
+            assert_eq!(response.status().as_u16(), status);
+            assert_eq!(
+                response
+                    .headers()
+                    .get("retry-after")
+                    .map(|value| value.to_str().unwrap()),
+                retry.then_some("5")
+            );
+            assert_eq!(response.json::<serde_json::Value>().await.unwrap(), wire);
+            let requests = server.received_requests().await.unwrap();
+            assert_eq!(requests.len(), 1);
+            assert_eq!(requests[0].url.query(), None);
+            assert!(requests[0].body.is_empty());
+            server.verify().await;
+        }
+    }
+
+    #[tokio::test]
     async fn storage_http_preserves_provisioning_retry_metadata() {
         for retry_after in [None, Some(json!(null)), Some(json!(0)), Some(json!(5))] {
             let server = MockServer::start().await;

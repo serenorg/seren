@@ -129,6 +129,12 @@ Set `forward_caller_identity: Some(true)` on `CreatePublisherRequest` or `Update
 
 The organization identifier is derived from the immutable publisher ID and authenticated hiring organization. The user identifier is derived from the immutable publisher ID, authenticated hiring organization and authenticated user, so the same user receives different identifiers in different organizations or at different publishers. This feature does not expose raw Seren IDs or send agent, deployment or run identifiers. It grants no permission in Seren and does not change existing wallet or billing behavior. The identifiers are pseudonymous, not anonymous: request content and existing payment headers can still identify or correlate callers. Only API and MCP integration publishers support it; external MCP publishers using passthrough authentication do not. Missing key or required organization or user context is refused rather than forwarded without the scoped identifiers.
 
+### Reading a workspace snapshot
+
+`seren_cloud_get_latest_workspace_snapshot` reads the latest snapshot download description for a deployment. Configure a separate SDK client with an explicitly supplied dedicated workspace bearer credential for that deployment. Ordinary owner or runtime credentials cannot authorize this endpoint; the SDK does not acquire a workspace credential or fall back to another credential.
+
+The response describes the snapshot and stored object, including its checksum, download URL, required download headers and expiry. This call does not download or restore an archive, upload or register a snapshot, or enable automatic capture. Storage bucket attachment grants file access only; it does not configure workspace policy or automatic restoration. Private Storage control operations are not publisher SDK methods. The download URL and headers are short-lived signed values; treat them and the workspace credential as secrets and keep them out of logs.
+
 ### Updating the API contract
 
 Export the contract from the owning `seren-core` checkout with `make openapi openapi-publishers`. Copy its `openapi.json`, `openapi-seren-db.json`, `openapi-seren-cloud.json`, `openapi-seren-agent.json`, `openapi-seren-models.json`, and `openapi-seren-private-models.json` into `sdk/openapi`, then rebuild the SDK. Do not edit these generated inputs directly. Keep the producer revision stable while syncing the Python SDK, TypeScript SDK, and documentation from the same inputs.

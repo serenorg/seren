@@ -34,7 +34,7 @@ schemars = { workspace = true }
 anyhow = { workspace = true }
 progenitor = { workspace = true }
 prettyplease = { workspace = true }
-syn = { workspace = true }
+syn = { workspace = true, features = ["visit-mut"] }
 serde_json = { workspace = true }
 openapiv3 = { workspace = true }
 

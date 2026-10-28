@@ -1076,6 +1076,58 @@ fn validate_query_result_cell_schema(spec: &serde_json::Value) -> anyhow::Result
     Ok(())
 }
 
+/// Normalize generated UTC timestamps before layout can split their type paths.
+fn normalize_datetime_types(syntax: &mut syn::File) {
+    use syn::visit_mut::VisitMut;
+
+    fn plain_path(path: &syn::Path, names: &[&str]) -> bool {
+        path.segments.len() == names.len()
+            && path.segments.iter().zip(names).all(|(segment, name)| {
+                segment.ident == *name && matches!(segment.arguments, syn::PathArguments::None)
+            })
+    }
+
+    struct DateTimeNormalizer;
+
+    impl VisitMut for DateTimeNormalizer {
+        fn visit_type_mut(&mut self, ty: &mut syn::Type) {
+            syn::visit_mut::visit_type_mut(self, ty);
+            let syn::Type::Path(type_path) = ty else {
+                return;
+            };
+            if type_path.qself.is_some() || type_path.path.segments.len() != 2 {
+                return;
+            }
+            let mut segments = type_path.path.segments.iter();
+            let namespace = segments.next().expect("two path segments");
+            let name = segments.next().expect("two path segments");
+            if namespace.ident != "chrono"
+                || !matches!(namespace.arguments, syn::PathArguments::None)
+                || name.ident != "DateTime"
+            {
+                return;
+            }
+            let syn::PathArguments::AngleBracketed(arguments) = &name.arguments else {
+                return;
+            };
+            if arguments.args.len() != 1 {
+                return;
+            }
+            let Some(syn::GenericArgument::Type(syn::Type::Path(timezone))) =
+                arguments.args.first()
+            else {
+                return;
+            };
+            if timezone.qself.is_none() && plain_path(&timezone.path, &["chrono", "offset", "Utc"])
+            {
+                type_path.path = syn::parse_str("::jiff::Timestamp").expect("valid timestamp path");
+            }
+        }
+    }
+
+    DateTimeNormalizer.visit_file_mut(syntax);
+}
+
 fn main() -> anyhow::Result<()> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let openapi_dir = manifest_dir.join("openapi");
@@ -1234,13 +1286,6 @@ fn main() -> anyhow::Result<()> {
         );
     }
 
-    // Replace chrono DateTime with jiff Timestamp for date-time format
-    settings.with_replacement(
-        "chrono::DateTime<chrono::offset::Utc>",
-        "::jiff::Timestamp",
-        std::iter::empty::<progenitor::TypeImpl>(),
-    );
-
     settings.with_replacement(
         "OffsetDateTime",
         "::jiff::Timestamp",
@@ -1262,17 +1307,9 @@ fn main() -> anyhow::Result<()> {
     let mut generator = progenitor::Generator::new(&settings);
     let tokens = generator.generate_tokens(&spec)?;
 
-    let syntax: syn::File = syn::parse2(tokens)?;
+    let mut syntax: syn::File = syn::parse2(tokens)?;
+    normalize_datetime_types(&mut syntax);
     let formatted = prettyplease::unparse(&syntax);
-
-    // Replace chrono with jiff in the generated code
-    // Progenitor 0.11+ uses fully qualified paths with leading ::
-    let formatted = formatted
-        .replace(
-            "::chrono::DateTime<::chrono::offset::Utc>",
-            "::jiff::Timestamp",
-        )
-        .replace("chrono::DateTime<chrono::offset::Utc>", "::jiff::Timestamp");
 
     // Preserve status, headers, and body for every documented HTTP error.
     // Empty typed responses discard diagnostics before SDK consumers see them.
