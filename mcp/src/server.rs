@@ -669,7 +669,8 @@ pub struct GetOrgOAuthProviderParams {
     pub provider_id: Uuid,
 }
 
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Serialize, JsonSchema)]
+#[schemars(transform = closed_org_oauth_provider_schema)]
 pub struct CreateOrgOAuthProviderParams {
     #[serde(flatten)]
     pub path: OrganizationPath,
@@ -677,7 +678,7 @@ pub struct CreateOrgOAuthProviderParams {
     pub body: seren::CreateOAuthProviderRequest,
 }
 
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[schemars(transform = org_oauth_provider_update_route_schema)]
 pub struct UpdateOrgOAuthProviderParams {
     /// The organization ID (UUID)
@@ -687,6 +688,115 @@ pub struct UpdateOrgOAuthProviderParams {
     pub provider_id: Uuid,
     #[serde(flatten, serialize_with = "serialize_org_oauth_provider_update_body")]
     pub body: seren::UpdateOAuthProviderRequest,
+}
+
+impl<'de> Deserialize<'de> for CreateOrgOAuthProviderParams {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let mut fields = deserialize_org_oauth_provider_fields(deserializer)?;
+        let organization_id = Uuid::deserialize(take_org_oauth_provider_route::<D::Error>(
+            &mut fields,
+            "organization_id",
+        )?)
+        .map_err(<D::Error as serde::de::Error>::custom)?;
+        let body =
+            seren::CreateOAuthProviderRequest::deserialize(serde::de::value::MapDeserializer::<
+                _,
+                serde_json::Error,
+            >::new(fields.into_iter()))
+            .map_err(<D::Error as serde::de::Error>::custom)?;
+        Ok(Self {
+            path: OrganizationPath { organization_id },
+            body,
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for UpdateOrgOAuthProviderParams {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let mut fields = deserialize_org_oauth_provider_fields(deserializer)?;
+        let organization_id = deserialize_org_oauth_provider_route_id(
+            take_org_oauth_provider_route::<D::Error>(&mut fields, "organization_id")?,
+        )
+        .map_err(<D::Error as serde::de::Error>::custom)?;
+        let provider_id = Uuid::deserialize(take_org_oauth_provider_route::<D::Error>(
+            &mut fields,
+            "provider_id",
+        )?)
+        .map_err(<D::Error as serde::de::Error>::custom)?;
+        let body =
+            seren::UpdateOAuthProviderRequest::deserialize(serde::de::value::MapDeserializer::<
+                _,
+                serde_json::Error,
+            >::new(fields.into_iter()))
+            .map_err(<D::Error as serde::de::Error>::custom)?;
+        Ok(Self {
+            organization_id,
+            provider_id,
+            body,
+        })
+    }
+}
+
+fn deserialize_org_oauth_provider_fields<'de, D>(
+    deserializer: D,
+) -> Result<Vec<(String, serde_json::Value)>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct FieldsVisitor;
+
+    impl<'de> serde::de::Visitor<'de> for FieldsVisitor {
+        type Value = Vec<(String, serde_json::Value)>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("organization OAuth provider parameters")
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::MapAccess<'de>,
+        {
+            // Keep duplicate keys for route checks and the SDK body's normal visitor.
+            let mut fields = Vec::new();
+            while let Some(field) = map.next_entry()? {
+                fields.push(field);
+            }
+            Ok(fields)
+        }
+    }
+
+    deserializer.deserialize_map(FieldsVisitor)
+}
+
+fn take_org_oauth_provider_route<E>(
+    fields: &mut Vec<(String, serde_json::Value)>,
+    name: &'static str,
+) -> Result<serde_json::Value, E>
+where
+    E: serde::de::Error,
+{
+    let index = fields
+        .iter()
+        .position(|(key, _)| key == name)
+        .ok_or_else(|| E::missing_field(name))?;
+    let (_, value) = fields.remove(index);
+    if fields.iter().any(|(key, _)| key == name) {
+        return Err(E::duplicate_field(name));
+    }
+    Ok(value)
+}
+
+fn closed_org_oauth_provider_schema(schema: &mut schemars::Schema) {
+    schema.ensure_object().insert(
+        "additionalProperties".into(),
+        serde_json::Value::Bool(false),
+    );
 }
 
 fn deserialize_org_oauth_provider_route_id<'de, D>(deserializer: D) -> Result<Uuid, D::Error>
@@ -722,6 +832,7 @@ where
 }
 
 fn org_oauth_provider_update_route_schema(schema: &mut schemars::Schema) {
+    closed_org_oauth_provider_schema(schema);
     // The flattened shared request also has an optional ownership field.
     let properties = schema
         .ensure_object()
@@ -20670,7 +20781,7 @@ impl ServerHandler for SerenMcpServer {
         let result = async {
             extract_publisher_dispatch_transport(&mut request, &mut context.extensions)?;
             extract_runtime_work_context(&mut request, &mut context.extensions)?;
-            // Setup parameter errors must remain protocol errors before tool dispatch.
+            // Parameter errors must remain protocol errors before tool dispatch.
             let arguments =
                 serde_json::Value::Object(request.arguments.clone().unwrap_or_default());
             match request.name.as_ref() {
@@ -20680,6 +20791,14 @@ impl ServerHandler for SerenMcpServer {
                 }
                 "cancel_seren_agent_passwords_setup" => {
                     serde_json::from_value::<CancelSerenAgentPasswordsSetupParams>(arguments)
+                        .map_err(|error| McpError::invalid_params(error.to_string(), None))?;
+                }
+                "create_org_oauth_provider" => {
+                    serde_json::from_value::<CreateOrgOAuthProviderParams>(arguments)
+                        .map_err(|error| McpError::invalid_params(error.to_string(), None))?;
+                }
+                "update_org_oauth_provider" => {
+                    serde_json::from_value::<UpdateOrgOAuthProviderParams>(arguments)
                         .map_err(|error| McpError::invalid_params(error.to_string(), None))?;
                 }
                 _ => {}
@@ -21271,6 +21390,484 @@ pub(crate) mod tests {
         assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_REQUEST);
         assert!(error.message.contains("Read-only"), "{}", error.message);
         assert!(proxy.received_requests().await.unwrap().is_empty());
+    }
+
+    fn oauth_provider_create_body() -> Value {
+        serde_json::json!({
+            "slug": "example", "name": "Example provider",
+            "description": "Account access", "logo_url": "https://example.com/logo.png",
+            "authorization_url": "https://example.com/authorize",
+            "token_url": "https://example.com/token",
+            "userinfo_url": "https://example.com/userinfo",
+            "revocation_url": "https://example.com/revoke",
+            "client_id": "test-client", "client_secret": "test-secret",
+            "scopes": ["profile", "email"], "pkce_required": false,
+            "token_endpoint_auth_method": "client_secret_post",
+            "userinfo_method": "post", "userinfo_id_path": "/account_id",
+            "userinfo_email_path": "/email", "revocation_auth": "bearer",
+            "custom_auth_params": {
+                "access_type": "offline", "prompt": "consent", "hd": "example.com",
+                "nested": {"any": 1}
+            }
+        })
+    }
+
+    fn oauth_provider_response() -> Value {
+        let mut provider = oauth_provider_create_body();
+        provider.as_object_mut().unwrap().remove("client_secret");
+        provider
+            .as_object_mut()
+            .unwrap()
+            .remove("custom_auth_params");
+        provider["id"] = serde_json::json!(Uuid::from_u128(2));
+        provider["organization_id"] = serde_json::json!(Uuid::from_u128(1));
+        provider["is_active"] = serde_json::json!(true);
+        provider["created_at"] = serde_json::json!("2026-10-29T00:00:00Z");
+        provider["updated_at"] = provider["created_at"].clone();
+        serde_json::json!({"data": provider})
+    }
+
+    async fn oauth_provider_test_client(
+        proxy: &wiremock::MockServer,
+    ) -> (
+        rmcp::service::RunningService<rmcp::RoleClient, ()>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        use rmcp::ServiceExt;
+
+        let mut server = server_with_http_client(reqwest::Client::new());
+        server.api_base_url = proxy.uri();
+        let (server_transport, client_transport) = tokio::io::duplex(4096);
+        let server_task = tokio::spawn(async move {
+            server
+                .serve(server_transport)
+                .await
+                .unwrap()
+                .waiting()
+                .await
+                .unwrap();
+        });
+        (().serve(client_transport).await.unwrap(), server_task)
+    }
+
+    #[tokio::test]
+    async fn oauth_provider_update_serves_required_non_null_route_ids() {
+        let proxy = wiremock::MockServer::start().await;
+        let (client, server_task) = oauth_provider_test_client(&proxy).await;
+        let tools = client.list_all_tools().await.unwrap();
+        let tool = tools
+            .iter()
+            .find(|t| t.name == "update_org_oauth_provider")
+            .unwrap();
+        let schema = serde_json::to_value(&tool.input_schema).unwrap();
+        let required = schema["required"].as_array().unwrap();
+        for (field, description) in [
+            ("organization_id", "The organization ID (UUID)"),
+            ("provider_id", "The OAuth provider ID (UUID)"),
+        ] {
+            let mut expected = serde_json::json!({
+                "type": "string", "format": "uuid", "description": description
+            });
+            if field == "organization_id" {
+                expected["not"] = serde_json::json!({"const": Uuid::nil().to_string()});
+            }
+            assert_eq!(schema["properties"][field], expected, "{field}");
+            assert!(required.contains(&serde_json::json!(field)));
+        }
+        assert_eq!(required.len(), 2);
+        assert!(proxy.received_requests().await.unwrap().is_empty());
+        client.cancel().await.unwrap();
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn oauth_provider_tools_serve_closed_flat_schemas() {
+        let proxy = wiremock::MockServer::start().await;
+        let (client, server_task) = oauth_provider_test_client(&proxy).await;
+        let tools = client.list_all_tools().await.unwrap();
+        let mut open_tools = Vec::new();
+        for name in ["create_org_oauth_provider", "update_org_oauth_provider"] {
+            let tool = tools.iter().find(|t| t.name == name).unwrap();
+            let schema = serde_json::to_value(&tool.input_schema).unwrap();
+            let additional = &schema["additionalProperties"];
+            if additional != &serde_json::json!(false)
+                && additional != &serde_json::json!({"not": {}})
+            {
+                open_tools.push(name);
+            }
+            // Both routes require a non-null organization UUID.
+            assert!(
+                schema["required"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&serde_json::json!("organization_id")),
+                "{name}: organization_id is required"
+            );
+            assert_eq!(
+                schema["properties"]["organization_id"]["type"], "string",
+                "{name}"
+            );
+            assert_eq!(
+                schema["properties"]["organization_id"]["format"], "uuid",
+                "{name}"
+            );
+            // Only the top level is closed; provider-defined parameters stay open.
+            let custom = &schema["properties"]["custom_auth_params"];
+            assert!(
+                custom["additionalProperties"] != serde_json::json!(false)
+                    && custom["additionalProperties"] != serde_json::json!({"not": {}}),
+                "{name}: custom_auth_params must accept provider-defined keys"
+            );
+            let mut expected: BTreeSet<String> = oauth_provider_create_body()
+                .as_object()
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect();
+            expected.insert("organization_id".into());
+            if name == "update_org_oauth_provider" {
+                expected.extend(["provider_id".into(), "is_active".into()]);
+            }
+            assert_eq!(
+                schema["properties"]
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .cloned()
+                    .collect::<BTreeSet<_>>(),
+                expected,
+                "{name}: flat input keys"
+            );
+        }
+        assert!(
+            open_tools.is_empty(),
+            "schemas allow unknown fields: {open_tools:?}"
+        );
+        assert!(proxy.received_requests().await.unwrap().is_empty());
+        client.cancel().await.unwrap();
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn oauth_provider_tools_reject_invalid_route_ids_before_http() {
+        let organization_id = Uuid::from_u128(1);
+        let provider_id = Uuid::from_u128(2);
+        for name in ["create_org_oauth_provider", "update_org_oauth_provider"] {
+            let mut arguments = oauth_provider_create_body();
+            arguments["organization_id"] = serde_json::json!(organization_id);
+            if name == "update_org_oauth_provider" {
+                arguments["provider_id"] = serde_json::json!(provider_id);
+            }
+            let wire = serde_json::to_string(&arguments).unwrap();
+            let mut duplicates = vec![
+                ("organization_id", serde_json::json!(Uuid::from_u128(3))),
+                ("client_id", serde_json::json!("second-client")),
+            ];
+            if name == "update_org_oauth_provider" {
+                duplicates.push(("provider_id", serde_json::json!(Uuid::from_u128(3))));
+            }
+            for (field, value) in duplicates {
+                let duplicate = format!(r#"{{"{field}":{value},{}"#, &wire[1..]);
+                let error = if name == "create_org_oauth_provider" {
+                    serde_json::from_str::<CreateOrgOAuthProviderParams>(&duplicate).unwrap_err()
+                } else {
+                    serde_json::from_str::<UpdateOrgOAuthProviderParams>(&duplicate).unwrap_err()
+                };
+                assert!(
+                    error.to_string().contains("duplicate field"),
+                    "{name}: {error}"
+                );
+                assert!(error.to_string().contains(field), "{name}: {error}");
+            }
+        }
+        let proxy = wiremock::MockServer::start().await;
+        let (client, server_task) = oauth_provider_test_client(&proxy).await;
+        let mut failures = Vec::new();
+        for name in ["create_org_oauth_provider", "update_org_oauth_provider"] {
+            let mut valid = if name == "create_org_oauth_provider" {
+                oauth_provider_create_body()
+            } else {
+                flat_oauth_provider_update(serde_json::json!({}))
+            };
+            valid["organization_id"] = serde_json::json!(Uuid::from_u128(1));
+            let fields = if name == "create_org_oauth_provider" {
+                &["organization_id"][..]
+            } else {
+                &["organization_id", "provider_id"][..]
+            };
+            for field in fields {
+                let mut invalid = vec![
+                    None,
+                    Some(Value::Null),
+                    Some(serde_json::json!("not-a-uuid")),
+                ];
+                if name == "update_org_oauth_provider" && *field == "organization_id" {
+                    invalid.push(Some(serde_json::json!(Uuid::nil())));
+                }
+                for value in invalid {
+                    let mut arguments = valid.clone();
+                    match value {
+                        Some(value) => {
+                            arguments[*field] = value;
+                        }
+                        None => {
+                            arguments.as_object_mut().unwrap().remove(*field);
+                        }
+                    }
+                    let result = client
+                        .call_tool(
+                            CallToolRequestParams::new(name)
+                                .with_arguments(arguments.as_object().unwrap().clone()),
+                        )
+                        .await;
+                    if !matches!(result, Err(rmcp::service::ServiceError::McpError(ref error))
+                        if error.code == rmcp::model::ErrorCode::INVALID_PARAMS)
+                    {
+                        failures.push(format!("{name} {field}: {result:?}"));
+                    }
+                    assert!(proxy.received_requests().await.unwrap().is_empty());
+                }
+            }
+        }
+        client.cancel().await.unwrap();
+        server_task.await.unwrap();
+        assert!(
+            failures.is_empty(),
+            "expected INVALID_PARAMS: {failures:#?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn oauth_provider_tools_preserve_supported_bodies_and_reject_unknown_fields() {
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{body_json, header, method, path},
+        };
+
+        let proxy = MockServer::start().await;
+        let (client, server_task) = oauth_provider_test_client(&proxy).await;
+        let organization_id = Uuid::from_u128(1);
+        let provider_id = Uuid::from_u128(2);
+        let create = oauth_provider_create_body();
+        let mut full_update = create.clone();
+        full_update["is_active"] = serde_json::json!(false);
+        let mut cases = vec![(
+            "create_org_oauth_provider",
+            create.clone(),
+            create.clone(),
+            false,
+        )];
+        for body in [
+            serde_json::json!({}),
+            serde_json::json!({"name": "Changed name"}),
+            serde_json::json!({"description": "", "logo_url": "", "userinfo_url": "",
+                "revocation_url": "", "is_active": false, "scopes": []}),
+            serde_json::json!({"userinfo_method": null, "userinfo_id_path": null,
+                "userinfo_email_path": null, "revocation_auth": null}),
+            serde_json::json!({"userinfo_method": "post", "userinfo_id_path": "/id",
+                "userinfo_email_path": "/email", "revocation_auth": "bearer", "is_active": false}),
+            full_update,
+        ] {
+            cases.push(("update_org_oauth_provider", body.clone(), body, false));
+        }
+        cases.push((
+            "update_org_oauth_provider",
+            serde_json::json!({
+                "description": null, "logo_url": null, "userinfo_url": null,
+                "revocation_url": null, "pkce_required": false
+            }),
+            serde_json::json!({
+                "description": null, "logo_url": null, "userinfo_url": null,
+                "revocation_url": null, "pkce_required": false
+            }),
+            false,
+        ));
+        cases.push((
+            "update_org_oauth_provider",
+            serde_json::json!({"name": "Runtime update"}),
+            serde_json::json!({"name": "Runtime update"}),
+            true,
+        ));
+
+        for (name, body, expected, runtime_context) in cases {
+            proxy.reset().await;
+            let is_create = name == "create_org_oauth_provider";
+            let route = if is_create {
+                format!("/organizations/{organization_id}/oauth/providers")
+            } else {
+                format!("/organizations/{organization_id}/oauth/providers/{provider_id}")
+            };
+            Mock::given(method(if is_create { "POST" } else { "PATCH" }))
+                .and(path(&route))
+                .and(header("authorization", "Bearer test-key"))
+                .and(body_json(expected.clone()))
+                .respond_with(
+                    ResponseTemplate::new(if is_create { 201 } else { 200 })
+                        .set_body_json(oauth_provider_response()),
+                )
+                .expect(1)
+                .mount(&proxy)
+                .await;
+            let mut arguments = if is_create {
+                body
+            } else {
+                flat_oauth_provider_update(body)
+            };
+            arguments["organization_id"] = serde_json::json!(organization_id);
+            if runtime_context {
+                arguments["_seren_work_context"] = serde_json::json!("signed-work-context");
+            }
+            let result = client
+                .call_tool(
+                    CallToolRequestParams::new(name)
+                        .with_arguments(arguments.as_object().unwrap().clone()),
+                )
+                .await
+                .unwrap();
+            assert!(!result.is_error.unwrap_or(false), "{name}: {result:?}");
+            let requests = proxy.received_requests().await.unwrap();
+            assert_eq!(requests.len(), 1);
+            assert_eq!(requests[0].url.path(), route);
+            let actual: Value = requests[0].body_json().unwrap();
+            assert_eq!(actual, expected);
+            assert!(actual.get("organization_id").is_none());
+            if runtime_context {
+                assert_eq!(
+                    requests[0]
+                        .headers
+                        .get("x-seren-organization-work-context")
+                        .unwrap(),
+                    "signed-work-context"
+                );
+            }
+            proxy.verify().await;
+        }
+
+        proxy.reset().await;
+        let mut failures = Vec::new();
+        for name in ["create_org_oauth_provider", "update_org_oauth_provider"] {
+            let mut valid = if name == "create_org_oauth_provider" {
+                create.clone()
+            } else {
+                flat_oauth_provider_update(serde_json::json!({"name": "Update"}))
+            };
+            valid["organization_id"] = serde_json::json!(organization_id);
+            for field in ["descriptoin", "organisation_id", "unexpected", "body"] {
+                for value in [
+                    serde_json::json!("unsupported"),
+                    Value::Null,
+                    serde_json::json!({"organization_id": Uuid::from_u128(3)}),
+                ] {
+                    let mut arguments = valid.clone();
+                    arguments[field] = value;
+                    let result = client
+                        .call_tool(
+                            CallToolRequestParams::new(name)
+                                .with_arguments(arguments.as_object().unwrap().clone()),
+                        )
+                        .await;
+                    if !matches!(result, Err(rmcp::service::ServiceError::McpError(ref error))
+                        if error.code == rmcp::model::ErrorCode::INVALID_PARAMS
+                            && error.message.contains(field))
+                    {
+                        failures.push(format!("{name} {field}: {result:?}"));
+                    }
+                }
+            }
+        }
+        let requests = proxy.received_requests().await.unwrap();
+        client.cancel().await.unwrap();
+        server_task.await.unwrap();
+        assert!(
+            failures.is_empty() && requests.is_empty(),
+            "unknown fields must return INVALID_PARAMS naming the field; {} HTTP requests; {failures:#?}",
+            requests.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn oauth_provider_tools_validate_arguments_before_read_only_guard() {
+        use rmcp::ServiceExt;
+        use rmcp::transport::{
+            StreamableHttpClientTransport,
+            streamable_http_client::StreamableHttpClientTransportConfig,
+            streamable_http_server::{StreamableHttpService, session::never::NeverSessionManager},
+        };
+
+        let proxy = wiremock::MockServer::start().await;
+        let mut server = server_with_http_client(reqwest::Client::new());
+        server.api_base_url = proxy.uri();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let authority = listener.local_addr().unwrap().to_string();
+        let ct = tokio_util::sync::CancellationToken::new();
+        let service = StreamableHttpService::new(
+            move || Ok(server.clone()),
+            Arc::new(NeverSessionManager::default()),
+            crate::streamable_http_config(vec!["127.0.0.1".into(), authority.clone()], ct.clone()),
+        );
+        let app = axum::Router::new().route("/mcp", axum::routing::any_service(service));
+        let stop = ct.clone();
+        let server_task = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(stop.cancelled_owned())
+                .await
+                .unwrap();
+        });
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("x-read-only", "true".parse().unwrap());
+        let http = reqwest::Client::builder()
+            .default_headers(headers)
+            .build()
+            .unwrap();
+        let client = ()
+            .serve(StreamableHttpClientTransport::with_client(
+                http,
+                StreamableHttpClientTransportConfig::with_uri(format!("http://{authority}/mcp")),
+            ))
+            .await
+            .unwrap();
+        let mut failures = Vec::new();
+        for name in ["create_org_oauth_provider", "update_org_oauth_provider"] {
+            let mut arguments = if name == "create_org_oauth_provider" {
+                oauth_provider_create_body()
+            } else {
+                flat_oauth_provider_update(serde_json::json!({"is_active": false}))
+            };
+            arguments["organization_id"] = serde_json::json!(Uuid::from_u128(1));
+            let error = client
+                .call_tool(
+                    CallToolRequestParams::new(name)
+                        .with_arguments(arguments.as_object().unwrap().clone()),
+                )
+                .await
+                .unwrap_err();
+            let rmcp::service::ServiceError::McpError(error) = error else {
+                panic!("expected a read-only MCP error");
+            };
+            assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_REQUEST);
+            assert!(error.message.contains("Read-only"), "{}", error.message);
+            arguments["unexpected"] = Value::Null;
+            let result = client
+                .call_tool(
+                    CallToolRequestParams::new(name)
+                        .with_arguments(arguments.as_object().unwrap().clone()),
+                )
+                .await;
+            if !matches!(result, Err(rmcp::service::ServiceError::McpError(ref error))
+                if error.code == rmcp::model::ErrorCode::INVALID_PARAMS
+                    && error.message.contains("unexpected"))
+            {
+                failures.push(format!("{name}: {result:?}"));
+            }
+        }
+        assert!(proxy.received_requests().await.unwrap().is_empty());
+        client.cancel().await.unwrap();
+        ct.cancel();
+        server_task.await.unwrap();
+        assert!(
+            failures.is_empty(),
+            "parameter validation precedes the read-only guard: {failures:#?}"
+        );
     }
 
     fn managed_agent_detail_fixture(deployment_id: Uuid) -> serde_json::Value {
