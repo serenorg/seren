@@ -11419,6 +11419,7 @@
       "CloudConversationTask": {
         "type": "object",
         "required": [
+          "activation",
           "task_id",
           "conversation_id",
           "state",
@@ -11428,6 +11429,9 @@
           "created_at"
         ],
         "properties": {
+          "activation": {
+            "$ref": "#/components/schemas/RecoveryStatus"
+          },
           "conversation_id": {
             "type": "string"
           },
@@ -17073,6 +17077,7 @@
           "data": {
             "type": "object",
             "required": [
+              "activation",
               "task_id",
               "conversation_id",
               "state",
@@ -17082,6 +17087,9 @@
               "created_at"
             ],
             "properties": {
+              "activation": {
+                "$ref": "#/components/schemas/RecoveryStatus"
+              },
               "conversation_id": {
                 "type": "string"
               },
@@ -26288,6 +26296,34 @@
           "setup_failed"
         ]
       },
+      "RecoveryStatus": {
+        "type": "object",
+        "description": "Automatic setup recovery for the selected revision.",
+        "required": [
+          "recovering_automatically",
+          "attempts",
+          "last_refusal_permanence"
+        ],
+        "properties": {
+          "attempts": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "last_refusal_permanence": {
+            "$ref": "#/components/schemas/RefusalPermanence"
+          },
+          "next_attempt_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "recovering_automatically": {
+            "type": "boolean"
+          }
+        }
+      },
       "ReferenceEnvCredentialProposalPreview": {
         "type": "object",
         "required": [
@@ -26358,6 +26394,17 @@
           }
         },
         "additionalProperties": false
+      },
+      "RefusalPermanence": {
+        "type": "string",
+        "description": "Whether another submission of the same workload can succeed.",
+        "enum": [
+          "permanent_for_this_spec",
+          "transient",
+          "capability",
+          "needs_controller_change",
+          "unknown"
+        ]
       },
       "RequirementSource": {
         "type": "string",

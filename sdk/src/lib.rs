@@ -444,6 +444,8 @@ mod tests {
                 "task_id": Uuid::new_v4(), "conversation_id": "setup-conversation",
                 "state": "waiting", "files": [], "created_at": "2026-10-24T01:00:00Z",
                 "serving_fallback": false,
+                "activation": {"recovering_automatically": true, "attempts": 2,
+                    "last_refusal_permanence": "transient", "next_attempt_at": "2026-10-24T01:01:00Z"},
                 "hold_reason": reason,
                 "queue_state": {"state": "waiting", "since": "2026-10-24T01:00:00Z",
                     "attempts": 0, "reason": reason}
@@ -463,6 +465,8 @@ mod tests {
         for end_reason in ["retry_refused", "retry_limit", "hold_expired"] {
             let wire = json!({"task_id": Uuid::new_v4(), "conversation_id": "held-conversation",
                 "state": "removed", "files": [], "created_at": "2026-10-24T01:00:00Z",
+                "activation": {"recovering_automatically": false, "attempts": 3,
+                    "last_refusal_permanence": "permanent_for_this_spec"},
                 "serving_fallback": true, "desired_revision": 9, "serving_revision": 8,
                 "end_reason": end_reason, "retry_refusal": "admission_refused",
                 "retry_refused_at": "2026-10-24T01:02:00Z",
@@ -470,6 +474,7 @@ mod tests {
             let task: crate::CloudConversationTask = serde_json::from_value(wire.clone()).unwrap();
             assert_eq!(serde_json::to_value(task).unwrap(), wire);
             for (field, value) in [
+                ("activation", json!(null)),
                 ("end_reason", json!("unknown")),
                 ("retry_refusal", json!("unknown")),
                 ("retry_refused_at", json!("not-a-timestamp")),
@@ -479,9 +484,11 @@ mod tests {
                 malformed[field] = value;
                 assert!(serde_json::from_value::<crate::CloudConversationTask>(malformed).is_err());
             }
-            let mut missing = wire;
-            missing.as_object_mut().unwrap().remove("serving_fallback");
-            assert!(serde_json::from_value::<crate::CloudConversationTask>(missing).is_err());
+            for field in ["activation", "serving_fallback"] {
+                let mut missing = wire.clone();
+                missing.as_object_mut().unwrap().remove(field);
+                assert!(serde_json::from_value::<crate::CloudConversationTask>(missing).is_err());
+            }
         }
     }
 
@@ -499,7 +506,8 @@ mod tests {
             serde_json::from_value(owner_wire.clone()).unwrap();
         assert_eq!(serde_json::to_value(owner).unwrap(), owner_wire);
         let mut update_wire = template_update_with_activation(
-            json!({"progress": "pending", "availability": "pending"}),
+            json!({"progress": "pending", "availability": "pending",
+                "recovering_automatically": true, "attempts": 2, "last_refusal_permanence": "transient"}),
         );
         update_wire["desired_revision"] = json!(9);
         update_wire["serving_revision"] = json!(8);
@@ -531,17 +539,111 @@ mod tests {
     #[test]
     fn publisher_continuations_preserve_setup_and_stopped_errors() {
         for error in ["setup_pending", "setup_failed", "stopped"] {
-            let wire = json!({"outcome": "granted", "error": error});
+            let wire = json!({"outcome": "granted", "error": error,
+                "activation": {"recovering_automatically": true, "attempts": 2,
+                    "last_refusal_permanence": "unknown"}});
             let continuation: crate::PublisherAccessContinuation =
                 serde_json::from_value(wire.clone()).unwrap();
             assert_eq!(serde_json::to_value(continuation).unwrap(), wire);
         }
         assert!(
             serde_json::from_value::<crate::PublisherAccessContinuation>(json!({
-                "outcome": "granted", "error": "setup_unknown"
+                "outcome": "granted", "error": "setup_unknown",
+                "activation": {"recovering_automatically": false, "attempts": 0,
+                    "last_refusal_permanence": "unknown"}
             }))
             .is_err()
         );
+    }
+
+    #[test]
+    fn recovery_status_preserves_schedule_and_rejects_invalid_evidence() {
+        for permanence in [
+            "permanent_for_this_spec",
+            "transient",
+            "capability",
+            "needs_controller_change",
+            "unknown",
+        ] {
+            for next_attempt_at in [None, Some(json!(null)), Some(json!("2026-10-24T01:01:00Z"))] {
+                let mut wire = json!({"recovering_automatically": true, "attempts": 3,
+                    "last_refusal_permanence": permanence});
+                if let Some(next_attempt_at) = next_attempt_at {
+                    wire["next_attempt_at"] = next_attempt_at;
+                }
+                let decoded: crate::RecoveryStatus = serde_json::from_value(wire.clone()).unwrap();
+                if wire
+                    .get("next_attempt_at")
+                    .is_some_and(serde_json::Value::is_null)
+                {
+                    wire.as_object_mut().unwrap().remove("next_attempt_at");
+                }
+                assert_eq!(serde_json::to_value(decoded).unwrap(), wire);
+            }
+        }
+        let unscheduled = json!({"recovering_automatically": false, "attempts": 0,
+            "last_refusal_permanence": "unknown"});
+        let decoded: crate::RecoveryStatus = serde_json::from_value(unscheduled.clone()).unwrap();
+        assert_eq!(serde_json::to_value(decoded).unwrap(), unscheduled);
+        for field in [
+            "recovering_automatically",
+            "attempts",
+            "last_refusal_permanence",
+        ] {
+            for explicit_null in [false, true] {
+                let mut wire = unscheduled.clone();
+                if explicit_null {
+                    wire[field] = json!(null);
+                } else {
+                    wire.as_object_mut().unwrap().remove(field);
+                }
+                assert!(
+                    serde_json::from_value::<crate::RecoveryStatus>(wire).is_err(),
+                    "{field}"
+                );
+            }
+        }
+        for (field, value) in [
+            ("recovering_automatically", json!("false")),
+            ("attempts", json!(1.5)),
+            ("last_refusal_permanence", json!("future_refusal")),
+            ("next_attempt_at", json!("not-a-timestamp")),
+        ] {
+            let mut wire = unscheduled.clone();
+            wire[field] = value;
+            assert!(
+                serde_json::from_value::<crate::RecoveryStatus>(wire).is_err(),
+                "{field}"
+            );
+        }
+        let health_wire = json!({"activation": unscheduled, "deployment_id": Uuid::new_v4(),
+            "name": "Researcher", "agent_slug": "research", "status": "pending",
+            "desired_lifecycle_state": "running", "desired_egress_state": "enabled",
+            "control_generation": 3, "mode": "always_on", "compute_backend": "aws_container",
+            "runtime_kind": "rust", "created_at": "2026-10-24T01:00:00Z",
+            "updated_at": "2026-10-24T01:00:00Z"});
+        let health: crate::ManagedAgentDeploymentHealth =
+            serde_json::from_value(health_wire.clone()).unwrap();
+        assert_eq!(
+            serde_json::to_value(health).unwrap()["activation"],
+            unscheduled
+        );
+        for explicit_null in [false, true] {
+            let mut wire = health_wire.clone();
+            if explicit_null {
+                wire["activation"] = json!(null);
+            } else {
+                wire.as_object_mut().unwrap().remove("activation");
+            }
+            assert!(serde_json::from_value::<crate::ManagedAgentDeploymentHealth>(wire).is_err());
+        }
+        for activation in [None, Some(json!(null))] {
+            let mut wire = json!({"outcome": "granted", "error": "setup_pending"});
+            if let Some(activation) = activation {
+                wire["activation"] = activation;
+            }
+            assert!(serde_json::from_value::<crate::PublisherAccessContinuation>(wire).is_err());
+        }
     }
 
     fn template_update_with_activation(activation: serde_json::Value) -> serde_json::Value {
@@ -567,12 +669,21 @@ mod tests {
             let deployment_id = Uuid::new_v4();
             let mut activation = json!({
                 "progress": progress, "availability": availability,
+                "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown",
                 "revision_id": Uuid::new_v4(), "action_id": Uuid::new_v4(),
                 "is_current_revision": true
             });
+            if progress == "pending" {
+                activation["recovering_automatically"] = json!(true);
+                activation["attempts"] = json!(2);
+                activation["last_refusal_permanence"] = json!("transient");
+                activation["next_attempt_at"] = json!("2026-10-24T01:01:00Z");
+            }
             if progress == "applied" {
                 activation["applied_at"] = json!("2026-10-24T01:00:00Z");
             } else if progress == "failed" {
+                activation["attempts"] = json!(3);
+                activation["last_refusal_permanence"] = json!("permanent_for_this_spec");
                 activation["failure"] = json!("runtime_rejected");
                 activation["controller_refusal_kind"] = json!("workload_rejected");
                 activation["obstruction"] = json!("terminal_failure");
@@ -620,9 +731,11 @@ mod tests {
             "failure",
             "obstruction",
             "controller_refusal_kind",
+            "next_attempt_at",
         ];
         for explicit_null in [false, true] {
-            let mut activation = json!({"progress": "unverified", "availability": "unverified"});
+            let mut activation = json!({"progress": "unverified", "availability": "unverified",
+                "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"});
             if explicit_null {
                 for field in fields {
                     activation[field] = serde_json::Value::Null;
@@ -633,12 +746,14 @@ mod tests {
             let actual = serde_json::to_value(decoded).unwrap();
             assert_eq!(
                 actual["activation"],
-                json!({"progress": "unverified", "availability": "unverified"}),
+                json!({"progress": "unverified", "availability": "unverified",
+                "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"}),
                 "explicit null: {explicit_null}"
             );
         }
         let mut wire = template_update_with_activation(json!({
-            "progress": "superseded", "availability": "unverified", "is_current_revision": false
+            "progress": "superseded", "availability": "unverified", "is_current_revision": false,
+            "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"
         }));
         let decoded: crate::ManagedAgentTemplateUpdate =
             serde_json::from_value(wire.clone()).unwrap();
@@ -675,8 +790,13 @@ mod tests {
             ("action_id", json!("not-a-uuid")),
             ("is_current_revision", json!("false")),
             ("applied_at", json!("not-a-timestamp")),
+            ("recovering_automatically", json!("false")),
+            ("attempts", json!("0")),
+            ("last_refusal_permanence", json!("future_refusal")),
+            ("next_attempt_at", json!("not-a-timestamp")),
         ] {
-            let mut activation = json!({"progress": "unverified", "availability": "unverified"});
+            let mut activation = json!({"progress": "unverified", "availability": "unverified",
+                "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"});
             activation[field] = value;
             assert!(
                 serde_json::from_value::<crate::ManagedAgentTemplateUpdate>(
@@ -686,10 +806,16 @@ mod tests {
                 "{field}"
             );
         }
-        for field in ["progress", "availability"] {
+        for field in [
+            "progress",
+            "availability",
+            "recovering_automatically",
+            "attempts",
+            "last_refusal_permanence",
+        ] {
             for explicit_null in [false, true] {
-                let mut activation =
-                    json!({"progress": "unverified", "availability": "unverified"});
+                let mut activation = json!({"progress": "unverified", "availability": "unverified",
+                "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"});
                 if explicit_null {
                     activation[field] = serde_json::Value::Null;
                 } else {
@@ -1102,19 +1228,31 @@ mod tests {
             if rollout == Some(false) {
                 response_wire["data"]["rollout"] = serde_json::Value::Null;
             } else if rollout == Some(true) {
+                // Installing reports the current revision's pending activation.
+                let installing_revision = Uuid::new_v4();
                 response_wire["data"]["rollout"] = json!({
                     "template_slug": "release-test", "template_revision": 8,
                     "deployments": [
                         {"deployment_id": Uuid::new_v4(), "outcome": "updated", "revision_id": Uuid::new_v4(),
-                            "activation": {"progress": "applied", "availability": "ready"}},
+                            "activation": {"progress": "applied", "availability": "ready",
+                                "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"}},
                         {"deployment_id": Uuid::new_v4(), "outcome": "applying", "revision_id": Uuid::new_v4(),
-                            "activation": {"progress": "pending", "availability": "pending"}},
+                            "activation": {"progress": "pending", "availability": "pending",
+                                "recovering_automatically": true, "attempts": 1,
+                                "last_refusal_permanence": "transient", "next_attempt_at": "2026-10-24T01:01:00Z"}},
+                        {"deployment_id": Uuid::new_v4(), "outcome": "installing", "revision_id": installing_revision,
+                            "activation": {"progress": "pending", "availability": "pending",
+                                "revision_id": installing_revision, "is_current_revision": true,
+                                "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"}},
                         {"deployment_id": Uuid::new_v4(), "outcome": "staged", "revision_id": Uuid::new_v4(),
-                            "activation": {"progress": "staged_next_start", "availability": "stopped"}},
+                            "activation": {"progress": "staged_next_start", "availability": "stopped",
+                                "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"}},
                         {"deployment_id": Uuid::new_v4(), "outcome": "superseded", "revision_id": Uuid::new_v4(),
-                            "activation": {"progress": "superseded", "availability": "unverified"}},
+                            "activation": {"progress": "superseded", "availability": "unverified",
+                                "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"}},
                         {"deployment_id": Uuid::new_v4(), "outcome": "unverified", "revision_id": null,
-                            "activation": {"progress": "unverified", "availability": "unverified"}},
+                            "activation": {"progress": "unverified", "availability": "unverified",
+                                "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"}},
                         {"deployment_id": Uuid::new_v4(), "outcome": "already_current", "revision_id": Uuid::new_v4()},
                         {"deployment_id": Uuid::new_v4(), "outcome": "hire_incomplete", "revision_id": null, "failure": null},
                         {"deployment_id": Uuid::new_v4(), "outcome": "pending_approval"},
@@ -1151,7 +1289,7 @@ mod tests {
                         .as_array()
                         .unwrap()
                         .len(),
-                    13
+                    14
                 );
                 for (decoded, wire) in decoded["data"]["rollout"]["deployments"]
                     .as_array()
@@ -1233,6 +1371,7 @@ mod tests {
         for outcome in [
             "updated",
             "applying",
+            "installing",
             "staged",
             "superseded",
             "unverified",
@@ -1281,17 +1420,20 @@ mod tests {
                     "revision_id": Uuid::new_v4(), "activation": activation}]
             })
         };
-        let valid = report_with_activation(json!({"progress": "applied", "availability": "ready"}));
+        let valid = report_with_activation(json!({"progress": "applied", "availability": "ready",
+            "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"}));
         let decoded: crate::AdminTemplateRevisionApplication =
             serde_json::from_value(valid.clone()).unwrap();
         assert_eq!(serde_json::to_value(decoded).unwrap(), valid);
+        // Malformed activation fields retain complete recovery evidence to isolate their failures.
         for activation in [
-            json!({"progress": "ready", "availability": "ready"}),
-            json!({"progress": "applied", "availability": "applied"}),
-            json!({"progress": "applied"}),
-            json!({"availability": "ready"}),
-            json!({"progress": "applied", "availability": "ready", "revision_id": "not-a-uuid"}),
+            json!({"progress": "ready", "availability": "ready", "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"}),
+            json!({"progress": "applied", "availability": "applied", "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"}),
+            json!({"progress": "applied", "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"}),
+            json!({"availability": "ready", "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"}),
+            json!({"progress": "applied", "availability": "ready", "revision_id": "not-a-uuid", "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"}),
             json!("applied"),
+            json!({"progress": "applied", "availability": "ready"}),
         ] {
             assert!(
                 serde_json::from_value::<crate::AdminTemplateRevisionApplication>(

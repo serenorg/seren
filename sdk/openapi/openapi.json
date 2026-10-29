@@ -38664,6 +38664,34 @@
           }
         }
       },
+      "RecoveryStatus": {
+        "type": "object",
+        "description": "Automatic setup recovery for the selected revision.",
+        "required": [
+          "recovering_automatically",
+          "attempts",
+          "last_refusal_permanence"
+        ],
+        "properties": {
+          "attempts": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "last_refusal_permanence": {
+            "$ref": "#/components/schemas/RefusalPermanence"
+          },
+          "next_attempt_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "recovering_automatically": {
+            "type": "boolean"
+          }
+        }
+      },
       "ReferralCampaignRewardRequest": {
         "type": "object",
         "description": "A seren-affiliates commission to pay from a template's campaign.",
@@ -38785,6 +38813,17 @@
             "type": "string"
           }
         }
+      },
+      "RefusalPermanence": {
+        "type": "string",
+        "description": "Whether another submission of the same workload can succeed.",
+        "enum": [
+          "permanent_for_this_spec",
+          "transient",
+          "capability",
+          "needs_controller_change",
+          "unknown"
+        ]
       },
       "RemoveRecoveryEmailRequest": {
         "type": "object",
@@ -39512,6 +39551,7 @@
         "enum": [
           "updated",
           "applying",
+          "installing",
           "staged",
           "superseded",
           "unverified",
@@ -39611,78 +39651,85 @@
         ]
       },
       "TemplateUpdateActivation": {
-        "type": "object",
-        "description": "Activation of one exact saved template choice, distinct from its persisted pin.",
-        "required": [
-          "progress",
-          "availability"
-        ],
-        "properties": {
-          "action_id": {
-            "type": [
-              "string",
-              "null"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/RecoveryStatus"
+          },
+          {
+            "type": "object",
+            "required": [
+              "progress",
+              "availability"
             ],
-            "format": "uuid"
-          },
-          "applied_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "availability": {
-            "$ref": "#/components/schemas/ActivationAvailability"
-          },
-          "controller_refusal_kind": {
-            "oneOf": [
-              {
-                "type": "null"
+            "properties": {
+              "action_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
               },
-              {
-                "$ref": "#/components/schemas/RuntimeReconcileRejectionKind",
-                "description": "Typed category of the runtime platform's refusal; never upstream text."
-              }
-            ]
-          },
-          "failure": {
-            "oneOf": [
-              {
-                "type": "null"
+              "applied_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
               },
-              {
-                "$ref": "#/components/schemas/ManagedRuntimeReconciliationFailure"
-              }
-            ]
-          },
-          "is_current_revision": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "obstruction": {
-            "oneOf": [
-              {
-                "type": "null"
+              "availability": {
+                "$ref": "#/components/schemas/ActivationAvailability"
               },
-              {
-                "$ref": "#/components/schemas/ActivationObstruction"
+              "controller_refusal_kind": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RuntimeReconcileRejectionKind",
+                    "description": "Typed category of the runtime platform's refusal; never upstream text."
+                  }
+                ]
+              },
+              "failure": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedRuntimeReconciliationFailure"
+                  }
+                ]
+              },
+              "is_current_revision": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "obstruction": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ActivationObstruction"
+                  }
+                ]
+              },
+              "progress": {
+                "$ref": "#/components/schemas/ActivationProgress"
+              },
+              "revision_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
               }
-            ]
-          },
-          "progress": {
-            "$ref": "#/components/schemas/ActivationProgress"
-          },
-          "revision_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uuid"
+            }
           }
-        }
+        ],
+        "description": "Activation of one exact saved template choice, distinct from its persisted pin."
       },
       "TemplateUpdateSetting": {
         "type": "string",

@@ -121,6 +121,8 @@ Set `rollout: true` in a template release request to evaluate existing hires imm
 
 Publication commits before rollout begins. A timeout or transport error can leave the release published and some hires updated; inspect state before retrying. Configure any outer MCP client or proxy deadline to allow the rollout request's 600-second budget.
 
+Employee deployment health, publisher access continuations, and conversation tasks include required `activation` recovery status. Template update activation includes the same recovery fields alongside its existing progress and availability; template-release rollout outcomes carry them when their optional activation is present. Read `recovering_automatically`, `attempts`, `last_refusal_permanence`, and optional `next_attempt_at` as reported; a recovery schedule does not establish that an Employee is running or that work completed. Do not replace missing required recovery evidence with an idle or successful state.
+
 Return values are wrapped in `ResponseValue<T>`. Call `.into_inner()` to get the response body.
 
 ### Publisher caller identity
