@@ -266,7 +266,7 @@ mod tests {
         let connector = &catalog.connectors[0];
         assert_eq!(connector.available_on_this_employee, Some(true));
         assert_eq!(
-            serde_json::to_value(&connector.receiver).unwrap(),
+            serde_json::to_value(connector.receiver).unwrap(),
             json!("seren_webhook")
         );
         assert!(
