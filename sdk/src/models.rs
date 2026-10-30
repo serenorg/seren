@@ -87,11 +87,11 @@ where
     Ok(Some(values))
 }
 
-/// Changes to an organization OAuth provider. An omitted field stays unchanged.
+/// Changes to an OAuth provider. An omitted field stays unchanged.
 ///
-/// The account-lookup and revocation settings distinguish an omitted field
-/// (`None`) from an explicit `null` reset (`Some(None)`). Other fields do not:
-/// a `null` there is treated as omitted and leaves the stored value unchanged.
+/// Double-option fields distinguish omission (`None`), an explicit null reset
+/// (`Some(None)`), and a supplied value (`Some(Some(value))`). Other fields treat
+/// null as omitted. Ownership changes are supported only by the admin endpoint.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateOAuthProviderRequest {
@@ -105,20 +105,32 @@ pub struct UpdateOAuthProviderRequest {
     /// Custom provider-specific authorization URL parameters. If omitted, left unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_auth_params: Option<serde_json::Value>,
-    /// If omitted or null, left unchanged.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
+    /// If omitted, left unchanged. If null, cleared.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_double_option"
+    )]
+    pub description: Option<Option<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_active: Option<bool>,
-    /// If omitted or null, left unchanged.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub logo_url: Option<String>,
+    /// If omitted, left unchanged. If null, cleared.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_double_option"
+    )]
+    pub logo_url: Option<Option<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    // Undocumented on purpose: MCP flattens this request beside a required route
-    // `organization_id`, and a field description here would be served for it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub organization_id: Option<uuid::Uuid>,
+    /// Admin-only ownership change: omitted leaves it unchanged; null makes it global.
+    /// Moving a sealed organization secret requires an explicit replacement secret.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_double_option"
+    )]
+    pub organization_id: Option<Option<uuid::Uuid>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pkce_required: Option<bool>,
     /// Revocation request shape, `form_token` or `bearer`. If omitted, left
@@ -129,9 +141,13 @@ pub struct UpdateOAuthProviderRequest {
         deserialize_with = "deserialize_double_option"
     )]
     pub revocation_auth: Option<Option<crate::RevocationAuth>>,
-    /// If omitted or null, left unchanged.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub revocation_url: Option<String>,
+    /// If omitted, left unchanged. If null, cleared.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_double_option"
+    )]
+    pub revocation_url: Option<Option<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scopes: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -164,9 +180,13 @@ pub struct UpdateOAuthProviderRequest {
         deserialize_with = "deserialize_double_option"
     )]
     pub userinfo_method: Option<Option<crate::UserinfoMethod>>,
-    /// If omitted or null, left unchanged.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub userinfo_url: Option<String>,
+    /// If omitted, left unchanged. If null, cleared.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_double_option"
+    )]
+    pub userinfo_url: Option<Option<String>>,
 }
 
 /// Preserve a present null separately from an omitted field's default.
@@ -560,6 +580,11 @@ mod oauth_provider_update_tests {
     fn oauth_provider_update_preserves_omission_null_and_values() {
         for wire in [
             json!({}),
+            json!({"description": null, "logo_url": null, "userinfo_url": null,
+                "revocation_url": null, "organization_id": null}),
+            json!({"description": "", "logo_url": "", "userinfo_url": "",
+                "revocation_url": "", "organization_id": "00000000-0000-0000-0000-000000000001",
+                "is_active": false, "scopes": []}),
             json!({"userinfo_method": null, "userinfo_id_path": null,
                 "userinfo_email_path": null, "revocation_auth": null}),
             json!({"userinfo_method": "post", "userinfo_id_path": "/account/id",
@@ -583,18 +608,32 @@ mod oauth_provider_update_tests {
         assert!(omitted.userinfo_id_path.is_none());
         assert!(omitted.userinfo_email_path.is_none());
         assert!(omitted.revocation_auth.is_none());
+        assert!(omitted.description.is_none());
+        assert!(omitted.logo_url.is_none());
+        assert!(omitted.userinfo_url.is_none());
+        assert!(omitted.revocation_url.is_none());
+        assert!(omitted.organization_id.is_none());
         let cleared: UpdateOAuthProviderRequest = serde_json::from_value(json!({
             "userinfo_method": null, "userinfo_id_path": null,
-            "userinfo_email_path": null, "revocation_auth": null
+            "userinfo_email_path": null, "revocation_auth": null,
+            "description": null, "logo_url": null, "userinfo_url": null,
+            "revocation_url": null, "organization_id": null
         }))
         .unwrap();
         assert!(matches!(cleared.userinfo_method, Some(None)));
         assert!(matches!(cleared.userinfo_id_path, Some(None)));
         assert!(matches!(cleared.userinfo_email_path, Some(None)));
         assert!(matches!(cleared.revocation_auth, Some(None)));
+        assert!(matches!(cleared.description, Some(None)));
+        assert!(matches!(cleared.logo_url, Some(None)));
+        assert!(matches!(cleared.userinfo_url, Some(None)));
+        assert!(matches!(cleared.revocation_url, Some(None)));
+        assert!(matches!(cleared.organization_id, Some(None)));
         let supplied: UpdateOAuthProviderRequest = serde_json::from_value(json!({
             "userinfo_method": "post", "userinfo_id_path": "/account/id",
-            "userinfo_email_path": "", "revocation_auth": "bearer"
+            "userinfo_email_path": "", "revocation_auth": "bearer",
+            "description": "", "logo_url": "", "userinfo_url": "",
+            "revocation_url": "", "organization_id": "00000000-0000-0000-0000-000000000001"
         }))
         .unwrap();
         assert!(matches!(supplied.userinfo_method, Some(Some(_))));
@@ -605,20 +644,32 @@ mod oauth_provider_update_tests {
         );
         // An empty pointer is a supplied value, not a reset.
         assert_eq!(supplied.userinfo_email_path, Some(Some(String::new())));
+        for value in [
+            supplied.description,
+            supplied.logo_url,
+            supplied.userinfo_url,
+            supplied.revocation_url,
+        ] {
+            assert_eq!(value, Some(Some(String::new())));
+        }
+        assert_eq!(
+            supplied.organization_id,
+            Some(Some(uuid::Uuid::from_u128(1)))
+        );
     }
 
-    /// The other fields keep their single-`Option` public types: a present null
+    /// Unchanged fields keep their single-`Option` public types: a present null
     /// decodes as omitted and re-encodes as omitted.
     #[test]
-    fn oauth_provider_update_keeps_existing_fields_single_optional() {
+    fn oauth_provider_update_keeps_unrelated_fields_single_optional() {
         let request: UpdateOAuthProviderRequest = serde_json::from_value(json!({
-            "description": null, "logo_url": null, "revocation_url": null,
-            "userinfo_url": null, "organization_id": null, "is_active": null,
-            "custom_auth_params": null
+            "is_active": null, "custom_auth_params": null,
+            "client_secret": null, "scopes": null
         }))
         .unwrap();
-        assert!(request.description.is_none());
-        assert!(request.organization_id.is_none());
+        assert!(request.is_active.is_none());
+        assert!(request.client_secret.is_none());
+        assert!(request.scopes.is_none());
         assert!(request.custom_auth_params.is_none());
         assert_eq!(serde_json::to_value(request).unwrap(), json!({}));
     }
@@ -651,6 +702,10 @@ mod oauth_provider_update_tests {
             json!({"userinfo_method": ["post"]}),
             json!({"revocation_auth": {"mode": "bearer"}}),
             json!({"is_active": "false"}),
+            json!({"description": false}),
+            json!({"logo_url": 1}),
+            json!({"userinfo_url": []}),
+            json!({"revocation_url": {}}),
             json!("userinfo_method"),
         ] {
             assert!(serde_json::from_value::<UpdateOAuthProviderRequest>(wire).is_err());
@@ -666,6 +721,10 @@ mod oauth_provider_update_tests {
 
         for wire in [
             json!({"name": "Changed name"}),
+            json!({"description": null, "logo_url": null,
+                "userinfo_url": null, "revocation_url": null, "organization_id": null}),
+            json!({"description": "", "logo_url": "", "userinfo_url": "",
+                "revocation_url": "", "is_active": false, "scopes": []}),
             json!({"userinfo_method": null, "userinfo_id_path": null,
                 "userinfo_email_path": null, "revocation_auth": null}),
             json!({"userinfo_method": "post", "userinfo_id_path": "/id",

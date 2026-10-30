@@ -195,12 +195,12 @@ pub async fn update(
     organization_id: &str,
     provider_id: &str,
     name: Option<&str>,
-    description: Option<&str>,
-    logo_url: Option<&str>,
+    description: Option<Option<&str>>,
+    logo_url: Option<Option<&str>>,
     authorization_url: Option<&str>,
     token_url: Option<&str>,
-    userinfo_url: Option<&str>,
-    revocation_url: Option<&str>,
+    userinfo_url: Option<Option<&str>>,
+    revocation_url: Option<Option<&str>>,
     client_id: Option<&str>,
     client_secret: Option<&str>,
     scopes: Option<&[String]>,
@@ -222,12 +222,12 @@ pub async fn update(
         revocation_auth: None,
         slug: None, // Slug cannot be changed after creation
         name: name.map(String::from),
-        description: description.map(String::from),
-        logo_url: logo_url.map(String::from),
+        description: description.map(|value| value.map(String::from)),
+        logo_url: logo_url.map(|value| value.map(String::from)),
         authorization_url: authorization_url.map(String::from),
         token_url: token_url.map(String::from),
-        userinfo_url: userinfo_url.map(String::from),
-        revocation_url: revocation_url.map(String::from),
+        userinfo_url: userinfo_url.map(|value| value.map(String::from)),
+        revocation_url: revocation_url.map(|value| value.map(String::from)),
         client_id: client_id.map(String::from),
         client_secret: client_secret.map(String::from),
         scopes: scopes.map(|s| s.to_vec()),
@@ -276,4 +276,87 @@ pub async fn delete(organization_id: &str, provider_id: &str, ctx: &CommandConte
     );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use wiremock::{
+        Mock, MockServer, ResponseTemplate,
+        matchers::{body_json, header, method, path},
+    };
+
+    #[tokio::test]
+    async fn oauth_provider_update_sends_clear_omit_empty_and_false_values() {
+        for (nullable, expected) in [
+            (
+                None,
+                json!({"is_active": false, "pkce_required": false, "scopes": []}),
+            ),
+            (
+                Some(None),
+                json!({"description": null, "logo_url": null, "userinfo_url": null,
+                "revocation_url": null, "is_active": false, "pkce_required": false, "scopes": []}),
+            ),
+            (
+                Some(Some("")),
+                json!({"description": "", "logo_url": "", "userinfo_url": "",
+                "revocation_url": "", "is_active": false, "pkce_required": false, "scopes": []}),
+            ),
+            (
+                Some(Some("value")),
+                json!({"description": "value", "logo_url": "value", "userinfo_url": "value",
+                "revocation_url": "value", "is_active": false, "pkce_required": false, "scopes": []}),
+            ),
+        ] {
+            let proxy = MockServer::start().await;
+            let organization_id = Uuid::from_u128(1);
+            let provider_id = Uuid::from_u128(2);
+            Mock::given(method("PATCH"))
+                .and(path(format!(
+                    "/organizations/{organization_id}/oauth/providers/{provider_id}"
+                )))
+                .and(header("authorization", "Bearer test-key"))
+                .and(body_json(expected.clone()))
+                .respond_with(ResponseTemplate::new(409))
+                .expect(1)
+                .mount(&proxy)
+                .await;
+            let ctx = CommandContext::new(
+                Some(proxy.uri()),
+                Some("test-key".into()),
+                crate::OutputFormat::Json,
+            );
+            let result = update(
+                &organization_id.to_string(),
+                &provider_id.to_string(),
+                None,
+                nullable,
+                nullable,
+                None,
+                None,
+                nullable,
+                nullable,
+                None,
+                None,
+                Some(&[]),
+                Some(false),
+                None,
+                Some(false),
+                &ctx,
+            )
+            .await;
+            assert!(
+                result.is_err(),
+                "the loopback server refuses after inspecting the patch"
+            );
+            let received = proxy.received_requests().await.unwrap();
+            assert_eq!(received.len(), 1);
+            assert_eq!(
+                received[0].body_json::<serde_json::Value>().unwrap(),
+                expected
+            );
+        }
+    }
 }

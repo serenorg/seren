@@ -3846,9 +3846,15 @@ enum OrgOauthAction {
         /// New description
         #[arg(long)]
         description: Option<String>,
+        /// Clear the description
+        #[arg(long, conflicts_with = "description")]
+        clear_description: bool,
         /// New logo URL
         #[arg(long)]
         logo_url: Option<String>,
+        /// Clear the logo URL
+        #[arg(long, conflicts_with = "logo_url")]
+        clear_logo_url: bool,
         /// New authorization URL
         #[arg(long)]
         authorization_url: Option<String>,
@@ -3858,9 +3864,15 @@ enum OrgOauthAction {
         /// New userinfo URL
         #[arg(long)]
         userinfo_url: Option<String>,
+        /// Clear the userinfo URL
+        #[arg(long, conflicts_with = "userinfo_url")]
+        clear_userinfo_url: bool,
         /// New revocation URL
         #[arg(long)]
         revocation_url: Option<String>,
+        /// Clear the revocation URL
+        #[arg(long, conflicts_with = "revocation_url")]
+        clear_revocation_url: bool,
         /// New client ID
         #[arg(long)]
         client_id: Option<String>,
@@ -5830,11 +5842,15 @@ async fn main() -> anyhow::Result<()> {
                     provider_id,
                     name,
                     description,
+                    clear_description,
                     logo_url,
+                    clear_logo_url,
                     authorization_url,
                     token_url,
                     userinfo_url,
+                    clear_userinfo_url,
                     revocation_url,
+                    clear_revocation_url,
                     client_id,
                     client_secret,
                     scopes,
@@ -5846,12 +5862,28 @@ async fn main() -> anyhow::Result<()> {
                         &org_id,
                         &provider_id,
                         name.as_deref(),
-                        description.as_deref(),
-                        logo_url.as_deref(),
+                        if clear_description {
+                            Some(None)
+                        } else {
+                            description.as_deref().map(Some)
+                        },
+                        if clear_logo_url {
+                            Some(None)
+                        } else {
+                            logo_url.as_deref().map(Some)
+                        },
                         authorization_url.as_deref(),
                         token_url.as_deref(),
-                        userinfo_url.as_deref(),
-                        revocation_url.as_deref(),
+                        if clear_userinfo_url {
+                            Some(None)
+                        } else {
+                            userinfo_url.as_deref().map(Some)
+                        },
+                        if clear_revocation_url {
+                            Some(None)
+                        } else {
+                            revocation_url.as_deref().map(Some)
+                        },
                         client_id.as_deref(),
                         client_secret.as_deref(),
                         scopes.as_deref(),
@@ -8862,6 +8894,105 @@ mod tests {
             ])
             .is_err()
         );
+    }
+
+    #[test]
+    fn org_oauth_update_preserves_clear_omit_and_empty_values() {
+        const ID: &str = "550e8400-e29b-41d4-a716-446655440000";
+        for (flags, expected_value, expected_clear) in [
+            (vec![], None, false),
+            (
+                vec![
+                    "--clear-description",
+                    "--clear-logo-url",
+                    "--clear-userinfo-url",
+                    "--clear-revocation-url",
+                ],
+                None,
+                true,
+            ),
+            (
+                vec![
+                    "--description",
+                    "",
+                    "--logo-url",
+                    "",
+                    "--userinfo-url",
+                    "",
+                    "--revocation-url",
+                    "",
+                ],
+                Some(""),
+                false,
+            ),
+        ] {
+            let mut args = vec!["seren", "orgs", "oauth", "--org-id", ID, "update", ID];
+            args.extend(flags);
+            let cli = parse_cli_with_large_stack(args);
+            let Commands::Orgs {
+                action: OrgAction::Oauth { org_id, action },
+            } = cli.command
+            else {
+                panic!("expected organization OAuth command");
+            };
+            assert_eq!(org_id, ID);
+            let OrgOauthAction::Update {
+                description,
+                clear_description,
+                logo_url,
+                clear_logo_url,
+                userinfo_url,
+                clear_userinfo_url,
+                revocation_url,
+                clear_revocation_url,
+                ..
+            } = *action
+            else {
+                panic!("expected OAuth provider update");
+            };
+            for (value, clear) in [
+                (description, clear_description),
+                (logo_url, clear_logo_url),
+                (userinfo_url, clear_userinfo_url),
+                (revocation_url, clear_revocation_url),
+            ] {
+                assert_eq!(value.as_deref(), expected_value);
+                assert_eq!(clear, expected_clear);
+            }
+        }
+    }
+
+    #[test]
+    fn org_oauth_update_rejects_conflicting_clear_and_ownership_flags() {
+        const ID: &str = "550e8400-e29b-41d4-a716-446655440000";
+        for (value, clear) in [
+            ("--description", "--clear-description"),
+            ("--logo-url", "--clear-logo-url"),
+            ("--userinfo-url", "--clear-userinfo-url"),
+            ("--revocation-url", "--clear-revocation-url"),
+        ] {
+            let error = match try_parse_cli_with_large_stack(vec![
+                "seren", "orgs", "oauth", "--org-id", ID, "update", ID, value, "value", clear,
+            ]) {
+                Err(error) => error,
+                Ok(_) => panic!("clear and value conflict"),
+            };
+            assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+        }
+        let error = match try_parse_cli_with_large_stack(vec![
+            "seren",
+            "orgs",
+            "oauth",
+            "--org-id",
+            ID,
+            "update",
+            ID,
+            "--clear-organization-id",
+        ]) {
+            Err(error) => error,
+            Ok(_) => panic!("no ownership action on the organization endpoint"),
+        };
+        assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
     }
 
     #[test]

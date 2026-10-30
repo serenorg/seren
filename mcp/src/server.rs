@@ -678,13 +678,65 @@ pub struct CreateOrgOAuthProviderParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[schemars(transform = org_oauth_provider_update_route_schema)]
 pub struct UpdateOrgOAuthProviderParams {
     /// The organization ID (UUID)
+    #[serde(deserialize_with = "deserialize_org_oauth_provider_route_id")]
     pub organization_id: Uuid,
     /// The OAuth provider ID (UUID)
     pub provider_id: Uuid,
-    #[serde(flatten)]
+    #[serde(flatten, serialize_with = "serialize_org_oauth_provider_update_body")]
     pub body: seren::UpdateOAuthProviderRequest,
+}
+
+fn deserialize_org_oauth_provider_route_id<'de, D>(deserializer: D) -> Result<Uuid, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let id = Uuid::deserialize(deserializer)?;
+    if id.is_nil() {
+        return Err(serde::de::Error::custom(
+            "organization_id must be a non-nil UUID",
+        ));
+    }
+    Ok(id)
+}
+
+fn org_oauth_provider_update_body(
+    body: &seren::UpdateOAuthProviderRequest,
+) -> seren::UpdateOAuthProviderRequest {
+    let mut body = body.clone();
+    // Organization updates are bound to their route, not an ownership patch.
+    body.organization_id = None;
+    body
+}
+
+fn serialize_org_oauth_provider_update_body<S>(
+    body: &seren::UpdateOAuthProviderRequest,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    org_oauth_provider_update_body(body).serialize(serializer)
+}
+
+fn org_oauth_provider_update_route_schema(schema: &mut schemars::Schema) {
+    // The flattened shared request also has an optional ownership field.
+    let properties = schema
+        .ensure_object()
+        .get_mut("properties")
+        .and_then(serde_json::Value::as_object_mut)
+        .expect("organization OAuth update schema has object properties");
+    properties.insert(
+        "organization_id".to_string(),
+        serde_json::json!({
+            "type": "string",
+            "format": "uuid",
+            "description": "The organization ID (UUID)",
+            "not": {"const": Uuid::nil().to_string()}
+        }),
+    );
 }
 
 pub type DeleteOrgOAuthProviderParams = OrgOAuthProviderPath;
@@ -11756,9 +11808,16 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
 
+        if params.organization_id.is_nil() {
+            return Err(McpError::invalid_params(
+                "organization_id must be a non-nil UUID",
+                None,
+            ));
+        }
+        let body = org_oauth_provider_update_body(&params.body);
         let api_client = self.api_client(&extensions)?;
         let response = api_client
-            .update_org_oauth_provider(&params.organization_id, &params.provider_id, &params.body)
+            .update_org_oauth_provider(&params.organization_id, &params.provider_id, &body)
             .into_mcp_result()
             .await?
             .into_inner();
@@ -20887,6 +20946,10 @@ pub(crate) mod tests {
     fn oauth_provider_update_flat_params_preserve_presence() {
         for body in [
             serde_json::json!({}),
+            serde_json::json!({"description": null, "logo_url": null, "userinfo_url": null,
+                "revocation_url": null}),
+            serde_json::json!({"description": "", "logo_url": "", "userinfo_url": "",
+                "revocation_url": "", "is_active": false, "scopes": []}),
             serde_json::json!({"userinfo_method": null, "userinfo_id_path": null,
                 "userinfo_email_path": null, "revocation_auth": null}),
             serde_json::json!({"userinfo_method": "post", "userinfo_id_path": "/id",
@@ -20910,6 +20973,26 @@ pub(crate) mod tests {
                 .is_err()
             );
         }
+        for wire in [
+            serde_json::json!({"provider_id": Uuid::from_u128(2)}),
+            serde_json::json!({"organization_id": null, "provider_id": Uuid::from_u128(2)}),
+            serde_json::json!({"organization_id": Uuid::nil(), "provider_id": Uuid::from_u128(2)}),
+        ] {
+            assert!(serde_json::from_value::<UpdateOrgOAuthProviderParams>(wire).is_err());
+        }
+        assert!(serde_json::from_str::<UpdateOrgOAuthProviderParams>(
+            r#"{"organization_id":"00000000-0000-0000-0000-000000000001","provider_id":"00000000-0000-0000-0000-000000000002","organization_id":null}"#
+        ).is_err(), "a duplicate key must not replace route authority with an ownership reset");
+        for ownership in [None, Some(None), Some(Some(Uuid::from_u128(9)))] {
+            let wire = flat_oauth_provider_update(serde_json::json!({"description": null}));
+            let mut params: UpdateOrgOAuthProviderParams =
+                serde_json::from_value(wire.clone()).unwrap();
+            params.body.organization_id = ownership;
+            assert_eq!(serde_json::to_value(&params).unwrap(), wire);
+            assert_eq!(params.organization_id, Uuid::from_u128(1));
+            assert_eq!(params.body.organization_id, ownership);
+        }
+
         // Route IDs bind the path and are not forwarded in the PATCH body.
         let params: UpdateOrgOAuthProviderParams = serde_json::from_value(
             flat_oauth_provider_update(serde_json::json!({"userinfo_method": "post"})),
@@ -20943,7 +21026,42 @@ pub(crate) mod tests {
             required,
             ["organization_id", "provider_id"].into_iter().collect()
         );
+        assert_eq!(schema["properties"]["organization_id"]["type"], "string");
+        assert_eq!(schema["properties"]["organization_id"]["format"], "uuid");
+        assert_eq!(
+            schema["properties"]["organization_id"]["not"]["const"],
+            Uuid::nil().to_string()
+        );
+        assert_eq!(
+            schema["properties"]["organization_id"]["description"],
+            "The organization ID (UUID)"
+        );
+        // A null reset is part of the contract, so these schemas must admit null.
+        fn accepts_null(schema: &serde_json::Value) -> bool {
+            match &schema["type"] {
+                serde_json::Value::String(kind) if kind == "null" => return true,
+                serde_json::Value::Array(kinds) if kinds.iter().any(|kind| kind == "null") => {
+                    return true;
+                }
+                _ => {}
+            }
+            ["anyOf", "oneOf"].into_iter().any(|keyword| {
+                schema[keyword]
+                    .as_array()
+                    .is_some_and(|branches| branches.iter().any(accepts_null))
+            })
+        }
+        for field in ["description", "logo_url", "userinfo_url", "revocation_url"] {
+            assert!(
+                accepts_null(&schema["properties"][field]),
+                "{field} must accept null"
+            );
+        }
         for field in [
+            "description",
+            "logo_url",
+            "userinfo_url",
+            "revocation_url",
             "userinfo_method",
             "userinfo_id_path",
             "userinfo_email_path",
@@ -20965,35 +21083,57 @@ pub(crate) mod tests {
 
         for body in [
             serde_json::json!({"name": "Changed name"}),
+            serde_json::json!({"description": null, "logo_url": null,
+                "userinfo_url": null, "revocation_url": null}),
+            serde_json::json!({"description": "", "logo_url": "", "userinfo_url": "",
+                "revocation_url": "", "is_active": false, "scopes": []}),
             serde_json::json!({"userinfo_method": null, "userinfo_id_path": null,
                 "userinfo_email_path": null, "revocation_auth": null}),
             serde_json::json!({"userinfo_method": "post", "userinfo_id_path": "/id",
                 "userinfo_email_path": "/email", "revocation_auth": "bearer", "is_active": false}),
         ] {
-            let proxy = MockServer::start().await;
-            let organization_id = Uuid::from_u128(1);
-            let provider_id = Uuid::from_u128(2);
-            Mock::given(method("PATCH"))
-                .and(path(format!(
-                    "/organizations/{organization_id}/oauth/providers/{provider_id}"
-                )))
-                .and(header("authorization", "Bearer test-key"))
-                .and(body_json(body.clone()))
-                .respond_with(ResponseTemplate::new(409))
-                .expect(1)
-                .mount(&proxy)
-                .await;
-            let params: UpdateOrgOAuthProviderParams =
-                serde_json::from_value(flat_oauth_provider_update(body.clone())).unwrap();
-            let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
-            let result = server
-                .update_org_oauth_provider(Parameters(params), extensions_with_headers(&[]))
-                .await;
-            assert!(result.is_err(), "the test upstream refuses the update");
-            let received = proxy.received_requests().await.unwrap();
-            assert_eq!(received.len(), 1);
-            assert_eq!(received[0].body_json::<serde_json::Value>().unwrap(), body);
+            for ownership in [None, Some(None), Some(Some(Uuid::from_u128(9)))] {
+                let proxy = MockServer::start().await;
+                let organization_id = Uuid::from_u128(1);
+                let provider_id = Uuid::from_u128(2);
+                Mock::given(method("PATCH"))
+                    .and(path(format!(
+                        "/organizations/{organization_id}/oauth/providers/{provider_id}"
+                    )))
+                    .and(header("authorization", "Bearer test-key"))
+                    .and(body_json(body.clone()))
+                    .respond_with(ResponseTemplate::new(409))
+                    .expect(1)
+                    .mount(&proxy)
+                    .await;
+                let mut params: UpdateOrgOAuthProviderParams =
+                    serde_json::from_value(flat_oauth_provider_update(body.clone())).unwrap();
+                params.body.organization_id = ownership;
+                let mut server = server_with_http_client(reqwest::Client::new());
+                server.api_base_url = proxy.uri();
+                let result = server
+                    .update_org_oauth_provider(Parameters(params), extensions_with_headers(&[]))
+                    .await;
+                assert!(result.is_err(), "the test upstream refuses the update");
+                let received = proxy.received_requests().await.unwrap();
+                assert_eq!(received.len(), 1);
+                assert_eq!(received[0].body_json::<serde_json::Value>().unwrap(), body);
+            }
         }
+        let proxy = MockServer::start().await;
+        let mut params: UpdateOrgOAuthProviderParams = serde_json::from_value(
+            flat_oauth_provider_update(serde_json::json!({"description": null})),
+        )
+        .unwrap();
+        params.organization_id = Uuid::nil();
+        let mut server = server_with_http_client(reqwest::Client::new());
+        server.api_base_url = proxy.uri();
+        let error = server
+            .update_org_oauth_provider(Parameters(params), extensions_with_headers(&[]))
+            .await
+            .expect_err("a nil route organization is rejected before HTTP");
+        assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_PARAMS);
+        assert!(proxy.received_requests().await.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -21002,10 +21142,13 @@ pub(crate) mod tests {
         let params: UpdateOrgOAuthProviderParams =
             serde_json::from_value(flat_oauth_provider_update(serde_json::json!({
                 "userinfo_method": null, "userinfo_id_path": null,
-                "userinfo_email_path": null, "revocation_auth": null
+                "userinfo_email_path": null, "revocation_auth": null,
+                "description": null, "logo_url": null, "userinfo_url": null,
+                "revocation_url": null
             })))
             .unwrap();
-        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let mut server = server_with_http_client(reqwest::Client::new());
+        server.api_base_url = proxy.uri();
         let error = server
             .update_org_oauth_provider(
                 Parameters(params),
