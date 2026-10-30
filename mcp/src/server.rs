@@ -6243,6 +6243,103 @@ where
         .map_err(|e| format!("invalid typed response in data.body: {e}"))
 }
 
+/// Decode Memory's typed reply inside the publisher gateway without exposing payloads.
+async fn memory_publisher_result<T, E>(
+    operation: &'static str,
+    result: Result<seren::ResponseValue<T>, seren::Error<E>>,
+) -> Result<T, McpError>
+where
+    T: DeserializeOwned,
+    E: std::fmt::Debug,
+{
+    let (bytes, decode_error) = match result {
+        Ok(response) => return Ok(response.into_inner()),
+        Err(seren::Error::InvalidResponsePayload(bytes, error)) => (bytes, error),
+        Err(error) => return Err(seren_error_to_mcp_error(error).await),
+    };
+    let contract_mismatch = |error: &serde_json::Error, status: Option<&serde_json::Number>| {
+        // Other serde messages can contain the rejected private value.
+        let detail = if error.to_string().starts_with("missing field ") {
+            error.to_string()
+        } else {
+            format!(
+                "invalid response at line {} column {}",
+                error.line(),
+                error.column()
+            )
+        };
+        let mut data = serde_json::json!({
+            "kind": "client_contract_mismatch",
+            "publisher": "seren-memory",
+            "operation": operation,
+        });
+        if let Some(status) = status {
+            data["upstream_status"] = serde_json::json!(status);
+        }
+        McpError::internal_error(
+            format!("Seren Memory {operation} response contract mismatch: {detail}"),
+            Some(data),
+        )
+    };
+    let envelope: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|_| contract_mismatch(&decode_error, None))?;
+    let data = envelope
+        .get("data")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| contract_mismatch(&decode_error, None))?;
+    let status = data
+        .get("status")
+        .and_then(serde_json::Value::as_number)
+        .filter(|status| status.is_i64() || status.is_u64())
+        .ok_or_else(|| contract_mismatch(&decode_error, None))?;
+    let body = match data.get("body") {
+        Some(serde_json::Value::String(raw)) => serde_json::from_str(raw),
+        Some(body) => Ok(body.clone()),
+        None => Ok(serde_json::Value::Null),
+    };
+    let status_code = status
+        .as_u64()
+        .and_then(|status| u16::try_from(status).ok())
+        .and_then(|status| reqwest::StatusCode::from_u16(status).ok())
+        .ok_or_else(|| contract_mismatch(&decode_error, None))?;
+    if !status_code.is_success() {
+        let service_error = body
+            .as_ref()
+            .ok()
+            .and_then(|body| Some((body.get("error")?.as_str()?, body.get("message")?.as_str()?)));
+        let (error, message) = match service_error {
+            Some((error, message)) => (
+                Some(truncate_for_client(error, 500)),
+                Some(truncate_for_client(message, 500)),
+            ),
+            None => (None, None),
+        };
+        let detail = match (error.as_deref(), message.as_deref()) {
+            (Some(error), Some(message)) => format!(" {error}: {message}"),
+            _ => String::new(),
+        };
+        return Err(McpError::internal_error(
+            format!("Seren Memory {operation} failed: {status}{detail}"),
+            Some(serde_json::json!({
+                "kind": "publisher_error",
+                "publisher": "seren-memory",
+                "operation": operation,
+                "status": status,
+                "error": error,
+                "message": message,
+            })),
+        ));
+    }
+    let body = body.map_err(|error| contract_mismatch(&error, Some(status)))?;
+    if body.is_null() {
+        return Err(contract_mismatch(
+            &<serde_json::Error as serde::de::Error>::missing_field("data.body"),
+            Some(status),
+        ));
+    }
+    serde_json::from_value(body).map_err(|error| contract_mismatch(&error, Some(status)))
+}
+
 /// Check if a seren SDK error is retryable (transient connection/timeout errors).
 ///
 /// Returns true for:
@@ -10786,10 +10883,8 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client.seren_memory_health().await {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response =
+            memory_publisher_result("health", api_client.seren_memory_health().await).await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -10803,10 +10898,11 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client.seren_memory_session_bootstrap(&params).await {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "session_bootstrap",
+            api_client.seren_memory_session_bootstrap(&params).await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -10821,10 +10917,11 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let request = seren::SerenMemoryRecallParams::from(params);
-        let response = match api_client.seren_memory_search_memories(&request).await {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "search_memories",
+            api_client.seren_memory_search_memories(&request).await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -10858,23 +10955,23 @@ impl SerenMcpServer {
             .collect::<Vec<_>>()
             .join(",");
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client
-            .seren_memory_list_memories(
-                Some(ids.as_str()),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "list_memories",
+            api_client
+                .seren_memory_list_memories(
+                    Some(ids.as_str()),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -10888,10 +10985,9 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client.seren_memory_recall(&params).await {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response =
+            memory_publisher_result("recall", api_client.seren_memory_recall(&params).await)
+                .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -10910,10 +11006,9 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client.seren_memory_remember(&params).await {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response =
+            memory_publisher_result("remember", api_client.seren_memory_remember(&params).await)
+                .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -10933,10 +11028,11 @@ impl SerenMcpServer {
         ensure_writes_allowed(&extensions)?;
         let request = seren::SerenMemoryLearnFromErrorParams::from(params);
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client.seren_memory_learn_from_error(&request).await {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "learn_from_error",
+            api_client.seren_memory_learn_from_error(&request).await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -10965,10 +11061,11 @@ impl SerenMcpServer {
         }
         let request = seren::SerenMemoryIngestDocumentRequest::from(params);
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client.seren_memory_ingest_document(&request).await {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "ingest_document",
+            api_client.seren_memory_ingest_document(&request).await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -10982,23 +11079,23 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client
-            .seren_memory_list_memories(
-                None,
-                params.is_consolidated,
-                params.is_pinned,
-                params.lifecycle_status,
-                params.limit,
-                params.memory_type.as_deref(),
-                params.offset,
-                params.org_id.as_ref(),
-                params.project_id.as_ref(),
-            )
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "list_memories",
+            api_client
+                .seren_memory_list_memories(
+                    None,
+                    params.is_consolidated,
+                    params.is_pinned,
+                    params.lifecycle_status,
+                    params.limit,
+                    params.memory_type.as_deref(),
+                    params.offset,
+                    params.org_id.as_ref(),
+                    params.project_id.as_ref(),
+                )
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11012,10 +11109,11 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client.seren_memory_get_memory(&params.memory_id).await {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "get_memory",
+            api_client.seren_memory_get_memory(&params.memory_id).await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11034,18 +11132,18 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client
-            .seren_memory_append_memory(
-                &params.memory_id,
-                &seren::SerenMemoryAppendMemoryRequest {
-                    content: params.content,
-                },
-            )
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "append_memory",
+            api_client
+                .seren_memory_append_memory(
+                    &params.memory_id,
+                    &seren::SerenMemoryAppendMemoryRequest {
+                        content: params.content,
+                    },
+                )
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11059,13 +11157,13 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client
-            .seren_memory_list_memory_revisions(&params.memory_id)
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "list_memory_revisions",
+            api_client
+                .seren_memory_list_memory_revisions(&params.memory_id)
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11084,18 +11182,18 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client
-            .seren_memory_set_memory_status(
-                &params.memory_id,
-                &seren::SerenMemorySetMemoryStatusRequest {
-                    lifecycle_status: params.lifecycle_status.into(),
-                },
-            )
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "set_memory_status",
+            api_client
+                .seren_memory_set_memory_status(
+                    &params.memory_id,
+                    &seren::SerenMemorySetMemoryStatusRequest {
+                        lifecycle_status: params.lifecycle_status.into(),
+                    },
+                )
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11114,15 +11212,15 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client
-            .seren_memory_forget_memory(&seren::SerenMemoryForgetParams {
-                memory_id: params.memory_id,
-            })
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "forget_memory",
+            api_client
+                .seren_memory_forget_memory(&seren::SerenMemoryForgetParams {
+                    memory_id: params.memory_id,
+                })
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11141,13 +11239,13 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client
-            .seren_memory_delete_memory(&params.memory_id)
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "delete_memory",
+            api_client
+                .seren_memory_delete_memory(&params.memory_id)
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11181,13 +11279,13 @@ impl SerenMcpServer {
         }
 
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client
-            .seren_memory_delete_memories_by_source(&params)
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "delete_memories_by_source",
+            api_client
+                .seren_memory_delete_memories_by_source(&params)
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11200,10 +11298,11 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client.seren_memory_list_knowledge_domains().await {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "list_knowledge_domains",
+            api_client.seren_memory_list_knowledge_domains().await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11217,10 +11316,11 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client.seren_memory_search_knowledge(&params).await {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "search_knowledge",
+            api_client.seren_memory_search_knowledge(&params).await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11234,10 +11334,11 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client.seren_memory_open_knowledge_entity(&params).await {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "open_knowledge_entity",
+            api_client.seren_memory_open_knowledge_entity(&params).await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11251,13 +11352,13 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client
-            .seren_memory_list_knowledge_operations(params.domain_id.as_ref())
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "list_knowledge_operations",
+            api_client
+                .seren_memory_list_knowledge_operations(params.domain_id.as_ref())
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11275,13 +11376,13 @@ impl SerenMcpServer {
             domain_id: params.domain_id,
             parameters: params.parameters,
         };
-        let response = match api_client
-            .seren_memory_invoke_knowledge_operation(&params.operation_name, &request)
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "invoke_knowledge_operation",
+            api_client
+                .seren_memory_invoke_knowledge_operation(&params.operation_name, &request)
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11300,10 +11401,11 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client.seren_memory_process_conversation(&params).await {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "process_conversation",
+            api_client.seren_memory_process_conversation(&params).await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11317,13 +11419,17 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client
-            .seren_memory_export_memories(params.limit, params.offset, params.project_id.as_ref())
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "export_memories",
+            api_client
+                .seren_memory_export_memories(
+                    params.limit,
+                    params.offset,
+                    params.project_id.as_ref(),
+                )
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11338,13 +11444,13 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let as_of = parse_optional_timestamp(params.as_of.as_deref(), "as_of")?;
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client
-            .seren_memory_memory_timeline(&params.memory_id, as_of.as_ref())
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "memory_timeline",
+            api_client
+                .seren_memory_memory_timeline(&params.memory_id, as_of.as_ref())
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11364,10 +11470,11 @@ impl SerenMcpServer {
         ensure_writes_allowed(&extensions)?;
         let request = params.into_request()?;
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client.seren_memory_link_memories(&request).await {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "link_memories",
+            api_client.seren_memory_link_memories(&request).await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11387,10 +11494,11 @@ impl SerenMcpServer {
         ensure_writes_allowed(&extensions)?;
         let request = params.into_request()?;
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client.seren_memory_unlink_memories(&request).await {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = memory_publisher_result(
+            "unlink_memories",
+            api_client.seren_memory_unlink_memories(&request).await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -22956,6 +23064,775 @@ pub(crate) mod tests {
             .expect("set memory status tool");
         let status_schema = serde_json::Value::Object((*status.input_schema).clone());
         assert!(!status_schema.to_string().contains("JSON schema"));
+    }
+
+    // Publisher gateway envelope around a Memory GET /health success reply; values are synthetic.
+    const MEMORY_GATEWAY_HEALTH: &str = r#"{"data":{"asset_symbol":"USDC","body":{"data":{"server":"seren-memory","status":"ok"}},"cost":"0.000000","execution_time_ms":0,"payment_source":"prepaid_balance","response_bytes":48,"status":200}}"#;
+
+    // Publisher gateway envelope around a Memory POST /recall service error; values are synthetic.
+    const MEMORY_GATEWAY_DATABASE_ERROR: &str = r#"{"data":{"asset_symbol":"USDC","body":{"error":"database_error","message":"Unexpected database error"},"cost":"0","execution_time_ms":542,"payment_source":"prepaid_balance","response_bytes":64,"status":500}}"#;
+
+    async fn call_memory_gateway_tool(
+        tool: &str,
+        arguments: serde_json::Value,
+        method_name: &str,
+        route: &str,
+        response: wiremock::ResponseTemplate,
+    ) -> (Result<CallToolResult, McpError>, wiremock::Request) {
+        use rmcp::ServiceExt;
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer};
+
+        let proxy = MockServer::start().await;
+        Mock::given(method(method_name))
+            .and(path(format!("/publishers/seren-memory{route}")))
+            .respond_with(response)
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let mut server = server_with_http_client(reqwest::Client::new());
+        server.api_base_url = proxy.uri();
+        let (server_transport, client_transport) = tokio::io::duplex(4096);
+        let server_task = tokio::spawn(async move {
+            server
+                .serve(server_transport)
+                .await
+                .unwrap()
+                .waiting()
+                .await
+                .unwrap();
+        });
+        let client = ().serve(client_transport).await.unwrap();
+        let result = client
+            .call_tool(
+                CallToolRequestParams::new(tool.to_string())
+                    .with_arguments(arguments.as_object().unwrap().clone()),
+            )
+            .await;
+        client.cancel().await.unwrap();
+        server_task.await.unwrap();
+        let mut requests = proxy.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1, "{tool} must issue exactly one request");
+        let request = requests.pop().unwrap();
+        assert_eq!(request.headers["authorization"], "Bearer test-key");
+        let result = match result {
+            Ok(result) => Ok(result),
+            Err(rmcp::service::ServiceError::McpError(error)) => Err(error),
+            Err(error) => panic!("unexpected transport failure: {error}"),
+        };
+        (result, request)
+    }
+
+    fn memory_gateway_success(result: Result<CallToolResult, McpError>) -> serde_json::Value {
+        let result = result.expect("the served Memory tool must succeed");
+        assert!(!result.is_error.unwrap_or(false));
+        assert_eq!(result.content.len(), 1);
+        serde_json::from_str(&result.content[0].as_text().unwrap().text).unwrap()
+    }
+
+    #[tokio::test]
+    async fn seren_memory_gateway_health_reports_service_status() {
+        let (result, _) = call_memory_gateway_tool(
+            "seren_memory_health",
+            serde_json::json!({}),
+            "GET",
+            "/health",
+            wiremock::ResponseTemplate::new(200)
+                .set_body_raw(MEMORY_GATEWAY_HEALTH, "application/json"),
+        )
+        .await;
+        assert_eq!(
+            memory_gateway_success(result),
+            serde_json::json!({"data": {"server": "seren-memory", "status": "ok"}})
+        );
+    }
+
+    #[tokio::test]
+    async fn seren_memory_gateway_stringified_body_decodes() {
+        let mut envelope: serde_json::Value = serde_json::from_str(MEMORY_GATEWAY_HEALTH).unwrap();
+        envelope["data"]["body"] = serde_json::Value::String(envelope["data"]["body"].to_string());
+        let (result, _) = call_memory_gateway_tool(
+            "seren_memory_health",
+            serde_json::json!({}),
+            "GET",
+            "/health",
+            wiremock::ResponseTemplate::new(200).set_body_json(envelope),
+        )
+        .await;
+        assert_eq!(
+            memory_gateway_success(result),
+            serde_json::json!({"data": {"server": "seren-memory", "status": "ok"}})
+        );
+    }
+
+    #[tokio::test]
+    async fn seren_memory_gateway_success_bodies_match_published_contract() {
+        // Synthetic, non-private examples of the checked-in public response contract.
+        let memory = serde_json::json!({
+            "id": "00000000-0000-4000-8000-000000000001",
+            "user_id": "00000000-0000-4000-8000-000000000002",
+            "memory_type": "semantic", "content": "fixture", "metadata": {"fixture": true},
+            "relevance_score": 0.75, "access_count": 0,
+            "is_consolidated": false, "is_pinned": false, "lifecycle_status": "active",
+            "importance": 1, "current_revision": 1, "embedding_status": "ready",
+            "source_kind": "manual", "source_managed": false, "review_status": "accepted",
+            "created_at": "2026-10-29T00:00:00Z", "updated_at": "2026-10-29T00:00:00Z"
+        });
+        let recall = serde_json::json!({"data": {
+            "memories": [memory.clone()],
+            "signals": {"vector_hits": 1, "keyword_hits": 0, "graph_hits": 0,
+                "augmenter_hits": 0, "semantic_available": true}
+        }});
+        let list =
+            serde_json::json!({"data": {"memories": [memory], "total": 1, "has_more": false}});
+        let remember = serde_json::json!({"data": {
+            "memory_id": "00000000-0000-4000-8000-000000000001", "action_taken": "add",
+            "edges_created": 0, "enrichments_triggered": 0
+        }});
+        let _: seren::SerenMemoryDataResponseRecallResponse =
+            serde_json::from_value(recall.clone()).unwrap();
+        let _: seren::SerenMemoryDataResponseListMemoriesResponse =
+            serde_json::from_value(list.clone()).unwrap();
+        let _: seren::SerenMemoryDataResponseRememberOutput =
+            serde_json::from_value(remember.clone()).unwrap();
+        let specification: Value =
+            serde_json::from_str(include_str!("../../sdk/openapi/openapi-seren-memory.json"))
+                .unwrap();
+        for (tool, method, route, arguments, schema_name, body) in [
+            (
+                "seren_memory_recall",
+                "POST",
+                "/recall",
+                serde_json::json!({"query": "fixture"}),
+                "DataResponse_RecallResponse",
+                recall,
+            ),
+            (
+                "seren_memory_list_memories",
+                "GET",
+                "/memories",
+                serde_json::json!({"limit": 1}),
+                "DataResponse_ListMemoriesResponse",
+                list,
+            ),
+            (
+                "seren_memory_remember",
+                "POST",
+                "/remember",
+                serde_json::json!({"content": "fixture", "memory_type": "semantic"}),
+                "DataResponse_RememberOutput",
+                remember,
+            ),
+        ] {
+            let reference = &specification["paths"][route][method.to_ascii_lowercase()]["responses"]
+                ["200"]["content"]["application/json"]["schema"]["$ref"];
+            assert_eq!(
+                reference,
+                &serde_json::json!(format!("#/components/schemas/{schema_name}"))
+            );
+            let required = specification["components"]["schemas"][schema_name]["properties"]["data"]["required"]
+                .as_array().unwrap();
+            for field in required {
+                assert!(
+                    body["data"].get(field.as_str().unwrap()).is_some(),
+                    "{tool}: published required field {field}"
+                );
+            }
+            let (result, _) = call_memory_gateway_tool(
+                tool,
+                arguments,
+                method,
+                route,
+                wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "data": {"status": 200, "body": body.clone(), "cost": "0"}
+                })),
+            )
+            .await;
+            assert_eq!(memory_gateway_success(result), body, "{tool}");
+        }
+    }
+
+    #[tokio::test]
+    async fn seren_memory_gateway_validation_error_names_service_code() {
+        let (result, request) = call_memory_gateway_tool(
+            "seren_memory_recall",
+            serde_json::json!({"query": ""}),
+            "POST",
+            "/recall",
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {"status": 400, "body": {
+                    "error": "validation_error", "message": "query must not be empty"
+                }}
+            })),
+        )
+        .await;
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&request.body).unwrap()["query"],
+            ""
+        );
+        let error = result.unwrap_err();
+        assert_eq!(error.code, rmcp::model::ErrorCode::INTERNAL_ERROR);
+        assert_eq!(
+            error.message,
+            "Seren Memory recall failed: 400 validation_error: query must not be empty"
+        );
+        assert_eq!(
+            error.data.unwrap(),
+            serde_json::json!({
+                "kind": "publisher_error", "publisher": "seren-memory", "operation": "recall",
+                "status": 400, "error": "validation_error", "message": "query must not be empty"
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn seren_memory_gateway_missing_fields_are_contract_mismatches() {
+        for enveloped in [true, false] {
+            let mut response = serde_json::json!({"data": {"server": "seren-memory"}});
+            if enveloped {
+                response = serde_json::json!({"data": {"status": 200, "body": response}});
+            }
+            let (result, _) = call_memory_gateway_tool(
+                "seren_memory_health",
+                serde_json::json!({}),
+                "GET",
+                "/health",
+                wiremock::ResponseTemplate::new(200).set_body_json(response),
+            )
+            .await;
+            let error = result.unwrap_err();
+            assert!(error.message.contains("missing field `status`"));
+            let data = error.data.unwrap();
+            assert_eq!(data["kind"], "client_contract_mismatch");
+            assert_eq!(data["publisher"], "seren-memory");
+            assert_eq!(data["operation"], "health");
+            assert_eq!(
+                data.get("upstream_status"),
+                enveloped.then_some(&serde_json::json!(200))
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn seren_memory_gateway_malformed_success_never_exposes_values() {
+        let private = "private-memory-value";
+        for response in [
+            serde_json::json!({"data": {"status": 200}}),
+            serde_json::json!({"data": {"status": 200, "body": null, "body_base64": private}}),
+            serde_json::json!({"data": {"status": 200, "body": "null"}}),
+            serde_json::json!({"data": {"status": 200, "body": private}}),
+            serde_json::json!({"data": {"status": 200, "body": {"data": {"status": [private]}}}}),
+            serde_json::json!({"data": {"status": [private]}}),
+            serde_json::json!({"data": {"status": "200", "body": private}}),
+            serde_json::json!({"data": {"status": -1, "body": private}}),
+            serde_json::json!({"data": {"status": 0, "body": private}}),
+            serde_json::json!({"data": {"status": 1000, "body": private}}),
+            serde_json::json!({"data": {"status": 65536, "body": private}}),
+        ] {
+            let (result, _) = call_memory_gateway_tool(
+                "seren_memory_health",
+                serde_json::json!({}),
+                "GET",
+                "/health",
+                wiremock::ResponseTemplate::new(200).set_body_json(response),
+            )
+            .await;
+            let error = result.unwrap_err();
+            assert_eq!(
+                error.data.as_ref().unwrap()["kind"],
+                "client_contract_mismatch"
+            );
+            assert!(!serde_json::to_string(&error).unwrap().contains(private));
+            assert!(
+                error.message.contains("missing field")
+                    || (error.message.contains("line") && error.message.contains("column"))
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn seren_memory_gateway_non_success_status_never_becomes_success() {
+        for status in [100, 199, 300, 302, 400, 500, 599] {
+            let mut envelope: serde_json::Value =
+                serde_json::from_str(MEMORY_GATEWAY_HEALTH).unwrap();
+            envelope["data"]["status"] = serde_json::json!(status);
+            let (result, _) = call_memory_gateway_tool(
+                "seren_memory_health",
+                serde_json::json!({}),
+                "GET",
+                "/health",
+                wiremock::ResponseTemplate::new(200).set_body_json(envelope),
+            )
+            .await;
+            let error = result.unwrap_err();
+            assert_eq!(
+                error.message,
+                format!("Seren Memory health failed: {status}")
+            );
+            assert_eq!(
+                error.data.unwrap(),
+                serde_json::json!({
+                    "kind": "publisher_error", "publisher": "seren-memory", "operation": "health",
+                    "status": status, "error": null, "message": null
+                })
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn seren_memory_gateway_all_success_statuses_decode() {
+        for status in [200, 201, 204, 299] {
+            let mut envelope: serde_json::Value =
+                serde_json::from_str(MEMORY_GATEWAY_HEALTH).unwrap();
+            let expected = envelope["data"]["body"].clone();
+            envelope["data"]["status"] = serde_json::json!(status);
+            let (result, _) = call_memory_gateway_tool(
+                "seren_memory_health",
+                serde_json::json!({}),
+                "GET",
+                "/health",
+                wiremock::ResponseTemplate::new(200).set_body_json(envelope),
+            )
+            .await;
+            assert_eq!(memory_gateway_success(result), expected);
+        }
+    }
+
+    #[tokio::test]
+    async fn seren_memory_gateway_unstructured_errors_do_not_expose_bodies() {
+        for body in [
+            serde_json::json!("private-memory-value"),
+            serde_json::json!({"message": "private-memory-value"}),
+            serde_json::json!({"error": "private-memory-value", "message": 7}),
+            serde_json::json!({"data": {"content": "private-memory-value"}}),
+            serde_json::Value::Null,
+        ] {
+            let (result, _) = call_memory_gateway_tool(
+                "seren_memory_health",
+                serde_json::json!({}),
+                "GET",
+                "/health",
+                wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "data": {"status": 500, "body": body}
+                })),
+            )
+            .await;
+            let error = result.unwrap_err();
+            assert_eq!(error.message, "Seren Memory health failed: 500");
+            let data = error.data.unwrap();
+            assert_eq!(data["kind"], "publisher_error");
+            assert!(data["error"].is_null());
+            assert!(data["message"].is_null());
+            assert!(!data.to_string().contains("private-memory-value"));
+        }
+    }
+
+    #[tokio::test]
+    async fn seren_memory_gateway_service_message_is_bounded() {
+        let message = "\u{754c}".repeat(501);
+        let (result, _) = call_memory_gateway_tool(
+            "seren_memory_recall",
+            serde_json::json!({"query": "fixture"}),
+            "POST",
+            "/recall",
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {"status": 400, "body": {
+                    "error": "validation_error", "message": message, "content": "private-memory-value"
+                }}
+            })),
+        )
+        .await;
+        let error = result.unwrap_err();
+        let data = error.data.as_ref().unwrap();
+        let message = data["message"].as_str().unwrap();
+        assert_eq!(message.chars().count(), 500);
+        assert!(message.ends_with("... (truncated)"));
+        assert!(error.message.ends_with(message));
+        // Error codes are diagnostic strings too, not an unbounded payload channel.
+        let code = "\u{754c}".repeat(501);
+        let (result, _) = call_memory_gateway_tool(
+            "seren_memory_recall",
+            serde_json::json!({"query": "fixture"}),
+            "POST",
+            "/recall",
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {"status": 400, "body": {"error": code, "message": "fixture"}}
+            })),
+        )
+        .await;
+        let bounded = result.unwrap_err().data.unwrap();
+        let code = bounded["error"].as_str().unwrap();
+        assert_eq!(code.chars().count(), 500);
+        assert!(code.ends_with("... (truncated)"));
+        assert!(
+            !serde_json::to_string(&error)
+                .unwrap()
+                .contains("private-memory-value")
+        );
+    }
+
+    #[tokio::test]
+    async fn seren_memory_gateway_every_handler_reports_publisher_errors() {
+        let id = "00000000-0000-4000-8000-000000000001";
+        let other_id = "00000000-0000-4000-8000-000000000002";
+        let memory_path = format!("/memories/{id}");
+        let append_path = format!("{memory_path}/append");
+        let revisions_path = format!("{memory_path}/revisions");
+        let status_path = format!("{memory_path}/status");
+        let timeline_path = format!("{memory_path}/timeline");
+        let cases = [
+            ("health", "health", "GET", "/health", serde_json::json!({})),
+            (
+                "session_bootstrap",
+                "session_bootstrap",
+                "POST",
+                "/bootstrap",
+                serde_json::json!({}),
+            ),
+            (
+                "search_memories",
+                "search_memories",
+                "POST",
+                "/memories/search",
+                serde_json::json!({"query": "fixture"}),
+            ),
+            (
+                "get_memories",
+                "list_memories",
+                "GET",
+                "/memories",
+                serde_json::json!({"memory_ids": [id]}),
+            ),
+            (
+                "recall",
+                "recall",
+                "POST",
+                "/recall",
+                serde_json::json!({"query": "fixture"}),
+            ),
+            (
+                "remember",
+                "remember",
+                "POST",
+                "/remember",
+                serde_json::json!({"content": "fixture", "memory_type": "semantic"}),
+            ),
+            (
+                "learn_from_error",
+                "learn_from_error",
+                "POST",
+                "/learn_from_error",
+                serde_json::json!({"error_content": "fixture", "fix_content": "fixture"}),
+            ),
+            (
+                "ingest_document",
+                "ingest_document",
+                "POST",
+                "/ingest/document",
+                serde_json::json!({"document": {"type": "doc", "content": []}, "memory_type": "semantic", "source_kind": "notes", "source_external_id": "fixture"}),
+            ),
+            (
+                "list_memories",
+                "list_memories",
+                "GET",
+                "/memories",
+                serde_json::json!({"limit": 1}),
+            ),
+            (
+                "get_memory",
+                "get_memory",
+                "GET",
+                memory_path.as_str(),
+                serde_json::json!({"memory_id": id}),
+            ),
+            (
+                "append_memory",
+                "append_memory",
+                "POST",
+                append_path.as_str(),
+                serde_json::json!({"memory_id": id, "content": "fixture"}),
+            ),
+            (
+                "list_memory_revisions",
+                "list_memory_revisions",
+                "GET",
+                revisions_path.as_str(),
+                serde_json::json!({"memory_id": id}),
+            ),
+            (
+                "set_memory_status",
+                "set_memory_status",
+                "PUT",
+                status_path.as_str(),
+                serde_json::json!({"memory_id": id, "lifecycle_status": "canonical"}),
+            ),
+            (
+                "forget_memory",
+                "forget_memory",
+                "POST",
+                "/forget",
+                serde_json::json!({"memory_id": id}),
+            ),
+            (
+                "delete_memory",
+                "delete_memory",
+                "DELETE",
+                memory_path.as_str(),
+                serde_json::json!({"memory_id": id}),
+            ),
+            (
+                "delete_memories_by_source",
+                "delete_memories_by_source",
+                "DELETE",
+                "/memories/by-source",
+                serde_json::json!({"source_external_id": "fixture"}),
+            ),
+            (
+                "list_knowledge_domains",
+                "list_knowledge_domains",
+                "GET",
+                "/knowledge/domains",
+                serde_json::json!({}),
+            ),
+            (
+                "search_knowledge",
+                "search_knowledge",
+                "POST",
+                "/knowledge/search",
+                serde_json::json!({"query": "fixture"}),
+            ),
+            (
+                "open_knowledge_entity",
+                "open_knowledge_entity",
+                "POST",
+                "/knowledge/entities/open",
+                serde_json::json!({"entity_id": "fixture"}),
+            ),
+            (
+                "list_knowledge_operations",
+                "list_knowledge_operations",
+                "GET",
+                "/knowledge/operations",
+                serde_json::json!({}),
+            ),
+            (
+                "invoke_knowledge_operation",
+                "invoke_knowledge_operation",
+                "POST",
+                "/knowledge/operations/fixture",
+                serde_json::json!({"operation_name": "fixture", "parameters": {}}),
+            ),
+            (
+                "process_conversation",
+                "process_conversation",
+                "POST",
+                "/process_conversation",
+                serde_json::json!({"transcript": "fixture"}),
+            ),
+            (
+                "export_memories",
+                "export_memories",
+                "GET",
+                "/memories/export",
+                serde_json::json!({}),
+            ),
+            (
+                "memory_timeline",
+                "memory_timeline",
+                "GET",
+                timeline_path.as_str(),
+                serde_json::json!({"memory_id": id}),
+            ),
+            (
+                "link_memories",
+                "link_memories",
+                "POST",
+                "/memories/connections",
+                serde_json::json!({"source_id": id, "target_id": other_id, "edge_type": "relates_to"}),
+            ),
+            (
+                "unlink_memories",
+                "unlink_memories",
+                "DELETE",
+                "/memories/connections",
+                serde_json::json!({"source_id": id, "target_id": other_id, "edge_type": "relates_to"}),
+            ),
+        ];
+        assert_eq!(cases.len(), 26);
+        for (tool, operation, method, path, arguments) in cases {
+            let (result, _) = call_memory_gateway_tool(
+                &format!("seren_memory_{tool}"),
+                arguments,
+                method,
+                path,
+                wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "data": {"status": 400, "body": {
+                        "error": "validation_error", "message": "fixture"
+                    }}
+                })),
+            )
+            .await;
+            let error = result.unwrap_err();
+            assert_eq!(
+                error.message,
+                format!("Seren Memory {operation} failed: 400 validation_error: fixture")
+            );
+            assert_eq!(
+                error.data.unwrap(),
+                serde_json::json!({
+                    "kind": "publisher_error", "publisher": "seren-memory", "operation": operation,
+                    "status": 400, "error": "validation_error", "message": "fixture"
+                })
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn seren_memory_gateway_preserves_raw_success_and_http_errors() {
+        let envelope: serde_json::Value = serde_json::from_str(MEMORY_GATEWAY_HEALTH).unwrap();
+        let expected = envelope["data"]["body"].clone();
+        for response in [expected.clone(), envelope] {
+            let (result, _) = call_memory_gateway_tool(
+                "seren_memory_health",
+                serde_json::json!({}),
+                "GET",
+                "/health",
+                wiremock::ResponseTemplate::new(200).set_body_json(response),
+            )
+            .await;
+            assert_eq!(memory_gateway_success(result), expected);
+        }
+        for status in [400, 401, 403, 404, 429, 500, 503] {
+            let (result, _) = call_memory_gateway_tool(
+                "seren_memory_health",
+                serde_json::json!({}),
+                "GET",
+                "/health",
+                wiremock::ResponseTemplate::new(status)
+                    .insert_header("x-request-id", "fixture")
+                    .set_body_string("fixture"),
+            )
+            .await;
+            let data = result.unwrap_err().data.unwrap();
+            assert_eq!(data["kind"], "http_error");
+            assert_eq!(data["status"], status);
+            assert_eq!(data["request_id"], "fixture");
+            assert_eq!(data["body"], "fixture");
+        }
+    }
+
+    #[tokio::test]
+    async fn seren_memory_gateway_recall_reports_database_error() {
+        let (result, _) = call_memory_gateway_tool(
+            "seren_memory_recall",
+            serde_json::json!({"query": "fixture"}),
+            "POST",
+            "/recall",
+            wiremock::ResponseTemplate::new(200)
+                .set_body_raw(MEMORY_GATEWAY_DATABASE_ERROR, "application/json"),
+        )
+        .await;
+        let error = result.unwrap_err();
+        assert_eq!(error.code, rmcp::model::ErrorCode::INTERNAL_ERROR);
+        assert_eq!(
+            error.message,
+            "Seren Memory recall failed: 500 database_error: Unexpected database error"
+        );
+        assert!(!error.message.contains("missing field"));
+        assert!(!error.message.contains("Invalid response payload"));
+        assert_eq!(
+            error.data.unwrap(),
+            serde_json::json!({
+                "kind": "publisher_error", "publisher": "seren-memory", "operation": "recall",
+                "status": 500, "error": "database_error", "message": "Unexpected database error"
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn seren_memory_gateway_failed_write_is_reported_once() {
+        let (result, request) = call_memory_gateway_tool(
+            "seren_memory_remember",
+            serde_json::json!({"content": "fixture", "memory_type": "semantic"}),
+            "POST",
+            "/remember",
+            wiremock::ResponseTemplate::new(200)
+                .set_body_raw(MEMORY_GATEWAY_DATABASE_ERROR, "application/json"),
+        )
+        .await;
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&request.body).unwrap(),
+            serde_json::json!({"content": "fixture", "memory_type": "semantic"})
+        );
+        let error = result.unwrap_err();
+        assert_eq!(
+            error.message,
+            "Seren Memory remember failed: 500 database_error: Unexpected database error"
+        );
+        assert_eq!(
+            error.data.unwrap(),
+            serde_json::json!({
+                "kind": "publisher_error", "publisher": "seren-memory", "operation": "remember",
+                "status": 500, "error": "database_error", "message": "Unexpected database error"
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn seren_memory_gateway_response_types_require_unwrapping() {
+        macro_rules! assert_rejects_envelopes {
+            ($($response:ty),+ $(,)?) => {
+                $(
+                    for envelope in [MEMORY_GATEWAY_HEALTH, MEMORY_GATEWAY_DATABASE_ERROR] {
+                        assert!(
+                            serde_json::from_str::<$response>(envelope).is_err(),
+                            concat!(stringify!($response), " must reject gateway envelopes"),
+                        );
+                    }
+                )+
+            };
+        }
+        assert_rejects_envelopes!(
+            seren::SerenMemoryDataResponseHealthResponse,
+            seren::SerenMemoryDataResponseSessionContext,
+            seren::SerenMemoryDataResponseCompactSearchResponse,
+            seren::SerenMemoryDataResponseRecallResponse,
+            seren::SerenMemoryDataResponseListMemoriesResponse,
+            seren::SerenMemoryDataResponseRememberOutput,
+            seren::SerenMemoryDataResponseIngestDocumentOutput,
+            seren::SerenMemoryDataResponseOptionMemoryOutput,
+            seren::SerenMemoryDataResponseMemoryOutput,
+            seren::SerenMemoryDataResponseVecMemoryRevision,
+            seren::SerenMemoryDataResponseVecMemoryEdge,
+            seren::SerenMemoryDataResponseForgetMemoryResponse,
+            seren::SerenMemoryDataResponseDeleteMemoryResponse,
+            seren::SerenMemoryDataResponseDeleteBySourceOutcome,
+            seren::SerenMemoryDataResponseKnowledgeDomainsResponse,
+            seren::SerenMemoryDataResponseKnowledgeOperationResult,
+            seren::SerenMemoryDataResponseKnowledgeOperationsResponse,
+            seren::SerenMemoryDataResponseExtractionResult,
+            seren::SerenMemoryDataResponseMemoryExportResponse,
+            seren::SerenMemoryDataResponseMemoryConnectionResponse,
+        );
+        // SDK decode rejection must lead to the publisher result in the served tool.
+        for fixture in [MEMORY_GATEWAY_HEALTH, MEMORY_GATEWAY_DATABASE_ERROR] {
+            let (result, _) = call_memory_gateway_tool(
+                "seren_memory_health",
+                serde_json::json!({}),
+                "GET",
+                "/health",
+                wiremock::ResponseTemplate::new(200).set_body_raw(fixture, "application/json"),
+            )
+            .await;
+            let envelope: serde_json::Value = serde_json::from_str(fixture).unwrap();
+            if envelope["data"]["status"] == 200 {
+                assert_eq!(memory_gateway_success(result), envelope["data"]["body"]);
+            } else {
+                let data = result.unwrap_err().data.unwrap();
+                assert_eq!(data["kind"], "publisher_error");
+                assert_eq!(data["status"], 500);
+            }
+        }
     }
 
     #[tokio::test]
