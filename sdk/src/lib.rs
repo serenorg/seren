@@ -181,6 +181,105 @@ mod tests {
     };
 
     #[tokio::test]
+    async fn publisher_estimates_decode_wrapped_data() {
+        let server = MockServer::start().await;
+        let estimate = json!({
+            "estimated_rows": 12,
+            "estimated_cost": "0.0012",
+            "asset_symbol": "USDC",
+            "estimated_cost_atomic": 1200,
+            "publisher_name": "Example",
+            "publisher_slug": "example"
+        });
+        Mock::given(method("POST"))
+            .and(path("/publishers/example/estimate"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": estimate})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client =
+            Client::from_config(&ClientConfig::new("synthetic-key").with_base_url(server.uri()))
+                .unwrap();
+        let response = client
+            .estimate_query(
+                "example",
+                &crate::EstimateRequestBody {
+                    publisher_id: Uuid::from_u128(1),
+                    query: "SELECT 1".into(),
+                    asset_id: None,
+                },
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(serde_json::to_value(response.data).unwrap(), estimate);
+    }
+
+    #[test]
+    fn publisher_access_preserves_not_needed_outcome() {
+        let outcome: crate::PublisherAccessContinuationOutcome =
+            serde_json::from_value(json!("not_needed")).unwrap();
+        assert_eq!(serde_json::to_value(outcome).unwrap(), json!("not_needed"));
+    }
+
+    #[tokio::test]
+    async fn connector_clients_bind_catalog_deployment_and_removal_key() {
+        use wiremock::matchers::{header, query_param};
+
+        let server = MockServer::start().await;
+        let deployment_id = Uuid::from_u128(7);
+        let key = Uuid::from_u128(8).to_string();
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-cloud/connectors"))
+            .and(query_param("deployment_id", deployment_id.to_string()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
+                "connectors": [{
+                    "connector_ref": "slack", "display_name": "Slack",
+                    "description": "Messaging", "capability": "messaging", "credentials": [],
+                    "supports_webhook_ingress": true, "requires_always_on": false,
+                    "connected": true, "available_on_this_employee": true,
+                    "receiver": "seren_webhook"
+                }]
+            }})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("DELETE"))
+            .and(path(format!(
+                "/publishers/seren-cloud/deployments/{deployment_id}/connectors/slack"
+            )))
+            .and(header("Idempotency-Key", key.as_str()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": true})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client =
+            Client::from_config(&ClientConfig::new("synthetic-key").with_base_url(server.uri()))
+                .unwrap();
+        let catalog = client
+            .seren_cloud_list_connectors(Some(&deployment_id))
+            .await
+            .unwrap()
+            .into_inner()
+            .data;
+        assert_eq!(catalog.connectors.len(), 1);
+        let connector = &catalog.connectors[0];
+        assert_eq!(connector.available_on_this_employee, Some(true));
+        assert_eq!(
+            serde_json::to_value(&connector.receiver).unwrap(),
+            json!("seren_webhook")
+        );
+        assert!(
+            client
+                .seren_cloud_remove_connector(&deployment_id, "slack", &key)
+                .await
+                .unwrap()
+                .into_inner()
+                .data
+        );
+    }
+
+    #[tokio::test]
     async fn workspace_snapshot_http_reads_typed_download_with_explicit_credential() {
         use wiremock::matchers::header;
         let timestamp = "2026-10-28T00:15:00.123456Z";
@@ -843,6 +942,11 @@ mod tests {
         });
         for (kind, code) in [
             ("invalid_request", "workload_not_admitted"),
+            ("peer_contract_mismatch", "controller_request_undecodable"),
+            (
+                "peer_contract_mismatch",
+                "secrets_gateway_issuer_contract_mismatch",
+            ),
             ("workload_rejected", "workload_not_admitted"),
             ("secrets_gateway_material", "secret_material_missing"),
             ("deployment_strategy_transition", "strategy_change_blocked"),

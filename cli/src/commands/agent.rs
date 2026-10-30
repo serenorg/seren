@@ -1147,7 +1147,7 @@ pub async fn estimate_query_cost(publisher: &str, query: &str, ctx: &CommandCont
         .await
         .map_err(|e| anyhow::anyhow!("Failed to estimate cost: {}", e))?;
 
-    let estimate = response.into_inner();
+    let estimate = response.into_inner().data;
     output::print_json(&estimate)?;
 
     Ok(())
@@ -6397,6 +6397,7 @@ pub async fn managed_connector_binding_proposal_get(
         "proposal_id": proposal.id,
         "deployment_id": proposal.deployment_id,
         "connector_ref": proposal.connector_ref,
+        "operation": proposal.operation,
         "expected_active_revision_id": proposal.expected_active_revision_id,
         "requested_environment_names": proposal.requested_environment_names,
         "result_id": proposal.result_id,
@@ -6460,6 +6461,7 @@ pub async fn managed_connector_binding_proposal_apply(
                 "setup_id": setup_id,
                 "deployment_id": deployment_id,
                 "connector_ref": connector_ref,
+                "operation": proposal.operation,
                 "proposal_id": proposal.id,
                 "result_id": result_id,
                 "active_revision_id": applied_revision_id,
@@ -6505,6 +6507,7 @@ pub async fn managed_connector_binding_proposal_apply(
                 "setup_id": setup_id,
                 "deployment_id": deployment_id,
                 "connector_ref": connector_ref,
+                "operation": applied.operation,
                 "proposal_id": proposal_id,
                 "result_id": applied.result_id,
                 "active_revision_id": applied_revision_id,

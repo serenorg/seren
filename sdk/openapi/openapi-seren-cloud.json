@@ -171,6 +171,18 @@
         ],
         "summary": "List supported messaging connectors with credential requirements and\nthis organization's connection status.",
         "operationId": "seren_cloud_list_connectors",
+        "parameters": [
+          {
+            "name": "deployment_id",
+            "in": "query",
+            "description": "Deployment whose connector options to describe. When set, each connector also reports `receiver` and `available_on_this_employee`, and `requires_always_on` applies to that deployment.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Supported connectors with credential fields and connection status",
@@ -182,11 +194,17 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid deployment ID"
+          },
           "401": {
             "description": "Unauthorized"
           },
           "403": {
             "description": "Forbidden"
+          },
+          "404": {
+            "description": "Deployment not found"
           }
         },
         "security": [
@@ -883,7 +901,7 @@
             }
           },
           "400": {
-            "description": "Invalid connector secret references"
+            "description": "Invalid connector secret references, or `connector_receiver_not_available_yet` when the connector cannot yet be added to a hired Employee"
           },
           "401": {
             "description": "Unauthorized"
@@ -893,6 +911,75 @@
           },
           "404": {
             "description": "Deployment or connector not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Remove a connector from a hired Employee, for the Employee's owner only. The\nconnector's public webhook address stops accepting messages, and messages\nnot yet handled are discarded. Send an `Idempotency-Key` header; repeating\nthe request with the same key succeeds.",
+        "operationId": "seren_cloud_remove_connector",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "connector_ref",
+            "in": "path",
+            "description": "Connector catalog reference",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Key that makes a retried removal safe",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Connector removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_bool"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or invalid Idempotency-Key"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment or connector not found, including any deployment that is not a hired Employee"
+          },
+          "409": {
+            "description": "The Employee changed, or connector_removal_requires_approval: create a proposal with operation remove and approve the remaining credential mappings"
           }
         },
         "security": [
@@ -1115,6 +1202,9 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid connector binding proposal, or `connector_receiver_not_available_yet` when the connector cannot yet be added to a hired Employee"
+          },
           "409": {
             "description": "Another proposal is active or the deployment changed"
           }
@@ -1175,7 +1265,7 @@
             }
           },
           "400": {
-            "description": "Invalid connector binding proposal"
+            "description": "Invalid connector binding proposal, or `connector_receiver_not_available_yet` when the connector cannot yet be added to a hired Employee"
           },
           "409": {
             "description": "Active revision or connector binding changed"
@@ -2790,7 +2880,16 @@
         ],
         "responses": {
           "200": {
-            "description": "Run file content with the stored Content-Type",
+            "description": "File content streamed with the stored Content-Type. An interrupted transfer must be retried.",
+            "headers": {
+              "Content-Length": {
+                "schema": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "description": "Complete file length in bytes"
+              }
+            },
             "content": {
               "application/octet-stream": {
                 "schema": {
@@ -3119,7 +3218,16 @@
         ],
         "responses": {
           "200": {
-            "description": "Run file content as an attachment, with the stored Content-Type",
+            "description": "File content streamed as an attachment, with the stored Content-Type. An interrupted transfer must be retried.",
+            "headers": {
+              "Content-Length": {
+                "schema": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "description": "Complete file length in bytes"
+              }
+            },
             "content": {
               "application/pdf": {
                 "schema": {
@@ -6739,7 +6847,16 @@
         ],
         "responses": {
           "200": {
-            "description": "File bytes",
+            "description": "File content streamed as an attachment. An interrupted transfer must be retried.",
+            "headers": {
+              "Content-Length": {
+                "schema": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "description": "Complete file length in bytes"
+              }
+            },
             "content": {
               "application/octet-stream": {
                 "schema": {
@@ -16048,6 +16165,7 @@
         "type": "object",
         "required": [
           "deployment_id",
+          "operation",
           "connector_ref",
           "expected_active_revision_id",
           "proposal_fingerprint",
@@ -16066,6 +16184,9 @@
           "expected_active_revision_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/ManagedConnectorBindingOperation"
           },
           "proposal_fingerprint": {
             "type": "string"
@@ -16089,12 +16210,19 @@
         "type": "object",
         "required": [
           "expected_active_revision_id",
-          "secret_refs",
-          "channel_policy"
+          "secret_refs"
         ],
         "properties": {
           "channel_policy": {
-            "$ref": "#/components/schemas/ManagedChannelPolicy"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedChannelPolicy",
+                "description": "Channel authorization policy. Required for every connector that has one.\nOmit it only for a hired Employee's connector that has no channel policy,\nsuch as `telegram`."
+              }
+            ]
           },
           "expected_active_revision_id": {
             "type": "string",
@@ -16107,6 +16235,10 @@
             ],
             "format": "uuid",
             "description": "Open handoff atomically linked to this proposal."
+          },
+          "operation": {
+            "$ref": "#/components/schemas/ManagedConnectorBindingOperation",
+            "description": "Configure the connector, or review its removal while preserving other Secrets mappings."
           },
           "replace_proposal_id": {
             "type": [
@@ -16141,13 +16273,20 @@
           "connected"
         ],
         "properties": {
+          "available_on_this_employee": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether this connector can be added to that deployment. Present only when\nthe catalog is read for one deployment."
+          },
           "capability": {
             "type": "string",
             "description": "Connector capability grouping; messaging connectors deliver chat events."
           },
           "connected": {
             "type": "boolean",
-            "description": "Whether the organization already has an approved connection binding."
+            "description": "Whether an approved connection is bound to the selected deployment or organization."
           },
           "connector_ref": {
             "type": "string",
@@ -16167,6 +16306,17 @@
           "display_name": {
             "type": "string",
             "description": "Display name for setup surfaces."
+          },
+          "receiver": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ConnectorReceiver",
+                "description": "Where inbound messages for this connector are received. Present only when\nthe catalog is read for one deployment."
+              }
+            ]
           },
           "requires_always_on": {
             "type": "boolean",
@@ -16234,6 +16384,15 @@
             "description": "Whether the value must be stored as a secret rather than plain config."
           }
         }
+      },
+      "ConnectorReceiver": {
+        "type": "string",
+        "description": "Where a connector's inbound messages are received for a deployment.",
+        "enum": [
+          "runtime_sidecar",
+          "seren_webhook",
+          "seren_gateway"
+        ]
       },
       "ConversationAttemptRetryRefusal": {
         "type": "string",
@@ -19576,6 +19735,7 @@
             "type": "object",
             "required": [
               "deployment_id",
+              "operation",
               "connector_ref",
               "expected_active_revision_id",
               "proposal_fingerprint",
@@ -19594,6 +19754,9 @@
               "expected_active_revision_id": {
                 "type": "string",
                 "format": "uuid"
+              },
+              "operation": {
+                "$ref": "#/components/schemas/ManagedConnectorBindingOperation"
               },
               "proposal_fingerprint": {
                 "type": "string"
@@ -20305,6 +20468,7 @@
             "type": "object",
             "required": [
               "id",
+              "operation",
               "deployment_id",
               "connector_ref",
               "expected_active_revision_id",
@@ -20342,6 +20506,9 @@
               "id": {
                 "type": "string",
                 "format": "uuid"
+              },
+              "operation": {
+                "$ref": "#/components/schemas/ManagedConnectorBindingOperation"
               },
               "proposal_fingerprint": {
                 "type": "string"
@@ -22537,6 +22704,29 @@
               }
             },
             "additionalProperties": false
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_bool": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "boolean"
           },
           "pagination": {
             "oneOf": [
@@ -24828,10 +25018,18 @@
           }
         }
       },
+      "ManagedConnectorBindingOperation": {
+        "type": "string",
+        "enum": [
+          "configure",
+          "remove"
+        ]
+      },
       "ManagedConnectorBindingProposal": {
         "type": "object",
         "required": [
           "id",
+          "operation",
           "deployment_id",
           "connector_ref",
           "expected_active_revision_id",
@@ -24869,6 +25067,9 @@
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/ManagedConnectorBindingOperation"
           },
           "proposal_fingerprint": {
             "type": "string"
@@ -26472,6 +26673,7 @@
         "type": "string",
         "enum": [
           "invalid_request",
+          "peer_contract_mismatch",
           "workload_rejected",
           "secrets_gateway_material",
           "deployment_strategy_transition",

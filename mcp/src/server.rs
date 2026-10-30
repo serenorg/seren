@@ -12485,7 +12485,8 @@ impl SerenMcpServer {
             .estimate_query(&params.publisher, &body)
             .into_mcp_result()
             .await?
-            .into_inner();
+            .into_inner()
+            .data;
         Ok(CallToolResult::success(vec![json_content(&estimate)?]))
     }
 
@@ -17941,6 +17942,7 @@ API endpoint: {endpoint}",
                 "proposal_id": proposal.id,
                 "deployment_id": proposal.deployment_id,
                 "connector_ref": proposal.connector_ref,
+                "operation": proposal.operation,
                 "expected_active_revision_id": proposal.expected_active_revision_id,
                 "requested_environment_names": proposal.requested_environment_names,
                 "result_id": proposal.result_id,
@@ -17951,10 +17953,10 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Apply an approved connector-binding proposal to its managed seren-agent deployment through the Core connector proposal-bound apply route. Pass the connector_ref and proposal_id from the connector-binding workflow; the apply fails if the connector's current proposal differs. Reads the exact reviewed secret result from the approved Seren Passwords setup (setup_id); callers never supply credential references. Idempotent retries return the already-applied revision without a second mutation. Requires a signed-in OAuth user session.",
+        description = "Apply an approved connector configuration or removal proposal to its managed seren-agent deployment. Removal stops the connector and discards messages not yet handled. Pass the connector_ref and proposal_id from the connector-binding workflow; the apply fails if the connector's current proposal differs. Reads the exact reviewed secret result from the approved Seren Passwords setup (setup_id); callers never supply credential references. Idempotent retries return the already-applied revision without a second mutation. Requires a signed-in OAuth user session.",
         annotations(
             read_only_hint = false,
-            destructive_hint = false,
+            destructive_hint = true,
             open_world_hint = false
         )
     )]
@@ -18021,6 +18023,7 @@ API endpoint: {endpoint}",
                     "setup_id": params.setup_id,
                     "deployment_id": params.deployment_id,
                     "connector_ref": params.connector_ref,
+                    "operation": proposal.operation,
                     "proposal_id": proposal.id,
                     "result_id": result_id,
                     "active_revision_id": applied_revision_id,
@@ -18063,6 +18066,7 @@ API endpoint: {endpoint}",
                         "setup_id": params.setup_id,
                         "deployment_id": params.deployment_id,
                         "connector_ref": connector_ref,
+                        "operation": applied.operation,
                         "proposal_id": proposal_id,
                         "result_id": applied.result_id,
                         "active_revision_id": applied_revision_id,
@@ -25351,6 +25355,7 @@ pub(crate) mod tests {
             ("update_seren_agent_deployment", false),
             ("rollback_seren_agent_deployment", false),
             ("deploy_seren_agent", false),
+            ("apply_seren_agent_connector_binding_proposal", false),
         ] {
             let tool = tools
                 .iter()
@@ -25362,6 +25367,17 @@ pub(crate) mod tests {
                 "{name}"
             );
         }
+        let connector_apply = tools
+            .iter()
+            .find(|tool| tool.name == "apply_seren_agent_connector_binding_proposal")
+            .unwrap();
+        assert_eq!(
+            connector_apply
+                .annotations
+                .as_ref()
+                .and_then(|annotations| annotations.destructive_hint),
+            Some(true)
+        );
         // Runtime-only operations stay off the owner surface. Seren Passwords completes
         // sign-in consent, so the owner surface does not accept consent IDs either.
         for excluded in [
@@ -32070,6 +32086,7 @@ pub(crate) mod tests {
             "id": proposal_id,
             "deployment_id": deployment_id,
             "connector_ref": "slack",
+            "operation": "configure",
             "expected_active_revision_id": revision_id,
             "proposal_fingerprint": "fp",
             "requirements_fingerprint": "rfp",
@@ -32125,6 +32142,9 @@ pub(crate) mod tests {
             .expect("apply routes through the Core connector proposal-bound endpoint");
         assert!(result_contains(&result, &applied_revision_id.to_string()));
         assert!(result_contains(&result, "slack"));
+        let output: serde_json::Value =
+            serde_json::from_str(&result.content[0].as_text().unwrap().text).unwrap();
+        assert_eq!(output["operation"], "configure");
         let replay = server
             .apply_seren_agent_connector_binding_proposal(
                 Parameters(ApplyConnectorBindingProposalParams {
@@ -32161,6 +32181,7 @@ pub(crate) mod tests {
             "id": proposal_id,
             "deployment_id": deployment_id,
             "connector_ref": "slack",
+            "operation": "configure",
             "expected_active_revision_id": revision_id,
             "proposal_fingerprint": "fp",
             "requirements_fingerprint": "rfp",
@@ -32224,6 +32245,7 @@ pub(crate) mod tests {
             "id": proposal_id,
             "deployment_id": deployment_id,
             "connector_ref": "slack",
+            "operation": "configure",
             "expected_active_revision_id": revision_id,
             "proposal_fingerprint": "fp",
             "requirements_fingerprint": "rfp",
@@ -32298,6 +32320,7 @@ pub(crate) mod tests {
             "id": current_proposal_id,
             "deployment_id": deployment_id,
             "connector_ref": "slack",
+            "operation": "configure",
             "expected_active_revision_id": revision_id,
             "proposal_fingerprint": "fp",
             "requirements_fingerprint": "rfp",

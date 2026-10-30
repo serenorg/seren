@@ -351,7 +351,7 @@
             }
           },
           "409": {
-            "description": "Request conflicts with the current state",
+            "description": "Request conflicts with the current state, including publisher_provided_by_template when no access request is needed",
             "content": {
               "application/json": {
                 "schema": {
@@ -449,7 +449,7 @@
             }
           },
           "409": {
-            "description": "Request conflicts with the current state",
+            "description": "Request conflicts with the current state, including publisher_provided_by_template when no access request is needed",
             "content": {
               "application/json": {
                 "schema": {
@@ -2188,7 +2188,7 @@
             "description": "Resource not found"
           },
           "409": {
-            "description": "Conflicting update, account connection required, or the publisher is already provided by the managed agent's template. A sign-in grant may still serve a template publisher whose template operations are all reads with no fixed connection."
+            "description": "Conflicting update, account connection required, or publisher_provided_by_template when the publisher is already provided by the managed agent's template. A sign-in grant may still serve a template publisher whose template operations are all reads with no fixed connection."
           }
         },
         "security": [
@@ -22818,7 +22818,8 @@
         "description": "How the owner's decision continues the requesting conversation.",
         "enum": [
           "granted",
-          "declined"
+          "declined",
+          "not_needed"
         ]
       },
       "PublisherAccessDecision": {
@@ -23388,6 +23389,7 @@
         "type": "string",
         "enum": [
           "invalid_request",
+          "peer_contract_mismatch",
           "workload_rejected",
           "secrets_gateway_material",
           "deployment_strategy_transition",

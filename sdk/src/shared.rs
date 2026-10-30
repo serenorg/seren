@@ -1176,6 +1176,7 @@ pub fn connector_binding_proposal_applied_revision(
         || applied.id != reviewed.id
         || applied.deployment_id != reviewed.deployment_id
         || applied.connector_ref != reviewed.connector_ref
+        || applied.operation != reviewed.operation
         || applied.proposal_fingerprint != reviewed.proposal_fingerprint
         || applied.requirements_fingerprint != reviewed.requirements_fingerprint
         || applied.expected_active_revision_id != reviewed.expected_active_revision_id
@@ -3791,6 +3792,7 @@ mod tests {
             "id": uuid::Uuid::new_v4(),
             "deployment_id": deployment_id,
             "connector_ref": "slack",
+            "operation": "configure",
             "expected_active_revision_id": expected_active_revision_id,
             "proposal_fingerprint": "fp",
             "requirements_fingerprint": "rfp",
@@ -4069,6 +4071,25 @@ mod tests {
         assert!(
             connector_binding_proposal_applied_revision(&reviewed, &request, &other_result)
                 .is_err()
+        );
+
+        let mut other_operation = applied.clone();
+        other_operation.operation = crate::ManagedConnectorBindingOperation::Remove;
+        assert!(
+            connector_binding_proposal_applied_revision(&reviewed, &request, &other_operation)
+                .is_err()
+        );
+
+        let mut reviewed_removal = reviewed.clone();
+        reviewed_removal.operation = crate::ManagedConnectorBindingOperation::Remove;
+        assert_eq!(
+            connector_binding_proposal_applied_revision(
+                &reviewed_removal,
+                &request,
+                &other_operation,
+            )
+            .expect("a matching reviewed removal names its applied revision"),
+            applied_revision_id
         );
 
         let mut no_revision = applied;

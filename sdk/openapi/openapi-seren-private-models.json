@@ -60,7 +60,7 @@
             }
           },
           "403": {
-            "description": "Private models are not configured for this organization, a hired managed agent's deployment key named no run in `X-Seren-Run-Id` (`run_required`), named a run of another deployment (`run_not_in_deployment`), or named a run with no model-call funding (`run_funding_required`)"
+            "description": "Private models are not configured for this organization, the deployment key lacks Private Models access (`private_models_deployment_key_missing_scope`), a hired managed agent's deployment key named no run in `X-Seren-Run-Id` (`run_required`), named a run of another deployment (`run_not_in_deployment`), or named a run with no model-call funding (`run_funding_required`)"
           },
           "409": {
             "description": "The run named in `X-Seren-Run-Id` has ended or is being cancelled (`run_not_active`)"
@@ -104,7 +104,7 @@
             "description": "Authentication required"
           },
           "403": {
-            "description": "Private models are not configured for this organization"
+            "description": "Private models are not configured for this organization, or the deployment key lacks Private Models access (`private_models_deployment_key_missing_scope`)"
           },
           "500": {
             "description": "Internal server error"

@@ -12181,10 +12181,16 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EstimateResponse"
+                  "$ref": "#/components/schemas/DataResponse_EstimateResponse"
                 }
               }
             }
+          },
+          "401": {
+            "description": "Missing or invalid credentials"
+          },
+          "403": {
+            "description": "Credential is not permitted to use this publisher"
           },
           "404": {
             "description": "Publisher not found"
@@ -19854,6 +19860,66 @@
                 "items": {
                   "$ref": "#/components/schemas/UsageEventDebugRecord"
                 }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_EstimateResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Query estimate response",
+            "required": [
+              "estimated_rows",
+              "estimated_cost",
+              "asset_symbol",
+              "estimated_cost_atomic",
+              "publisher_name",
+              "publisher_slug"
+            ],
+            "properties": {
+              "asset_symbol": {
+                "type": "string",
+                "description": "Asset symbol (e.g., USDC, USDT)"
+              },
+              "estimated_cost": {
+                "type": "string",
+                "description": "Estimated cost in configured asset"
+              },
+              "estimated_cost_atomic": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Estimated cost in atomic units"
+              },
+              "estimated_rows": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Estimated rows to be returned"
+              },
+              "publisher_name": {
+                "type": "string",
+                "description": "Publisher name"
+              },
+              "publisher_slug": {
+                "type": "string",
+                "description": "Publisher slug"
               }
             }
           },
@@ -39073,6 +39139,7 @@
         "type": "string",
         "enum": [
           "invalid_request",
+          "peer_contract_mismatch",
           "workload_rejected",
           "secrets_gateway_material",
           "deployment_strategy_transition",
