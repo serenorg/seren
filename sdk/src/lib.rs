@@ -2417,34 +2417,42 @@ mod tests {
         server.verify().await;
     }
 
-    /// `build.rs` omits these raw uploads from code generation because their
-    /// Content-Type header selects the stored file type and Progenitor sends a
-    /// single fixed media type. They stay in the bundled public contract; if an
-    /// operation narrows to one media type, drop its omission so the generated
-    /// client gains the method.
+    /// Raw uploads with several media types stay outside Progenitor's fixed
+    /// media-type methods. Single-media uploads remain generated operations.
     #[test]
-    fn bundled_cloud_spec_keeps_the_raw_upload_operations_omitted_from_codegen() {
+    fn bundled_cloud_spec_distinguishes_single_and_multi_media_uploads() {
         let spec: serde_json::Value =
             serde_json::from_str(include_str!("../openapi/openapi-seren-cloud.json"))
                 .expect("parse bundled seren-cloud OpenAPI document");
 
-        for (path, operation_id) in [
+        for (path, operation_id, multiple_media_types) in [
             (
                 "/deployments/{id}/executions/{execution_id}/artifact-files",
                 "seren_cloud_runtime_publish_run_artifact",
+                true,
             ),
-            ("/deployments/{id}/files", "seren_cloud_upload_run_file"),
-            ("/folders/{id}/files", "seren_cloud_upload_folder_file"),
+            (
+                "/deployments/{id}/files",
+                "seren_cloud_upload_run_file",
+                false,
+            ),
+            (
+                "/folders/{id}/files",
+                "seren_cloud_upload_folder_file",
+                false,
+            ),
         ] {
             let operation = &spec["paths"][path]["post"];
             assert_eq!(operation["operationId"], operation_id, "{path}");
             let content = operation["requestBody"]["content"]
                 .as_object()
                 .unwrap_or_else(|| panic!("{operation_id} must declare a request body"));
-            assert!(
-                content.len() > 1,
-                "{operation_id} now has one media type; remove its codegen omission",
-            );
+            if multiple_media_types {
+                assert!(content.len() > 1, "{operation_id} must remain multi-media");
+            } else {
+                assert_eq!(content.len(), 1, "{operation_id} must have one media type");
+                assert!(content.contains_key("application/octet-stream"));
+            }
             assert!(
                 content.values().all(|media| {
                     media["schema"]["$ref"] == "#/components/schemas/RunFileContent"
@@ -2452,6 +2460,201 @@ mod tests {
                 "{operation_id} must upload raw RunFileContent for every media type",
             );
         }
+    }
+
+    #[tokio::test]
+    async fn organization_funding_clients_preserve_personal_deposit_binding() {
+        use wiremock::matchers::header;
+
+        let server = MockServer::start().await;
+        let organization_id = Uuid::from_u128(201);
+        let deposit_id = Uuid::from_u128(202);
+        let idempotency_key = Uuid::from_u128(203);
+        let wallet_route = format!("/organizations/{organization_id}/wallet");
+        let deposit = json!({
+            "id": deposit_id, "organization_id": organization_id,
+            "amount_atomic": 500_000_000_i64, "status": "pending",
+            "reversed_atomic": 0, "owed_atomic": 0,
+            "checkout_url": "https://checkout.example.test/organization"
+        });
+        let organization_request = json!({
+            "amount_cents": 500,
+            "success_url": "https://console.example.test/success",
+            "cancel_url": "https://console.example.test/cancel"
+        });
+        Mock::given(method("GET"))
+            .and(path(&wallet_route))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
+                "organization_id": organization_id,
+                "available_atomic": 9_007_199_254_740_993_i64,
+                "owed_atomic": 17
+            }})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(format!("{wallet_route}/deposits")))
+            .and(header("Idempotency-Key", idempotency_key.to_string()))
+            .and(body_json(&organization_request))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": deposit})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!("{wallet_route}/deposits/{deposit_id}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": deposit})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/wallet/deposit"))
+            .and(body_json(json!({"amount_cents": 500})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
+                "deposit_id": deposit_id,
+                "checkout_url": "https://checkout.example.test/personal",
+                "amount_atomic": 500_000_000_i64, "bonus_atomic": 0,
+                "total_atomic": 500_000_000_i64,
+                "amount_usd": "5.00", "bonus_usd": "0.00", "total_usd": "5.00"
+            }})))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client =
+            Client::from_config(&ClientConfig::new("synthetic-key").with_base_url(server.uri()))
+                .unwrap();
+        let wallet = client
+            .get_organization_wallet(&organization_id)
+            .await
+            .unwrap()
+            .into_inner()
+            .data;
+        assert_eq!(wallet.organization_id, organization_id);
+        assert_eq!(wallet.available_atomic, 9_007_199_254_740_993_i64);
+        assert_eq!(wallet.owed_atomic, 17);
+        let request =
+            serde_json::from_value::<crate::OrganizationDepositRequest>(organization_request)
+                .unwrap();
+        let created = client
+            .create_organization_deposit(&organization_id, &idempotency_key, &request)
+            .await
+            .unwrap()
+            .into_inner()
+            .data;
+        assert_eq!(serde_json::to_value(created).unwrap(), deposit);
+        let fetched = client
+            .get_organization_deposit(&organization_id, &deposit_id)
+            .await
+            .unwrap()
+            .into_inner()
+            .data;
+        assert_eq!(serde_json::to_value(fetched).unwrap(), deposit);
+        let personal = client
+            .create_deposit(&crate::DepositRequest {
+                amount_cents: 500,
+                referral_code: None,
+                success_url: None,
+                cancel_url: None,
+            })
+            .await
+            .unwrap()
+            .into_inner()
+            .data;
+        assert_eq!(personal.deposit_id, deposit_id);
+        assert_eq!(
+            personal.checkout_url,
+            "https://checkout.example.test/personal"
+        );
+        server.verify().await;
+    }
+
+    #[test]
+    fn cloud_file_contract_requires_verification_path_and_pagination() {
+        let file = json!({
+            "id": Uuid::from_u128(211), "folder_id": Uuid::from_u128(212),
+            "origin": "owner_upload", "path": "reports/result.csv", "file_name": "result.csv",
+            "revision": 1, "content_type": "text/csv", "content_state": "verifying",
+            "byte_length": 9, "sha256": "a".repeat(64), "created_at": "2026-10-30T00:00:00Z"
+        });
+        let page = json!({"files": [file], "has_more": true, "next_cursor": "opaque-cursor"});
+        let parsed: crate::CloudFolderFileListResponse =
+            serde_json::from_value(page.clone()).unwrap();
+        assert!(parsed.has_more);
+        assert_eq!(parsed.next_cursor.as_deref(), Some("opaque-cursor"));
+        assert_eq!(parsed.files[0].path, "reports/result.csv");
+        assert_eq!(
+            serde_json::to_value(parsed.files[0].content_state).unwrap(),
+            json!("verifying")
+        );
+        for required in ["path", "content_state"] {
+            let mut missing = file.clone();
+            missing.as_object_mut().unwrap().remove(required);
+            assert!(serde_json::from_value::<crate::CloudFolderFile>(missing).is_err());
+        }
+        let mut missing_pagination = page;
+        missing_pagination
+            .as_object_mut()
+            .unwrap()
+            .remove("has_more");
+        assert!(
+            serde_json::from_value::<crate::CloudFolderFileListResponse>(missing_pagination)
+                .is_err()
+        );
+        for cursor in [None, Some(serde_json::Value::Null)] {
+            let mut last_page = json!({"files": [], "has_more": false});
+            if let Some(cursor) = cursor {
+                last_page["next_cursor"] = cursor;
+            }
+            let parsed: crate::CloudFolderFileListResponse =
+                serde_json::from_value(last_page).unwrap();
+            assert!(!parsed.has_more);
+            assert!(parsed.next_cursor.is_none());
+        }
+        for state in ["verifying", "ready"] {
+            let parsed: crate::FileVerificationState =
+                serde_json::from_value(json!(state)).unwrap();
+            assert_eq!(serde_json::to_value(parsed).unwrap(), json!(state));
+        }
+        assert!(serde_json::from_value::<crate::FileVerificationState>(json!("unknown")).is_err());
+        for state in [
+            "uploading",
+            "verifying",
+            "ready",
+            "verification_failed",
+            "cancelled",
+            "expired",
+        ] {
+            let parsed: crate::UploadState = serde_json::from_value(json!(state)).unwrap();
+            assert_eq!(serde_json::to_value(parsed).unwrap(), json!(state));
+        }
+        assert!(serde_json::from_value::<crate::UploadState>(json!("unknown")).is_err());
+    }
+
+    #[test]
+    fn script_publisher_grants_preserve_optional_catalog_operation() {
+        let grant = json!({
+            "publisher_slug": "example", "method": "POST", "path": "/query",
+            "require_approval": true
+        });
+        for operation in [None, Some(serde_json::Value::Null)] {
+            let mut body = grant.clone();
+            if let Some(operation) = operation {
+                body["operation_id"] = operation;
+            }
+            let parsed: crate::ManagedAgentTemplateScriptPublisherGrant =
+                serde_json::from_value(body).unwrap();
+            assert!(parsed.operation_id.is_none());
+            assert!(parsed.require_approval);
+        }
+        let mut body = grant;
+        body["operation_id"] = json!("post_messages");
+        let parsed: crate::ManagedAgentTemplateScriptPublisherGrant =
+            serde_json::from_value(body).unwrap();
+        assert_eq!(parsed.operation_id.as_deref(), Some("post_messages"));
+        assert_eq!(
+            serde_json::to_value(parsed).unwrap()["operation_id"],
+            "post_messages"
+        );
     }
 
     #[test]

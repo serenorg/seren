@@ -2713,6 +2713,16 @@
           "401": {
             "description": "Unauthorized"
           },
+          "402": {
+            "description": "Organization storage writes are blocked (storage_balance_exhausted)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Requires this deployment's runtime key"
           },
@@ -3015,64 +3025,9 @@
           }
         ],
         "requestBody": {
-          "description": "File content, at most 20 MiB. The Content-Type header selects the file type.",
+          "description": "File content with any valid MIME type up to 255 bytes, at most 20 MiB. The Content-Type header selects the file type.",
           "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "application/pdf": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "image/gif": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "image/jpeg": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "image/png": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "image/webp": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "text/csv": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "text/markdown": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "text/plain": {
+            "application/octet-stream": {
               "schema": {
                 "$ref": "#/components/schemas/RunFileContent"
               }
@@ -3106,6 +3061,16 @@
           },
           "401": {
             "description": "Unauthorized"
+          },
+          "402": {
+            "description": "Organization storage writes are blocked (storage_balance_exhausted)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "403": {
             "description": "Caller is not the deployment owner"
@@ -3218,7 +3183,7 @@
         ],
         "responses": {
           "200": {
-            "description": "File content streamed as an attachment, with the stored Content-Type. An interrupted transfer must be retried.",
+            "description": "File content with any valid MIME type up to 255 bytes streamed as an attachment, with the stored Content-Type. An interrupted transfer must be retried.",
             "headers": {
               "Content-Length": {
                 "schema": {
@@ -3229,62 +3194,7 @@
               }
             },
             "content": {
-              "application/pdf": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunFileContent"
-                }
-              },
-              "image/png": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunFileContent"
-                }
-              },
-              "image/jpeg": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunFileContent"
-                }
-              },
-              "image/gif": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunFileContent"
-                }
-              },
-              "image/webp": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunFileContent"
-                }
-              },
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunFileContent"
-                }
-              },
-              "text/csv": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunFileContent"
-                }
-              },
-              "text/markdown": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunFileContent"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunFileContent"
-                }
-              },
-              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunFileContent"
-                }
-              },
-              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunFileContent"
-                }
-              },
-              "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
+              "application/octet-stream": {
                 "schema": {
                   "$ref": "#/components/schemas/RunFileContent"
                 }
@@ -3299,6 +3209,65 @@
           },
           "404": {
             "description": "Deployment or run file not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/files/{file_id}/downloads": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_create_deployment_file_download_link",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Resource ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "file_id",
+            "in": "path",
+            "description": "File ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Single-use download URL valid for 60 seconds",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_FileDownloadLink"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Owner access required"
+          },
+          "404": {
+            "description": "File not found"
+          },
+          "409": {
+            "description": "File verification is pending"
+          },
+          "429": {
+            "description": "Download allowance exhausted; Retry-After and retry_after_seconds give the wait"
           }
         },
         "security": [
@@ -5424,6 +5393,437 @@
         ]
       }
     },
+    "/deployments/{id}/uploads": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_create_deployment_upload",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloudFolderUploadCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "An open upload continues or matching content is already available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudFolderUploadCreateResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Upload started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudFolderUploadCreateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid path, type, digest or query"
+          },
+          "402": {
+            "description": "Organization storage writes are blocked (storage_balance_exhausted)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Organization access denied"
+          },
+          "404": {
+            "description": "Deployment not found"
+          },
+          "409": {
+            "description": "Deployment unavailable or upload changed"
+          },
+          "413": {
+            "description": "File too large"
+          },
+          "429": {
+            "description": "Upload allowance or open uploads exhausted; Retry-After and retry_after_seconds give the wait"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/uploads/{upload_id}": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_get_deployment_upload",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "upload_id",
+            "in": "path",
+            "description": "Upload ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Upload and the parts already received",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudFolderUpload"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "403": {
+            "description": "Organization access denied"
+          },
+          "404": {
+            "description": "Upload not found or expired"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_cancel_deployment_upload",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "upload_id",
+            "in": "path",
+            "description": "Upload ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Upload cancelled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudFolderUploadCancelResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "403": {
+            "description": "Organization access denied"
+          },
+          "404": {
+            "description": "Upload not found"
+          },
+          "429": {
+            "description": "Upload allowance exhausted; Retry-After and retry_after_seconds give the wait"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/uploads/{upload_id}/complete": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_complete_deployment_upload",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "upload_id",
+            "in": "path",
+            "description": "Upload ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Upload already completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentRunFile"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Attachment accepted for verification",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentRunFile"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "402": {
+            "description": "Organization storage writes are blocked (storage_balance_exhausted)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Organization access denied"
+          },
+          "404": {
+            "description": "Upload not found or expired"
+          },
+          "409": {
+            "description": "Parts missing, upload changed, deployment unavailable"
+          },
+          "429": {
+            "description": "Upload allowance exhausted; Retry-After and retry_after_seconds give the wait"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/uploads/{upload_id}/parts/{part_index}": {
+      "put": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_upload_deployment_upload_part",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "upload_id",
+            "in": "path",
+            "description": "Upload ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "part_index",
+            "in": "path",
+            "description": "Zero-based part number",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "X-Seren-Part-Sha256",
+            "in": "header",
+            "description": "Hexadecimal SHA-256 of this part",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "minLength": 64
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The part's bytes. Every part is exactly part_bytes long except the last, which holds the remainder. Retry a part with identical bytes and the same digest.",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Part stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudFolderUpload"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Wrong part size or invalid query"
+          },
+          "402": {
+            "description": "Organization storage writes are blocked (storage_balance_exhausted)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Organization access denied"
+          },
+          "404": {
+            "description": "Upload not found, expired or completed"
+          },
+          "409": {
+            "description": "Upload changed or must be restarted"
+          },
+          "429": {
+            "description": "Part allowance exhausted; Retry-After and retry_after_seconds give the wait"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/downloads/{token}": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_redeem_file_download",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "description": "Token from a download URL",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File streamed as an attachment",
+            "headers": {
+              "Content-Length": {
+                "schema": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "description": "Complete file length in bytes"
+              }
+            },
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunFileContent"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "File or URL unavailable, expired or already used"
+          },
+          "429": {
+            "description": "Download allowance exhausted; Retry-After and retry_after_seconds give the wait"
+          }
+        }
+      }
+    },
     "/environments": {
       "get": {
         "tags": [
@@ -6275,6 +6675,49 @@
         ]
       }
     },
+    "/folder-limits": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_get_folder_limits",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "query",
+            "description": "Non-nil organization ID; omit to use the session organization",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Folder file limits and the caller's storage use",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudFolderLimits"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "403": {
+            "description": "Organization access denied"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/folders": {
       "get": {
         "tags": [
@@ -6620,6 +7063,36 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "path_prefix",
+            "in": "query",
+            "description": "Only files below this folder path. Matches whole path segments",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size from 1 to 1000. With a limit, files are ordered by path; without one, every file is returned newest first",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "maximum": 1000,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "next_cursor from the previous page; requires limit",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -6678,7 +7151,7 @@
           {
             "name": "file_name",
             "in": "query",
-            "description": "File name",
+            "description": "File name; with path, it must equal the path's last segment",
             "required": true,
             "schema": {
               "type": "string"
@@ -6692,67 +7165,21 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Normalized relative path whose last segment matches file_name. Omit for the folder root",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
-          "description": "File content, at most 20 MiB. The Content-Type header selects the file type.",
+          "description": "File content, at most 20 MiB; larger files use resumable uploads up to 2 GiB. The Content-Type header accepts any valid MIME type up to 255 bytes. A file at the same path with the same SHA-256 is returned unchanged; different content at that path replaces it.",
           "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "application/pdf": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "image/gif": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "image/jpeg": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "image/png": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "image/webp": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "text/csv": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "text/markdown": {
-              "schema": {
-                "$ref": "#/components/schemas/RunFileContent"
-              }
-            },
-            "text/plain": {
+            "application/octet-stream": {
               "schema": {
                 "$ref": "#/components/schemas/RunFileContent"
               }
@@ -6762,7 +7189,7 @@
         },
         "responses": {
           "200": {
-            "description": "Upload already recorded",
+            "description": "Upload already recorded or the same file is already at this path",
             "content": {
               "application/json": {
                 "schema": {
@@ -6782,7 +7209,17 @@
             }
           },
           "400": {
-            "description": "Invalid file or query"
+            "description": "Invalid file, path or query"
+          },
+          "402": {
+            "description": "Organization storage writes are blocked (storage_balance_exhausted)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "403": {
             "description": "Organization access denied"
@@ -6791,13 +7228,79 @@
             "description": "Folder not found"
           },
           "409": {
-            "description": "Folder archived or idempotency conflict"
+            "description": "Folder archived, idempotency conflict, storage quota exceeded or folder file limit reached"
           },
           "413": {
             "description": "File too large"
           },
           "429": {
-            "description": "Upload limit exceeded"
+            "description": "Upload allowance exhausted; Retry-After and retry_after_seconds give the wait"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/folders/{id}/files/{file_id}": {
+      "delete": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_delete_folder_file",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Folder ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "file_id",
+            "in": "path",
+            "description": "File ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "organization_id",
+            "in": "query",
+            "description": "Non-nil organization ID; omit to use the session organization",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File deleted. Deleting a managed agent's saved file removes every revision of it from the same run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudFolderFileDeleteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "403": {
+            "description": "Organization access denied"
+          },
+          "404": {
+            "description": "File not found"
           }
         },
         "security": [
@@ -6847,7 +7350,7 @@
         ],
         "responses": {
           "200": {
-            "description": "File content streamed as an attachment. An interrupted transfer must be retried.",
+            "description": "File content streamed with the stored Content-Type. An interrupted transfer must be retried.",
             "headers": {
               "Content-Length": {
                 "schema": {
@@ -6873,6 +7376,516 @@
           },
           "404": {
             "description": "File not found"
+          },
+          "409": {
+            "description": "File verification is pending"
+          },
+          "429": {
+            "description": "Download allowance exhausted; Retry-After and retry_after_seconds give the wait"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/folders/{id}/files/{file_id}/downloads": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_create_folder_file_download_link",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Resource ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "file_id",
+            "in": "path",
+            "description": "File ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "organization_id",
+            "in": "query",
+            "description": "Organization ID; omit to use the session organization",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Single-use download URL valid for 60 seconds",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_FileDownloadLink"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Owner access required"
+          },
+          "404": {
+            "description": "File not found"
+          },
+          "409": {
+            "description": "File verification is pending"
+          },
+          "429": {
+            "description": "Download allowance exhausted; Retry-After and retry_after_seconds give the wait"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/folders/{id}/uploads": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_create_folder_upload",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Folder ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "organization_id",
+            "in": "query",
+            "description": "Non-nil organization ID; omit to use the session organization",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloudFolderUploadCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The same file is already at this path, or an open upload for it continues",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudFolderUploadCreateResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Upload started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudFolderUploadCreateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid path, type, digest or query"
+          },
+          "402": {
+            "description": "Organization storage writes are blocked (storage_balance_exhausted)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Organization access denied"
+          },
+          "404": {
+            "description": "Folder not found"
+          },
+          "409": {
+            "description": "Folder archived, storage quota exceeded or folder file limit reached"
+          },
+          "413": {
+            "description": "File too large"
+          },
+          "429": {
+            "description": "Upload allowance or open uploads exhausted; Retry-After and retry_after_seconds give the wait"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/folders/{id}/uploads/{upload_id}": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_get_folder_upload",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Folder ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "upload_id",
+            "in": "path",
+            "description": "Upload ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "organization_id",
+            "in": "query",
+            "description": "Non-nil organization ID; omit to use the session organization",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Upload and the parts already received",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudFolderUpload"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "403": {
+            "description": "Organization access denied"
+          },
+          "404": {
+            "description": "Upload not found or expired"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_cancel_folder_upload",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Folder ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "upload_id",
+            "in": "path",
+            "description": "Upload ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "organization_id",
+            "in": "query",
+            "description": "Non-nil organization ID; omit to use the session organization",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Upload cancelled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudFolderUploadCancelResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "403": {
+            "description": "Organization access denied"
+          },
+          "404": {
+            "description": "Upload not found"
+          },
+          "429": {
+            "description": "Upload allowance exhausted; Retry-After and retry_after_seconds give the wait"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/folders/{id}/uploads/{upload_id}/complete": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_complete_folder_upload",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Folder ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "upload_id",
+            "in": "path",
+            "description": "Upload ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "organization_id",
+            "in": "query",
+            "description": "Non-nil organization ID; omit to use the session organization",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Already completed, or the same file is already at this path",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudFolderFile"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "File accepted for verification at the upload's path, replacing any earlier file there",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudFolderFile"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "402": {
+            "description": "Organization storage writes are blocked (storage_balance_exhausted)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Organization access denied"
+          },
+          "404": {
+            "description": "Upload not found or expired"
+          },
+          "409": {
+            "description": "Parts missing, upload changed, folder archived or folder file limit reached"
+          },
+          "429": {
+            "description": "Upload allowance exhausted; Retry-After and retry_after_seconds give the wait"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/folders/{id}/uploads/{upload_id}/parts/{part_index}": {
+      "put": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_upload_folder_upload_part",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Folder ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "upload_id",
+            "in": "path",
+            "description": "Upload ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "part_index",
+            "in": "path",
+            "description": "Zero-based part number",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "X-Seren-Part-Sha256",
+            "in": "header",
+            "description": "Hexadecimal SHA-256 of this part",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "minLength": 64
+            }
+          },
+          {
+            "name": "organization_id",
+            "in": "query",
+            "description": "Non-nil organization ID; omit to use the session organization",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The part's bytes. Every part is exactly part_bytes long except the last, which holds the remainder. Retry a part with identical bytes and the same digest.",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "$ref": "#/components/schemas/RunFileContent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Part stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudFolderUpload"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Wrong part size or invalid query"
+          },
+          "402": {
+            "description": "Organization storage writes are blocked (storage_balance_exhausted)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Organization access denied"
+          },
+          "404": {
+            "description": "Upload not found, expired or completed"
+          },
+          "409": {
+            "description": "Upload changed, folder archived, or the upload must be restarted"
+          },
+          "429": {
+            "description": "Part allowance exhausted; Retry-After and retry_after_seconds give the wait"
           }
         },
         "security": [
@@ -8276,6 +9289,41 @@
           },
           "404": {
             "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/storage-usage": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Read the organization's current storage usage and settled daily charges.",
+        "operationId": "seren_cloud_storage_usage",
+        "responses": {
+          "200": {
+            "description": "Current storage usage; billable_bytes is the amount above the free allowance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_StorageUsage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Billing read permission required"
+          },
+          "502": {
+            "description": "Storage usage unavailable"
+          },
+          "503": {
+            "description": "Storage authorization unavailable"
           }
         },
         "security": [
@@ -13823,9 +14871,11 @@
           "id",
           "folder_id",
           "origin",
+          "path",
           "file_name",
           "revision",
           "content_type",
+          "content_state",
           "byte_length",
           "sha256",
           "created_at"
@@ -13834,6 +14884,9 @@
           "byte_length": {
             "type": "integer",
             "format": "int64"
+          },
+          "content_state": {
+            "$ref": "#/components/schemas/FileVerificationState"
           },
           "content_type": {
             "type": "string"
@@ -13856,6 +14909,10 @@
           "origin": {
             "$ref": "#/components/schemas/CloudFolderFileOrigin"
           },
+          "path": {
+            "type": "string",
+            "description": "Normalized slash-separated location within the folder."
+          },
           "revision": {
             "type": "integer",
             "format": "int32"
@@ -13872,10 +14929,22 @@
           }
         }
       },
+      "CloudFolderFileDeleteResponse": {
+        "type": "object",
+        "required": [
+          "deleted"
+        ],
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          }
+        }
+      },
       "CloudFolderFileListResponse": {
         "type": "object",
         "required": [
-          "files"
+          "files",
+          "has_more"
         ],
         "properties": {
           "files": {
@@ -13883,6 +14952,16 @@
             "items": {
               "$ref": "#/components/schemas/CloudFolderFile"
             }
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Present only for a `limit` page that has more files after it."
           }
         }
       },
@@ -13892,6 +14971,95 @@
           "owner_upload",
           "managed_agent_delivery"
         ]
+      },
+      "CloudFolderLimits": {
+        "type": "object",
+        "description": "Limits Core enforces on owner folder files.",
+        "required": [
+          "max_file_bytes",
+          "max_single_request_bytes",
+          "part_bytes",
+          "max_path_bytes",
+          "max_path_segments",
+          "max_segment_bytes",
+          "max_files_per_folder",
+          "quota_bytes",
+          "used_bytes",
+          "max_open_uploads",
+          "upload_ttl_seconds",
+          "upload_requests_per_minute",
+          "part_requests_per_minute",
+          "storage_free_bytes",
+          "storage_price_per_gib_month_atomic"
+        ],
+        "properties": {
+          "max_file_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "max_files_per_folder": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "max_open_uploads": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "max_path_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_path_segments": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_segment_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_single_request_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "part_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "part_requests_per_minute": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "quota_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "storage_free_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "storage_price_per_gib_month_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "upload_requests_per_minute": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "upload_ttl_seconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "used_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total organization storage bytes."
+          }
+        }
       },
       "CloudFolderListResponse": {
         "type": "object",
@@ -13926,6 +15094,162 @@
           }
         },
         "additionalProperties": false
+      },
+      "CloudFolderUpload": {
+        "type": "object",
+        "required": [
+          "id",
+          "path",
+          "byte_length",
+          "sha256",
+          "content_type",
+          "part_bytes",
+          "part_count",
+          "received_parts",
+          "state",
+          "created_at",
+          "expires_at"
+        ],
+        "properties": {
+          "byte_length": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deployment_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "folder_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "part_bytes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "part_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "path": {
+            "type": "string"
+          },
+          "received_parts": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/UploadState"
+          }
+        }
+      },
+      "CloudFolderUploadCancelResponse": {
+        "type": "object",
+        "required": [
+          "cancelled"
+        ],
+        "properties": {
+          "cancelled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CloudFolderUploadCreateRequest": {
+        "type": "object",
+        "required": [
+          "path",
+          "byte_length",
+          "sha256",
+          "content_type"
+        ],
+        "properties": {
+          "byte_length": {
+            "type": "integer",
+            "format": "int64",
+            "maximum": 2147483648,
+            "minimum": 1
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 1024,
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "description": "Lowercase hexadecimal SHA-256 of the whole file.",
+            "maxLength": 64,
+            "minLength": 64
+          }
+        },
+        "additionalProperties": false
+      },
+      "CloudFolderUploadCreateResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "file": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UploadedFile"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/CloudFolderUploadStatus"
+          },
+          "upload": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudFolderUpload"
+              }
+            ]
+          }
+        }
+      },
+      "CloudFolderUploadStatus": {
+        "type": "string",
+        "enum": [
+          "upload_required",
+          "already_present"
+        ]
       },
       "CloudInteractiveSessionActiveRequest": {
         "type": "object",
@@ -19110,9 +20434,11 @@
               "id",
               "folder_id",
               "origin",
+              "path",
               "file_name",
               "revision",
               "content_type",
+              "content_state",
               "byte_length",
               "sha256",
               "created_at"
@@ -19121,6 +20447,9 @@
               "byte_length": {
                 "type": "integer",
                 "format": "int64"
+              },
+              "content_state": {
+                "$ref": "#/components/schemas/FileVerificationState"
               },
               "content_type": {
                 "type": "string"
@@ -19142,6 +20471,10 @@
               },
               "origin": {
                 "$ref": "#/components/schemas/CloudFolderFileOrigin"
+              },
+              "path": {
+                "type": "string",
+                "description": "Normalized slash-separated location within the folder."
               },
               "revision": {
                 "type": "integer",
@@ -19172,6 +20505,37 @@
           }
         }
       },
+      "DataResponse_CloudFolderFileDeleteResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "deleted"
+            ],
+            "properties": {
+              "deleted": {
+                "type": "boolean"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_CloudFolderFileListResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -19182,7 +20546,8 @@
           "data": {
             "type": "object",
             "required": [
-              "files"
+              "files",
+              "has_more"
             ],
             "properties": {
               "files": {
@@ -19190,6 +20555,125 @@
                 "items": {
                   "$ref": "#/components/schemas/CloudFolderFile"
                 }
+              },
+              "has_more": {
+                "type": "boolean"
+              },
+              "next_cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Present only for a `limit` page that has more files after it."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudFolderLimits": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Limits Core enforces on owner folder files.",
+            "required": [
+              "max_file_bytes",
+              "max_single_request_bytes",
+              "part_bytes",
+              "max_path_bytes",
+              "max_path_segments",
+              "max_segment_bytes",
+              "max_files_per_folder",
+              "quota_bytes",
+              "used_bytes",
+              "max_open_uploads",
+              "upload_ttl_seconds",
+              "upload_requests_per_minute",
+              "part_requests_per_minute",
+              "storage_free_bytes",
+              "storage_price_per_gib_month_atomic"
+            ],
+            "properties": {
+              "max_file_bytes": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "max_files_per_folder": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "max_open_uploads": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "max_path_bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "max_path_segments": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "max_segment_bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "max_single_request_bytes": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "part_bytes": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "part_requests_per_minute": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "quota_bytes": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "storage_free_bytes": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "storage_price_per_gib_month_atomic": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "upload_requests_per_minute": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "upload_ttl_seconds": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "used_bytes": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Total organization storage bytes."
               }
             }
           },
@@ -19224,6 +20708,183 @@
                 "items": {
                   "$ref": "#/components/schemas/CloudFolder"
                 }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudFolderUpload": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "path",
+              "byte_length",
+              "sha256",
+              "content_type",
+              "part_bytes",
+              "part_count",
+              "received_parts",
+              "state",
+              "created_at",
+              "expires_at"
+            ],
+            "properties": {
+              "byte_length": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "content_type": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "deployment_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "folder_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "part_bytes": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "part_count": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "path": {
+                "type": "string"
+              },
+              "received_parts": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "state": {
+                "$ref": "#/components/schemas/UploadState"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudFolderUploadCancelResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "cancelled"
+            ],
+            "properties": {
+              "cancelled": {
+                "type": "boolean"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudFolderUploadCreateResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "file": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/UploadedFile"
+                  }
+                ]
+              },
+              "status": {
+                "$ref": "#/components/schemas/CloudFolderUploadStatus"
+              },
+              "upload": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudFolderUpload"
+                  }
+                ]
               }
             }
           },
@@ -20125,6 +21786,42 @@
           }
         }
       },
+      "DataResponse_FileDownloadLink": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "url",
+              "expires_at"
+            ],
+            "properties": {
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "url": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedAgentOnboarding": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -20328,6 +22025,7 @@
               "file_name",
               "revision",
               "content_type",
+              "content_state",
               "byte_length",
               "sha256",
               "created_at"
@@ -20336,6 +22034,9 @@
               "byte_length": {
                 "type": "integer",
                 "format": "int64"
+              },
+              "content_state": {
+                "$ref": "#/components/schemas/FileVerificationState"
               },
               "content_type": {
                 "type": "string"
@@ -21233,6 +22934,71 @@
               },
               "requires_secret_resolution_result": {
                 "type": "boolean"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_StorageUsage": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "used_bytes",
+              "free_bytes",
+              "billable_bytes",
+              "quota_bytes",
+              "price_per_gib_month_atomic",
+              "month_to_date_atomic",
+              "blocked"
+            ],
+            "properties": {
+              "billable_bytes": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Bytes above the free allowance, not the private Storage total."
+              },
+              "blocked": {
+                "type": "boolean"
+              },
+              "free_bytes": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "month_to_date_atomic": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Sum of settled measurements in the current UTC month."
+              },
+              "price_per_gib_month_atomic": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "quota_bytes": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Effective quota enforced by Storage for this organization."
+              },
+              "used_bytes": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Total retained bytes reported by Storage, before the free allowance."
               }
             }
           },
@@ -23184,6 +24950,29 @@
           "cancelled"
         ]
       },
+      "FileDownloadLink": {
+        "type": "object",
+        "required": [
+          "url",
+          "expires_at"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "FileVerificationState": {
+        "type": "string",
+        "enum": [
+          "verifying",
+          "ready"
+        ]
+      },
       "GrantedActions": {
         "oneOf": [
           {
@@ -24379,6 +26168,7 @@
           "file_name",
           "revision",
           "content_type",
+          "content_state",
           "byte_length",
           "sha256",
           "created_at"
@@ -24387,6 +26177,9 @@
           "byte_length": {
             "type": "integer",
             "format": "int64"
+          },
+          "content_state": {
+            "$ref": "#/components/schemas/FileVerificationState"
           },
           "content_type": {
             "type": "string"
@@ -27029,6 +28822,51 @@
           "multipart"
         ]
       },
+      "StorageUsage": {
+        "type": "object",
+        "required": [
+          "used_bytes",
+          "free_bytes",
+          "billable_bytes",
+          "quota_bytes",
+          "price_per_gib_month_atomic",
+          "month_to_date_atomic",
+          "blocked"
+        ],
+        "properties": {
+          "billable_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes above the free allowance, not the private Storage total."
+          },
+          "blocked": {
+            "type": "boolean"
+          },
+          "free_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "month_to_date_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Sum of settled measurements in the current UTC month."
+          },
+          "price_per_gib_month_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "quota_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Effective quota enforced by Storage for this organization."
+          },
+          "used_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total retained bytes reported by Storage, before the free allowance."
+          }
+        }
+      },
       "TaskLabel": {
         "type": "string",
         "description": "Organization-defined policy selector in canonical form.\n\nThe syntax is enforced during deserialization rather than by convention, so\nevery producer and consumer of an [`OrganizationWorkContext`] agrees on which labels\nexist without each one repeating the check.",
@@ -27507,6 +29345,27 @@
           }
         },
         "additionalProperties": false
+      },
+      "UploadState": {
+        "type": "string",
+        "enum": [
+          "uploading",
+          "verifying",
+          "ready",
+          "verification_failed",
+          "cancelled",
+          "expired"
+        ]
+      },
+      "UploadedFile": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/CloudFolderFile"
+          },
+          {
+            "$ref": "#/components/schemas/ManagedAgentRunFile"
+          }
+        ]
       },
       "UpsertAgentCredentialSecretRequest": {
         "type": "object",

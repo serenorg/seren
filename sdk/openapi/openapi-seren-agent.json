@@ -20518,6 +20518,13 @@
           "method": {
             "$ref": "#/components/schemas/HttpMethod"
           },
+          "operation_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Catalog operation to grant. Required when a method and path have several operations."
+          },
           "path": {
             "type": "string"
           },
