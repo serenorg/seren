@@ -1146,7 +1146,8 @@ enum PublisherOperation {
 ///
 /// This tool handles all publisher interactions based on publisher type:
 /// - Database publishers: provide `query` (and optionally `database`)
-/// - API publishers: provide `method`, `path`, `headers`, `body`, or `body_base64`
+/// - API publishers: provide `method`, `path`, `headers`, and at most one of `body` (JSON),
+///   `body_text` (text) or `body_base64` (binary)
 /// - MCP publishers: provide `tool` + `tool_args` OR `resource_uri`
 #[derive(Deserialize, Serialize, JsonSchema)]
 pub struct CallPublisherParams {
@@ -1173,12 +1174,20 @@ pub struct CallPublisherParams {
     /// X-Passthrough-Authorization, rather than the Seren Authorization header.
     #[serde(default)]
     pub headers: Option<HashMap<String, String>>,
-    /// JSON body to send (for API or database publishers)
+    /// JSON body to send (for API or database publishers). Send a text document in body_text
+    /// and binary data in body_base64. Provide at most one of body, body_text and body_base64.
     #[serde(default)]
     pub body: Option<serde_json::Value>,
-    /// Raw request body, base64-encoded. Mutually exclusive with body.
+    /// Raw binary request body, base64-encoded. Provide at most one of body, body_text and
+    /// body_base64.
     #[serde(default)]
     pub body_base64: Option<String>,
+    /// Plain-text request body, sent as its exact UTF-8 bytes, such as HTML, Markdown, CSV or a
+    /// multipart/related document whose parts are text. Requires a Content-Type header such as
+    /// text/html or multipart/related; boundary=...; send JSON in body instead. Provide at most
+    /// one of body, body_text and body_base64.
+    #[serde(default)]
+    pub body_text: Option<String>,
 
     // === MCP publisher parameters ===
     /// MCP tool name to call
@@ -1222,6 +1231,7 @@ impl std::fmt::Debug for CallPublisherParams {
             .field("headers", &self.headers.as_ref().map(|_| "[redacted]"))
             .field("body", &self.body)
             .field("body_base64", &self.body_base64)
+            .field("body_text", &self.body_text)
             .field("tool", &self.tool)
             .field("tool_args", &self.tool_args)
             .field("resource_uri", &self.resource_uri)
@@ -7288,6 +7298,47 @@ fn decode_call_publisher_body_base64(value: Option<&str>) -> Result<Option<Vec<u
         .map_err(|e| McpError::invalid_params(format!("Invalid body_base64: {}", e), None))
 }
 
+/// Matches the Content-Types whose body Core's publisher proxy parses as JSON.
+fn content_type_is_json(content_type: &str) -> bool {
+    let content_type = content_type.trim().to_ascii_lowercase();
+    content_type.starts_with("application/json") || content_type.contains("+json")
+}
+
+/// A `body_text` call needs a Content-Type that is forwarded and is not JSON,
+/// so Core keeps the text as raw bytes. Without one, Core falls back to the
+/// publisher's default Content-Type, which is usually JSON.
+fn validate_call_publisher_body_text_content_type(
+    headers: Option<&HashMap<String, String>>,
+) -> Result<(), McpError> {
+    let content_types: Vec<&str> = headers
+        .into_iter()
+        .flatten()
+        .filter(|(name, value)| {
+            name.eq_ignore_ascii_case("content-type")
+                && !value.trim().is_empty()
+                && publisher_http_header(name, value).is_some()
+        })
+        .map(|(_, value)| value.as_str())
+        .collect();
+    if content_types.is_empty() {
+        return Err(McpError::invalid_params(
+            concat!(
+                "call_publisher: 'body_text' requires a Content-Type header, such as ",
+                "text/plain, text/markdown, text/html or multipart/related; boundary=...",
+            )
+            .to_string(),
+            None,
+        ));
+    }
+    if content_types.into_iter().any(content_type_is_json) {
+        return Err(McpError::invalid_params(
+            "call_publisher: send a JSON body in 'body', not 'body_text'".to_string(),
+            None,
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy)]
 enum PublisherControlHeader {
     OAuthConnection,
@@ -12659,13 +12710,14 @@ impl SerenMcpServer {
         description = "Call a publisher to execute queries, API requests, or MCP operations. This unified tool automatically routes based on parameters:
 
 - DATABASE publishers: provide `query` (SQL) and optionally `database`
-- API publishers: provide `method`, `path`, `headers`, `body`
+- API publishers: provide `method`, `path`, `headers`, and at most one body: JSON in `body`, text in `body_text` with its Content-Type header, binary as base64 in `body_base64`
 - MCP publishers: provide `tool` + `tool_args` OR `resource_uri`
 - Built-in Seren Passwords helper tools: use publisher \"seren-passwords\" with tool \"passwords_vaults_list\", \"passwords_items_list\", or \"passwords_item_get\"
 
 Examples:
 - Database: call_publisher(publisher: \"my-db\", query: \"SELECT * FROM users\")
 - API: call_publisher(publisher: \"firecrawl\", method: \"POST\", path: \"/scrape\", body: {url: \"...\"})
+- API text document: call_publisher(publisher: \"my-api\", method: \"POST\", path: \"/notes\", headers: {\"Content-Type\": \"text/markdown\"}, body_text: \"# Notes ...\")
 - API passthrough auth: call_publisher(publisher: \"my-api\", method: \"GET\", headers: {\"X-Passthrough-Authorization\": \"Bearer ...\"})
 - MCP tool: call_publisher(publisher: \"my-mcp\", tool: \"search\", tool_args: {query: \"...\"})
 - Seren Passwords helper: call_publisher(publisher: \"seren-passwords\", tool: \"passwords_vaults_list\")
@@ -12913,11 +12965,18 @@ Examples:
         return_text: bool,
     ) -> Result<CallToolResult, McpError> {
         reject_publisher_dispatch_header(params.headers.as_ref())?;
-        if params.body.is_some() && params.body_base64.is_some() {
+        let body_count = params.body.is_some() as u8
+            + params.body_base64.is_some() as u8
+            + params.body_text.is_some() as u8;
+        if body_count > 1 {
             return Err(McpError::invalid_params(
-                "call_publisher: provide only one of 'body' or 'body_base64'".to_string(),
+                "call_publisher: provide only one of 'body', 'body_text' or 'body_base64'"
+                    .to_string(),
                 None,
             ));
+        }
+        if params.body_text.is_some() {
+            validate_call_publisher_body_text_content_type(params.headers.as_ref())?;
         }
         let raw_body = decode_call_publisher_body_base64(params.body_base64.as_deref())?;
         let normalized_body = if raw_body.is_some() {
@@ -12926,7 +12985,10 @@ Examples:
             normalize_api_request_body(params.body.as_ref())
         };
         let body = normalized_body.as_deref();
-        let raw_body_ref = raw_body.as_deref();
+        // body_text is sent as-is, through the same raw-body path as body_base64.
+        let raw_body_ref = raw_body
+            .as_deref()
+            .or_else(|| params.body_text.as_deref().map(str::as_bytes));
         // Keep wildcard proxy calls manual for now:
         // we need dynamic HTTP methods, request-scoped passthrough headers, and
         // per-call x-request-id support that generated OpenAPI methods do not expose.
@@ -22639,6 +22701,7 @@ pub(crate) mod tests {
             headers: Some(headers),
             body: None,
             body_base64: None,
+            body_text: None,
             tool: Some("send_message".to_string()),
             tool_args: Some(serde_json::Map::new()),
             resource_uri: None,
@@ -24423,6 +24486,7 @@ pub(crate) mod tests {
             headers: None,
             body: None,
             body_base64: None,
+            body_text: None,
             tool: Some("passwords_vaults_list".to_string()),
             tool_args: None,
             resource_uri: None,
@@ -24573,6 +24637,7 @@ pub(crate) mod tests {
             headers: None,
             body: None,
             body_base64: None,
+            body_text: None,
             tool: Some("passwords_vaults_list".to_string()),
             tool_args: None,
             resource_uri: None,
@@ -24615,6 +24680,7 @@ pub(crate) mod tests {
             headers: None,
             body: None,
             body_base64: None,
+            body_text: None,
             tool: Some("passwords_vaults_list".to_string()),
             tool_args: Some(tool_args),
             resource_uri: None,
@@ -24653,6 +24719,7 @@ pub(crate) mod tests {
             headers: None,
             body: None,
             body_base64: None,
+            body_text: None,
             tool: Some("passwords_item_get".to_string()),
             tool_args: Some(serde_json::Map::new()),
             resource_uri: None,
@@ -26332,6 +26399,7 @@ pub(crate) mod tests {
             headers: Some(headers),
             body: None,
             body_base64: Some("aGVsbG8=".to_string()),
+            body_text: None,
             tool: None,
             tool_args: None,
             resource_uri: None,
@@ -26353,6 +26421,382 @@ pub(crate) mod tests {
             .unwrap();
 
         assert!(!result.is_error.unwrap_or(false));
+    }
+
+    /// A Google Drive multipart/related upload: JSON metadata, then an HTML document.
+    fn drive_multipart_document(boundary: &str) -> String {
+        [
+            format!("--{boundary}"),
+            "Content-Type: application/json; charset=UTF-8".to_string(),
+            String::new(),
+            r#"{"name":"Remote work policy","mimeType":"application/vnd.google-apps.document"}"#
+                .to_string(),
+            format!("--{boundary}"),
+            "Content-Type: text/html; charset=UTF-8".to_string(),
+            String::new(),
+            "<h1>Remote work policy</h1><p>Teams may work remotely three days a week.</p>"
+                .to_string(),
+            format!("--{boundary}--"),
+            String::new(),
+        ]
+        .join("\r\n")
+    }
+
+    #[tokio::test]
+    async fn call_publisher_body_text_uploads_a_drive_document_that_can_be_read_back() {
+        use wiremock::matchers::{body_string, header, method, path, query_param};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let content_type = "multipart/related; boundary=seren_doc_boundary";
+        let document = drive_multipart_document("seren_doc_boundary");
+        Mock::given(method("POST"))
+            .and(path("/publishers/google-drive/upload/drive/v3/files"))
+            .and(query_param("uploadType", "multipart"))
+            .and(header("Content-Type", content_type))
+            .and(body_string(document.clone()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "drive-file-1", "name": "Remote work policy",
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/publishers/google-drive/drive/v3/files/drive-file-1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "drive-file-1", "name": "Remote work policy",
+                "mimeType": "application/vnd.google-apps.document",
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+
+        let params = serde_json::from_value(serde_json::json!({
+            "publisher": "google-drive", "method": "POST",
+            "path": "upload/drive/v3/files?uploadType=multipart&fields=id,name",
+            "headers": {"Content-Type": content_type}, "body_text": document,
+        }))
+        .unwrap();
+        let uploaded = server
+            .call_publisher(Parameters(params), extensions_with_headers(&[]))
+            .await
+            .unwrap();
+        assert!(!uploaded.is_error.unwrap_or(false));
+        let uploaded: serde_json::Value =
+            serde_json::from_str(&uploaded.content[0].as_text().unwrap().text).unwrap();
+
+        // The caller's next step reads the new file back by its returned ID.
+        let params = serde_json::from_value(serde_json::json!({
+            "publisher": "google-drive", "method": "GET",
+            "path": format!("drive/v3/files/{}?fields=id,name,mimeType", uploaded["id"].as_str().unwrap()),
+        }))
+        .unwrap();
+        let read_back = server
+            .call_publisher(Parameters(params), extensions_with_headers(&[]))
+            .await
+            .unwrap();
+        assert!(!read_back.is_error.unwrap_or(false));
+        let read_back: serde_json::Value =
+            serde_json::from_str(&read_back.content[0].as_text().unwrap().text).unwrap();
+        assert_eq!(read_back["name"], "Remote work policy");
+        assert_eq!(
+            read_back["mimeType"],
+            "application/vnd.google-apps.document"
+        );
+
+        let requests = proxy.received_requests().await.unwrap();
+        assert_eq!(requests[0].body, document.as_bytes());
+        let content_types: Vec<_> = requests[0]
+            .headers
+            .get_all("content-type")
+            .iter()
+            .map(|value| value.to_str().unwrap())
+            .collect();
+        assert_eq!(content_types, [content_type]);
+        proxy.verify().await;
+    }
+
+    #[tokio::test]
+    async fn call_publisher_body_text_sends_a_200_word_markdown_document_byte_for_byte() {
+        use wiremock::matchers::{body_string, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let sentence =
+            "Teams record each naïve assumption about remote work and the café budget every week.";
+        let document = format!("# Remote work policy\n\n{}\n", vec![sentence; 14].join(" "));
+        assert_eq!(document.split_whitespace().count(), 200);
+        let proxy = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/publishers/notes-api/notes"))
+            .and(header("Content-Type", "text/markdown; charset=UTF-8"))
+            .and(body_string(document.clone()))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_string(r#"{"id":"note-1","words":200}"#),
+            )
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        // Hired Employees' runtime asks for text responses.
+        let params = serde_json::from_value(serde_json::json!({
+            "publisher": "notes-api", "method": "POST", "path": "/notes",
+            "headers": {"content-type": "text/markdown; charset=UTF-8"},
+            "body_text": document, "response_format": "text",
+        }))
+        .unwrap();
+
+        let result = server
+            .call_publisher(Parameters(params), extensions_with_headers(&[]))
+            .await
+            .unwrap();
+
+        assert!(!result.is_error.unwrap_or(false));
+        assert_eq!(
+            result.content[0].as_text().unwrap().text,
+            r#"{"id":"note-1","words":200}"#
+        );
+        let requests = proxy.received_requests().await.unwrap();
+        assert_eq!(requests[0].body, document.as_bytes());
+        proxy.verify().await;
+    }
+
+    #[tokio::test]
+    async fn call_publisher_refuses_body_text_with_another_body_before_sending() {
+        let proxy = wiremock::MockServer::start().await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        for bodies in [
+            serde_json::json!({"body_text": "# Notes", "body": {"title": "Notes"}}),
+            serde_json::json!({"body_text": "# Notes", "body_base64": "aGVsbG8="}),
+            serde_json::json!({
+                "body_text": "# Notes", "body": {"title": "Notes"}, "body_base64": "aGVsbG8=",
+            }),
+            serde_json::json!({"body": {"title": "Notes"}, "body_base64": "aGVsbG8="}),
+        ] {
+            let mut params = serde_json::json!({
+                "publisher": "notes-api", "method": "POST", "path": "/notes",
+                "headers": {"Content-Type": "text/markdown"},
+            });
+            params
+                .as_object_mut()
+                .unwrap()
+                .extend(bodies.as_object().unwrap().clone());
+
+            let error = server
+                .call_publisher(
+                    Parameters(serde_json::from_value(params).unwrap()),
+                    extensions_with_headers(&[]),
+                )
+                .await
+                .unwrap_err();
+
+            assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_PARAMS);
+            assert_eq!(
+                error.message,
+                "call_publisher: provide only one of 'body', 'body_text' or 'body_base64'"
+            );
+        }
+        assert!(proxy.received_requests().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn call_publisher_body_text_requires_a_non_json_content_type() {
+        let proxy = wiremock::MockServer::start().await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let missing = "call_publisher: 'body_text' requires a Content-Type header, such as text/plain, text/markdown, text/html or multipart/related; boundary=...";
+        let json = "call_publisher: send a JSON body in 'body', not 'body_text'";
+        for (headers, expected) in [
+            (None, missing),
+            (Some(serde_json::json!({"Accept": "text/html"})), missing),
+            (Some(serde_json::json!({"Content-Type": "  "})), missing),
+            // A value that cannot be sent as a header would be dropped.
+            (
+                Some(serde_json::json!({"Content-Type": "text/html\r\nX-Injected: 1"})),
+                missing,
+            ),
+            (
+                Some(serde_json::json!({"Content-Type": "application/json"})),
+                json,
+            ),
+            (
+                Some(serde_json::json!({"content-type": "Application/JSON; charset=utf-8"})),
+                json,
+            ),
+            (
+                Some(serde_json::json!({"CONTENT-TYPE": "application/vnd.api+json"})),
+                json,
+            ),
+            (
+                Some(serde_json::json!({
+                    "Content-Type": "text/plain", "content-type": "application/json",
+                })),
+                json,
+            ),
+        ] {
+            let mut params = serde_json::json!({
+                "publisher": "notes-api", "method": "POST", "path": "/notes",
+                "body_text": r#"{"title":"Notes"}"#,
+            });
+            if let Some(headers) = headers {
+                params["headers"] = headers;
+            }
+
+            let error = server
+                .call_publisher(
+                    Parameters(serde_json::from_value(params).unwrap()),
+                    extensions_with_headers(&[]),
+                )
+                .await
+                .unwrap_err();
+
+            assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_PARAMS);
+            assert_eq!(error.message, expected);
+        }
+        assert!(proxy.received_requests().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn call_publisher_body_text_keeps_its_bytes_on_payment_requests() {
+        use wiremock::matchers::{body_string, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let document =
+            "<h1>Remote work policy</h1>\r\n<p>Teams record each naïve assumption.</p>\r\n";
+
+        // Automatic payment: the challenged request and the paid retry carry the text.
+        let proxy = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/publishers/acme/work"))
+            .and(header("Content-Type", "text/html"))
+            .and(body_string(document))
+            .respond_with(ResponseTemplate::new(402).set_body_json(publisher_payment_challenge()))
+            .with_priority(2)
+            .expect(2)
+            .mount(&proxy)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/publishers/acme/work"))
+            .and(header("X-PAYMENT-REQUEST-ID", "payment-request"))
+            .and(header("Content-Type", "text/html"))
+            .and(body_string(document))
+            .respond_with(ResponseTemplate::new(200).set_body_string("saved"))
+            .with_priority(1)
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let mut server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        server.wallet = Some(Arc::new(
+            PrivateKeyWallet::from_env_or_key(Some(
+                "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80".into(),
+            ))
+            .unwrap()
+            .unwrap(),
+        ));
+        server.signer_config.auto_approve_limit_micros = 1_000_000;
+        let params = serde_json::from_value(serde_json::json!({
+            "publisher": "acme", "method": "POST", "path": "/work",
+            "headers": {"Content-Type": "text/html"}, "body_text": document,
+            "response_format": "text",
+        }))
+        .unwrap();
+        let result = server
+            .call_publisher(Parameters(params), extensions_with_headers(&[]))
+            .await
+            .unwrap();
+        assert!(!result.is_error.unwrap_or(false));
+        assert_eq!(result.content[0].as_text().unwrap().text, "saved");
+        proxy.verify().await;
+
+        // Pre-signed payment: the signed request carries the text.
+        let proxy = MockServer::start().await;
+        let payment = BASE64.encode(serde_json::json!({"x402Version": 2}).to_string());
+        Mock::given(method("POST"))
+            .and(path("/publishers/acme/work"))
+            .and(header("PAYMENT-SIGNATURE", payment.as_str()))
+            .and(header("Content-Type", "text/html"))
+            .and(body_string(document))
+            .respond_with(ResponseTemplate::new(200).set_body_string("saved"))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let params = serde_json::from_value(serde_json::json!({
+            "publisher": "acme", "method": "POST", "path": "/work",
+            "headers": {"Content-Type": "text/html"}, "body_text": document,
+            "response_format": "text", "_x402_payment": payment,
+        }))
+        .unwrap();
+        let result = server
+            .call_publisher(Parameters(params), extensions_with_headers(&[]))
+            .await
+            .unwrap();
+        assert!(!result.is_error.unwrap_or(false));
+        assert_eq!(result.content[0].as_text().unwrap().text, "saved");
+        proxy.verify().await;
+    }
+
+    #[tokio::test]
+    async fn call_publisher_body_is_still_sent_as_json() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        for body in [
+            serde_json::json!({"title": "Notes"}),
+            serde_json::json!(r#"{"title":"Notes"}"#),
+        ] {
+            let proxy = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/publishers/notes-api/notes"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(serde_json::json!({"id": "note-1"})),
+                )
+                .expect(1)
+                .mount(&proxy)
+                .await;
+            let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+            let params = serde_json::from_value(serde_json::json!({
+                "publisher": "notes-api", "method": "POST", "path": "/notes", "body": body,
+            }))
+            .unwrap();
+
+            let result = server
+                .call_publisher(Parameters(params), extensions_with_headers(&[]))
+                .await
+                .unwrap();
+
+            assert!(!result.is_error.unwrap_or(false));
+            let requests = proxy.received_requests().await.unwrap();
+            assert_eq!(
+                requests[0].headers.get("content-type").unwrap(),
+                "application/json"
+            );
+            assert_eq!(requests[0].body, br#"{"title":"Notes"}"#);
+        }
+    }
+
+    #[test]
+    fn call_publisher_schema_documents_each_body_field() {
+        let server = SerenMcpServer::new("test-key", "http://localhost").unwrap();
+        let tool = server
+            .tool_router
+            .list_all()
+            .into_iter()
+            .map(normalize_tool_input_schema)
+            .find(|tool| tool.name == "call_publisher")
+            .unwrap();
+        let description = tool.description.as_deref().unwrap();
+        assert!(description.contains("JSON in `body`"), "{description}");
+        assert!(description.contains("text in `body_text`"), "{description}");
+        assert!(
+            description.contains("binary as base64 in `body_base64`"),
+            "{description}"
+        );
+        let schema = Value::Object((*tool.input_schema).clone());
+        let body_text = &schema["properties"]["body_text"];
+        assert_eq!(body_text["type"], serde_json::json!(["string", "null"]));
+        let body_text = body_text["description"].as_str().unwrap();
+        assert!(body_text.contains("Content-Type header"), "{body_text}");
+        assert!(body_text.contains("send JSON in body"), "{body_text}");
     }
 
     #[tokio::test]
@@ -26455,6 +26899,7 @@ pub(crate) mod tests {
             headers: None,
             body: None,
             body_base64: None,
+            body_text: None,
             tool: None,
             tool_args: None,
             resource_uri: None,
@@ -27656,6 +28101,7 @@ pub(crate) mod tests {
                 r#"{"hello":"world"}"#.to_string(),
             )),
             body_base64: None,
+            body_text: None,
             tool: None,
             tool_args: None,
             resource_uri: None,
