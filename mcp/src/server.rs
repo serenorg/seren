@@ -2672,6 +2672,19 @@ pub struct SerenAgentTemplateParams {
     pub template_slug: String,
 }
 
+/// Parameters for listing Seren's public Employee catalog (no params, uses empty object)
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ListSerenAgentTemplatesParams {}
+
+/// Parameters for reading one Employee from Seren's public catalog
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GetSerenAgentTemplateParams {
+    /// Employee (managed agent template) slug, as list_seren_agent_templates returns it
+    pub slug: String,
+}
+
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CreateSerenAgentTemplateDeploymentParams {
@@ -15448,7 +15461,7 @@ API endpoint: {endpoint}",
     // ========================================================================
 
     #[tool(
-        description = "List available agent templates in the catalog. Templates are executable code (Python, TypeScript, JavaScript) that can be invoked via micropayments.",
+        description = "List code templates (not Employees) in the catalog. Code templates are executable code (Python, TypeScript, JavaScript) that can be invoked via micropayments. For Employees, use list_seren_agent_templates.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn list_agent_templates(
@@ -15480,7 +15493,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Get details about a specific agent template by slug",
+        description = "Get details about one of the code templates (not Employees) by slug. For an Employee, use get_seren_agent_template.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn get_agent_template(
@@ -15499,7 +15512,7 @@ API endpoint: {endpoint}",
                 if e.status() == Some(reqwest::StatusCode::NOT_FOUND) {
                     McpError::internal_error(
                         format!(
-                            "Template '{}' not found. Use list_agent_templates to see available templates.",
+                            "Code template '{}' not found. Use list_agent_templates for code templates, or list_seren_agent_templates for Employees.",
                             params.slug
                         ),
                         None,
@@ -15514,7 +15527,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Invoke an agent template with input data. Uses SerenBucks when authenticated; otherwise pays via x402 using your configured local wallet. Templates execute code in a sandboxed environment and return structured output.",
+        description = "Invoke one of the code templates (not Employees) with input data. Uses SerenBucks when authenticated; otherwise pays via x402 using your configured local wallet. Code templates execute code in a sandboxed environment and return structured output. To hire an Employee, use create_seren_agent_template_deployment.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn invoke_agent_template(
@@ -15565,7 +15578,7 @@ API endpoint: {endpoint}",
                 if e.status() == Some(reqwest::StatusCode::NOT_FOUND) {
                     McpError::internal_error(
                         format!(
-                            "Template '{}' not found. Use list_agent_templates to see available templates.",
+                            "Code template '{}' not found. Use list_agent_templates for code templates, or list_seren_agent_templates for Employees.",
                             params.slug
                         ),
                         None,
@@ -16279,6 +16292,72 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "List the Employees (managed agent templates) anyone can hire from Seren's catalog, with each one's slug, profile, run kinds and owner_connection. Use create_seren_agent_template_deployment to hire one. These are not code templates; for those use list_agent_templates.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn list_seren_agent_templates(
+        &self,
+        Parameters(_params): Parameters<ListSerenAgentTemplatesParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let listings = self
+            .api_client(&extensions)?
+            .seren_agent_list_managed_agent_templates()
+            .into_mcp_result()
+            .await?
+            .into_inner()
+            .data;
+        Ok(CallToolResult::success(vec![json_content(&listings)?]))
+    }
+
+    #[tool(
+        description = "Read one Employee (managed agent template) from Seren's public catalog by slug, with its profile, run kinds and owner_connection. An Employee her Owner keeps unlisted is not in the public catalog; her Owner can read it with list_organization_seren_agent_templates or get_seren_agent_template_profile. These are not code templates; for those use get_agent_template.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn get_seren_agent_template(
+        &self,
+        Parameters(params): Parameters<GetSerenAgentTemplateParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        validate_slug(&params.slug, "Employee template slug")?;
+        // validate_slug trims; the catalog match below is exact, so refuse padding here.
+        if params.slug.trim() != params.slug {
+            return Err(McpError::invalid_params(
+                "Employee template slug must not have leading or trailing spaces",
+                None,
+            ));
+        }
+        // Core serves no public per-slug read, so pick the listing from the catalog.
+        let listing = self
+            .api_client(&extensions)?
+            .seren_agent_list_managed_agent_templates()
+            .into_mcp_result()
+            .await?
+            .into_inner()
+            .data
+            .into_iter()
+            .find(|listing| listing.slug == params.slug)
+            .ok_or_else(|| {
+                McpError::invalid_params(
+                    format!(
+                        "Employee '{}' is not listed in Seren's public catalog. Call list_seren_agent_templates to see listed Employees. An Owner can read her own unlisted Employee with list_organization_seren_agent_templates or get_seren_agent_template_profile.",
+                        params.slug
+                    ),
+                    None,
+                )
+            })?;
+        Ok(CallToolResult::success(vec![json_content(&listing)?]))
+    }
+
+    #[tool(
         description = "Read aggregate work hours, skill count, and the update time for a managed agent template.",
         annotations(
             read_only_hint = true,
@@ -16301,7 +16380,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Create a managed agent deployment from a published template using an IANA timezone. A template whose catalog owner_connection is mail_and_files requires an existing oauth_connection_id; omit oauth_connection_id for a sign_in_only template. This creates paid infrastructure; obtain user approval first.",
+        description = "Create a managed agent deployment from a published template using an IANA timezone. A template whose catalog owner_connection is mail_and_files requires an existing oauth_connection_id; omit oauth_connection_id for a sign_in_only template. Read the template's owner_connection with get_seren_agent_template first. This creates paid infrastructure; obtain user approval first.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -35538,5 +35617,487 @@ pub(crate) mod tests {
             encoded["deployment"]["tool_allowlist"],
             serde_json::json!(["system_time"])
         );
+    }
+
+    /// Two real listings from Core's public Employee catalog
+    /// (`GET https://api.serendb.com/publishers/seren-agent/templates`, read on 2026-10-31).
+    fn public_employee_catalog() -> Value {
+        serde_json::json!({
+            "data": [
+                {
+                    "owner_connection": "mail_and_files",
+                    "tagline": null,
+                    "description": null,
+                    "capabilities": [],
+                    "job_title": null,
+                    "example_tasks": [],
+                    "works_in": [],
+                    "pronouns": "they/them",
+                    "avatar_url": null,
+                    "intro_video": {
+                        "url": "/publishers/seren-agent/templates/camilla/intro-video?object_id=45df1fc4-aecb-4298-8994-b0515aa8adf1",
+                        "poster_url": "/publishers/seren-agent/templates/camilla/intro-video/poster?object_id=45df1fc4-aecb-4298-8994-b0515aa8adf1",
+                        "captions_url": "/publishers/seren-agent/templates/camilla/intro-video/captions?object_id=45df1fc4-aecb-4298-8994-b0515aa8adf1",
+                        "width": 480,
+                        "height": 716,
+                        "duration_ms": 24107
+                    },
+                    "slug": "camilla",
+                    "display_name": "Camilla Vale",
+                    "publisher": {
+                        "organization_id": "dc714a31-f0a1-4b2d-aecc-94fd1eb7bf0a",
+                        "name": "Admin Workspace",
+                        "handle": null,
+                        "made_by_seren": true,
+                        "verified": true
+                    },
+                    "published_at": "2026-10-01T14:07:26.933585Z",
+                    "activity_url": null,
+                    "run_kinds": [
+                        {
+                            "charge": "fee",
+                            "key": "run",
+                            "name": "Run",
+                            "amount": {
+                                "atomic": 540000,
+                                "usd": "$0.54"
+                            },
+                            "changed_at": "2026-10-28T09:18:52.48491Z",
+                            "triggers": [
+                                "hire_cron",
+                                "schedule",
+                                "chat",
+                                "webhook",
+                                "api"
+                            ],
+                            "expected_cost_atomic": 530000,
+                            "measured_cost": {
+                                "model_id": "opus-5-5",
+                                "model_name": "Claude Opus 5.5",
+                                "runs": 29,
+                                "window_days": 30,
+                                "average_atomic": 216270,
+                                "median_atomic": 238929,
+                                "p90_atomic": 383920,
+                                "average_price_atomic": 756270,
+                                "computed_at": "2026-10-31T00:00:05.53004Z",
+                                "price_list_version": 31
+                            }
+                        }
+                    ],
+                    "spend_limit_defaults": {
+                        "per_task_atomic": 6000000,
+                        "per_day_atomic": 30000000
+                    },
+                    "catalog": {
+                        "rating": null
+                    }
+                },
+                {
+                    "owner_connection": "sign_in_only",
+                    "tagline": "AML/KYC expert for US and EU rules, screening, policies and training",
+                    "description": "Vera is the compliance hire you have been trying to make for months, and she does the work of ten people. She screens your customers, looks into the ones that seem off, writes your policies and trains your team. She knows US and EU anti-money-laundering rules down to individual states and member states, and she is on duty around the clock.\n\nBuilt by Daertho, on Daertho's own global sanctions, PEP and adverse-media data.",
+                    "capabilities": [
+                        "Screen people and companies against global sanctions, PEP and watchlists",
+                        "Screen crypto wallets against sanctioned addresses",
+                        "Run adverse-media checks on people, companies, vessels and ports",
+                        "Vet vessels by IMO and check ports for sanctions risk",
+                        "Monitor your clients daily and flag only what changed",
+                        "Draft AML/CTF/KYC policies, and review yours against current law",
+                        "Build staff training decks and draft SARs for your MLRO",
+                        "Answer US and EU AML/CTF/KYC questions, with the law behind them"
+                    ],
+                    "job_title": "AML/KYC Expert",
+                    "example_tasks": [
+                        "Screen your clients and tell me what to do next",
+                        "Review our CDD policy against Maltese law and list the gaps",
+                        "Build a 45-minute AML training for our onboarding team"
+                    ],
+                    "works_in": [],
+                    "pronouns": "she/her",
+                    "avatar_url": "/publishers/seren-agent/templates/vera-hale/avatar?object_id=17f2f0ab-accb-40b0-b464-6948d3993831",
+                    "intro_video": {
+                        "url": "/publishers/seren-agent/templates/vera-hale/intro-video?object_id=8939df55-6922-4f02-b5e0-2bffa4899eae",
+                        "poster_url": "/publishers/seren-agent/templates/vera-hale/intro-video/poster?object_id=8939df55-6922-4f02-b5e0-2bffa4899eae",
+                        "captions_url": "/publishers/seren-agent/templates/vera-hale/intro-video/captions?object_id=8939df55-6922-4f02-b5e0-2bffa4899eae",
+                        "width": 720,
+                        "height": 1080,
+                        "duration_ms": 23450
+                    },
+                    "slug": "vera-hale",
+                    "display_name": "Vera Hale",
+                    "publisher": {
+                        "organization_id": "e65d3f8e-1e01-424e-8aa1-748eda725d3f",
+                        "name": "Daertho",
+                        "handle": "daertho",
+                        "made_by_seren": false,
+                        "verified": false
+                    },
+                    "published_at": "2026-10-25T13:17:07.640515Z",
+                    "activity_url": null,
+                    "run_kinds": [
+                        {
+                            "charge": "fee",
+                            "key": "chat_run",
+                            "name": "Chat, API or webhook run",
+                            "amount": {
+                                "atomic": 300000,
+                                "usd": "$0.30"
+                            },
+                            "changed_at": null,
+                            "triggers": [
+                                "chat",
+                                "api",
+                                "webhook"
+                            ],
+                            "expected_cost_atomic": 300000,
+                            "measured_cost": null
+                        },
+                        {
+                            "charge": "cost",
+                            "key": "daily_checkin",
+                            "name": "Daily monitoring check-in",
+                            "triggers": [
+                                "hire_cron",
+                                "schedule"
+                            ],
+                            "expected_cost_atomic": 300000,
+                            "measured_cost": null
+                        }
+                    ],
+                    "spend_limit_defaults": {
+                        "per_task_atomic": 6000000,
+                        "per_day_atomic": 30000000
+                    },
+                    "catalog": {
+                        "rating": null
+                    }
+                }
+            ]
+        })
+    }
+
+    /// Core's listings as the generated client hands them back. Core's contract gives an
+    /// explicit null and an absent optional field the same meaning, and production Core
+    /// also sends `catalog`, which the committed seren-agent snapshot does not describe yet.
+    fn listings_as_the_snapshot_describes_them(catalog: &Value) -> Value {
+        fn without_nulls(value: &Value) -> Value {
+            match value {
+                Value::Object(fields) => Value::Object(
+                    fields
+                        .iter()
+                        .filter(|(_, value)| !value.is_null())
+                        .map(|(name, value)| (name.clone(), without_nulls(value)))
+                        .collect(),
+                ),
+                Value::Array(items) => Value::Array(items.iter().map(without_nulls).collect()),
+                other => other.clone(),
+            }
+        }
+        let mut listings = without_nulls(&catalog["data"]);
+        for listing in listings.as_array_mut().unwrap() {
+            // Delete this line when the seren-agent snapshot sync adds `catalog`.
+            listing.as_object_mut().unwrap().remove("catalog");
+        }
+        listings
+    }
+
+    async fn mount_public_employee_catalog(core: &wiremock::MockServer) {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, ResponseTemplate};
+
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/templates"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("cache-control", "no-cache")
+                    .set_body_json(public_employee_catalog()),
+            )
+            .expect(1)
+            .mount(core)
+            .await;
+    }
+
+    async fn employee_catalog_client(
+        core: &wiremock::MockServer,
+    ) -> (
+        rmcp::service::RunningService<rmcp::RoleClient, ()>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        use rmcp::ServiceExt;
+
+        let server = SerenMcpServer::new("test-key", &core.uri()).unwrap();
+        let (server_transport, client_transport) = tokio::io::duplex(4096);
+        let server_task = tokio::spawn(async move {
+            server
+                .serve(server_transport)
+                .await
+                .unwrap()
+                .waiting()
+                .await
+                .unwrap();
+        });
+        (().serve(client_transport).await.unwrap(), server_task)
+    }
+
+    async fn call_employee_catalog_tool(
+        core: &wiremock::MockServer,
+        tool: &str,
+        arguments: Value,
+    ) -> Result<CallToolResult, McpError> {
+        let (client, server_task) = employee_catalog_client(core).await;
+        let result = client
+            .call_tool(
+                CallToolRequestParams::new(tool.to_string())
+                    .with_arguments(arguments.as_object().unwrap().clone()),
+            )
+            .await;
+        client.cancel().await.unwrap();
+        server_task.await.unwrap();
+        match result {
+            Ok(result) => Ok(result),
+            Err(rmcp::service::ServiceError::McpError(error)) => Err(error),
+            Err(error) => panic!("unexpected transport failure: {error}"),
+        }
+    }
+
+    fn employee_catalog_json(result: Result<CallToolResult, McpError>) -> Value {
+        let result = result.expect("the served catalog tool must succeed");
+        assert!(!result.is_error.unwrap_or(false));
+        assert_eq!(result.content.len(), 1);
+        serde_json::from_str(&result.content[0].as_text().unwrap().text).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_listed_employee_can_be_looked_up_by_slug() {
+        let core = wiremock::MockServer::start().await;
+        mount_public_employee_catalog(&core).await;
+
+        let listing = employee_catalog_json(
+            call_employee_catalog_tool(
+                &core,
+                "get_seren_agent_template",
+                serde_json::json!({"slug": "camilla"}),
+            )
+            .await,
+        );
+
+        let catalog = public_employee_catalog();
+        let camilla = &catalog["data"][0];
+        assert_eq!(camilla["slug"], "camilla");
+        assert_eq!(
+            listing,
+            listings_as_the_snapshot_describes_them(&catalog)[0]
+        );
+        assert_eq!(listing["owner_connection"], "mail_and_files");
+        assert_eq!(listing["run_kinds"], camilla["run_kinds"]);
+        let requests = core.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1, "one catalog read per lookup");
+        assert_eq!(requests[0].method.as_str(), "GET");
+        assert_eq!(requests[0].url.path(), "/publishers/seren-agent/templates");
+        assert_eq!(requests[0].url.query(), None);
+        assert_eq!(requests[0].headers["authorization"], "Bearer test-key");
+    }
+
+    #[tokio::test]
+    async fn the_employee_catalog_lists_every_employee_as_core_sends_it() {
+        let core = wiremock::MockServer::start().await;
+        mount_public_employee_catalog(&core).await;
+
+        let listings = employee_catalog_json(
+            call_employee_catalog_tool(&core, "list_seren_agent_templates", serde_json::json!({}))
+                .await,
+        );
+
+        let catalog = public_employee_catalog();
+        assert_eq!(listings, listings_as_the_snapshot_describes_them(&catalog));
+        let slugs: Vec<&str> = listings
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|listing| listing["slug"].as_str().unwrap())
+            .collect();
+        assert_eq!(slugs, ["camilla", "vera-hale"]);
+        assert_eq!(listings[1]["owner_connection"], "sign_in_only");
+        assert_eq!(listings[1]["run_kinds"][1]["charge"], "cost");
+        assert_eq!(core.received_requests().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_missing_employee_points_to_the_catalog_and_owner_tools() {
+        let core = wiremock::MockServer::start().await;
+        mount_public_employee_catalog(&core).await;
+
+        let error = call_employee_catalog_tool(
+            &core,
+            "get_seren_agent_template",
+            serde_json::json!({"slug": "nobody"}),
+        )
+        .await
+        .expect_err("an Employee missing from the catalog must not be found");
+
+        assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_PARAMS);
+        assert!(error.message.contains("'nobody'"), "{}", error.message);
+        assert!(
+            error
+                .message
+                .contains("not listed in Seren's public catalog"),
+            "{}",
+            error.message
+        );
+        for tool in [
+            "list_seren_agent_templates",
+            "list_organization_seren_agent_templates",
+            "get_seren_agent_template_profile",
+        ] {
+            assert!(error.message.contains(tool), "{tool}: {}", error.message);
+        }
+        assert_eq!(core.received_requests().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_malformed_employee_slug_never_reaches_core() {
+        let core = wiremock::MockServer::start().await;
+
+        for slug in [
+            "../x",
+            "",
+            "Camilla",
+            "camilla/stats",
+            "camilla ",
+            " camilla",
+        ] {
+            let error = call_employee_catalog_tool(
+                &core,
+                "get_seren_agent_template",
+                serde_json::json!({"slug": slug}),
+            )
+            .await
+            .expect_err("a malformed slug must be refused");
+            assert_eq!(
+                error.code,
+                rmcp::model::ErrorCode::INVALID_PARAMS,
+                "{slug:?}"
+            );
+            assert!(
+                error.message.starts_with("Employee template slug "),
+                "{slug:?}: {}",
+                error.message
+            );
+        }
+        assert!(core.received_requests().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn code_template_lookups_still_404_and_name_the_employee_catalog() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, ResponseTemplate};
+
+        let core = wiremock::MockServer::start().await;
+        let not_found = ResponseTemplate::new(404).set_body_json(serde_json::json!({
+            "error": "NotFound",
+            "message": "Template not found"
+        }));
+        Mock::given(method("GET"))
+            .and(path("/templates/camilla"))
+            .respond_with(not_found.clone())
+            .expect(1)
+            .mount(&core)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/templates/camilla/invoke"))
+            .respond_with(not_found)
+            .expect(1)
+            .mount(&core)
+            .await;
+
+        for (tool, arguments) in [
+            ("get_agent_template", serde_json::json!({"slug": "camilla"})),
+            (
+                "invoke_agent_template",
+                serde_json::json!({"slug": "camilla", "input": {}}),
+            ),
+        ] {
+            let error = call_employee_catalog_tool(&core, tool, arguments)
+                .await
+                .expect_err("a missing code template must still fail");
+            assert_eq!(error.code, rmcp::model::ErrorCode::INTERNAL_ERROR, "{tool}");
+            assert_eq!(
+                error.message,
+                "Code template 'camilla' not found. Use list_agent_templates for code templates, or list_seren_agent_templates for Employees.",
+                "{tool}"
+            );
+        }
+        assert_eq!(core.received_requests().await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn tool_descriptions_tell_code_templates_and_employees_apart() {
+        let core = wiremock::MockServer::start().await;
+        let (client, server_task) = employee_catalog_client(&core).await;
+        let tools = client.list_all_tools().await.unwrap();
+        client.cancel().await.unwrap();
+        server_task.await.unwrap();
+        let served = |name: &str| {
+            tools
+                .iter()
+                .find(|tool| tool.name == name)
+                .unwrap_or_else(|| panic!("{name} must be served"))
+        };
+
+        for name in [
+            "list_agent_templates",
+            "get_agent_template",
+            "invoke_agent_template",
+        ] {
+            let description = served(name).description.as_deref().unwrap();
+            assert!(
+                description.contains("code templates (not Employees)"),
+                "{name}: {description}"
+            );
+        }
+        for (name, code_template_tool) in [
+            ("list_seren_agent_templates", "list_agent_templates"),
+            ("get_seren_agent_template", "get_agent_template"),
+        ] {
+            let tool = served(name);
+            let description = tool.description.as_deref().unwrap();
+            assert!(
+                description.contains("not code templates")
+                    && description.contains(code_template_tool),
+                "{name}: {description}"
+            );
+            let annotations = tool.annotations.as_ref().unwrap();
+            assert_eq!(annotations.read_only_hint, Some(true), "{name}");
+            assert_eq!(annotations.destructive_hint, Some(false), "{name}");
+            assert_eq!(annotations.open_world_hint, Some(false), "{name}");
+        }
+        assert_eq!(
+            served("list_seren_agent_templates").description.as_deref(),
+            Some(
+                "List the Employees (managed agent templates) anyone can hire from Seren's catalog, with each one's slug, profile, run kinds and owner_connection. Use create_seren_agent_template_deployment to hire one. These are not code templates; for those use list_agent_templates."
+            )
+        );
+        let get_schema = Value::Object((*served("get_seren_agent_template").input_schema).clone());
+        assert_eq!(get_schema["required"], serde_json::json!(["slug"]));
+        let list_schema =
+            Value::Object((*served("list_seren_agent_templates").input_schema).clone());
+        assert!(
+            list_schema["properties"]
+                .as_object()
+                .is_none_or(|properties| properties.is_empty()),
+            "{list_schema}"
+        );
+        let hire = served("create_seren_agent_template_deployment")
+            .description
+            .as_deref()
+            .unwrap();
+        assert!(
+            hire.contains(
+                "Read the template's owner_connection with get_seren_agent_template first."
+            ),
+            "{hire}"
+        );
+        assert!(core.received_requests().await.unwrap().is_empty());
     }
 }
