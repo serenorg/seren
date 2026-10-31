@@ -215,6 +215,106 @@ mod tests {
         assert_eq!(serde_json::to_value(response.data).unwrap(), estimate);
     }
 
+    #[tokio::test]
+    async fn deadline_and_otp_refusals_preserve_http_status_and_body() {
+        let server = MockServer::start().await;
+        let organization_id = Uuid::from_u128(301);
+        let organization_route = format!("/organizations/{organization_id}/otp");
+        let refusals = [
+            (
+                "POST",
+                format!("{organization_route}/enrollment"),
+                400,
+                "otp_already_enrolled",
+            ),
+            (
+                "POST",
+                format!("{organization_route}/enrollment/confirm"),
+                400,
+                "otp_code_reused",
+            ),
+            (
+                "POST",
+                format!("{organization_route}/verify"),
+                400,
+                "otp_invalid_code",
+            ),
+            (
+                "GET",
+                "/publishers/example/deadline".to_owned(),
+                408,
+                "request_timeout",
+            ),
+            (
+                "POST",
+                "/publishers/example/deadline".to_owned(),
+                408,
+                "request_timeout",
+            ),
+            ("GET", "/wallet/balance".to_owned(), 408, "request_timeout"),
+        ];
+        for (verb, route, status, code) in &refusals {
+            Mock::given(method(*verb))
+                .and(path(route))
+                .respond_with(ResponseTemplate::new(*status).set_body_json(json!({
+                    "error": code, "message": "Synthetic refusal", "details": {"retained": true}
+                })))
+                .expect(1)
+                .mount(&server)
+                .await;
+        }
+        let client =
+            Client::from_config(&ClientConfig::new("synthetic-key").with_base_url(server.uri()))
+                .unwrap();
+        let code = crate::OrganizationOtpCodeRequest {
+            code: "000000".into(),
+        };
+        let verify = serde_json::from_value::<crate::OrganizationOtpVerifyRequest>(json!({
+            "scope": "org_sign_in", "code": "000000"
+        }))
+        .unwrap();
+        let results = [
+            client
+                .begin_organization_otp_enrollment(&organization_id)
+                .await
+                .map(|_| ()),
+            client
+                .confirm_organization_otp_enrollment(&organization_id, &code)
+                .await
+                .map(|_| ()),
+            client
+                .verify_organization_otp_scope(&organization_id, &verify)
+                .await
+                .map(|_| ()),
+            client
+                .proxy_to_publisher_get("example", "deadline", None, None, Vec::<u8>::new())
+                .await
+                .map(|_| ()),
+            client
+                .proxy_to_publisher_post("example", "deadline", None, None, Vec::<u8>::new())
+                .await
+                .map(|_| ()),
+            client.get_wallet_balance().await.map(|_| ()),
+        ];
+        for (result, (_, _, status, code)) in results.into_iter().zip(refusals) {
+            let error = match result {
+                Err(error) => error,
+                Ok(()) => panic!("refusal must not become a successful response"),
+            };
+            let crate::Error::UnexpectedResponse(response) = error else {
+                panic!("refusal must retain its HTTP response");
+            };
+            assert_eq!(response.status().as_u16(), status);
+            assert_eq!(
+                response.json::<serde_json::Value>().await.unwrap(),
+                json!({
+                    "error": code, "message": "Synthetic refusal", "details": {"retained": true}
+                })
+            );
+        }
+        server.verify().await;
+    }
+
     #[test]
     fn publisher_access_preserves_not_needed_outcome() {
         let outcome: crate::PublisherAccessContinuationOutcome =

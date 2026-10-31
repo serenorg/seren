@@ -7271,6 +7271,16 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid request, or `otp_already_enrolled` when the member is already enrolled and an admin must reset the enrollment first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "403": {
             "description": "User is not a member of the organization"
           },
@@ -7326,7 +7336,14 @@
             }
           },
           "400": {
-            "description": "Invalid request"
+            "description": "Invalid request, or a typed refusal: `otp_enrollment_not_started`, `otp_enrollment_already_confirmed`, `otp_code_malformed`, `otp_code_reused` or `otp_invalid_code`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "403": {
             "description": "User is not a member of the organization"
@@ -7489,7 +7506,14 @@
             }
           },
           "400": {
-            "description": "Invalid request"
+            "description": "Invalid request, or a typed refusal: `otp_code_malformed`, `otp_code_reused` or `otp_invalid_code`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "403": {
             "description": "OTP required or organization membership missing"
@@ -12455,6 +12479,16 @@
           "404": {
             "description": "Publisher or endpoint not found"
           },
+          "408": {
+            "description": "Response deadline expired before response headers were available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Multiple OAuth connections are available and no selector/default was provided",
             "content": {
@@ -12580,6 +12614,16 @@
           },
           "404": {
             "description": "Publisher or endpoint not found"
+          },
+          "408": {
+            "description": "Response deadline expired before response headers were available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "409": {
             "description": "Multiple OAuth connections are available and no selector/default was provided",
@@ -13926,6 +13970,16 @@
           },
           "401": {
             "description": "Unauthorized"
+          },
+          "408": {
+            "description": "Response deadline expired before response headers were available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
