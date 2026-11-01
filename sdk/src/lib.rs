@@ -1408,6 +1408,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_release_sends_its_hires_tool_output_limit() {
+        let server = MockServer::start().await;
+        let organization_id = Uuid::new_v4();
+        let mut request_wire = template_release_request_wire();
+        request_wire["deploy_defaults"]["max_tool_output_chars"] = json!(40_000);
+        let request: crate::PublishManagedAgentTemplateReleaseRequest =
+            serde_json::from_value(request_wire.clone()).unwrap();
+        assert_eq!(request.deploy_defaults.max_tool_output_chars, Some(40_000));
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/templates/release-test/releases"
+            )))
+            .and(body_json(request_wire))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
+                "slug": "release-test", "revision": 7, "created": false,
+                "revision_added": true, "active": true, "listed": true, "review_state": "approved",
+                "providers": ["google"]
+            }})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Client::new(&server.uri())
+            .publish_managed_agent_template_release(&organization_id, "release-test", &request)
+            .await
+            .unwrap();
+        server.verify().await;
+    }
+
+    #[test]
+    fn a_release_without_a_tool_output_limit_leaves_it_to_the_model_policy() {
+        let wire = template_release_request_wire();
+        let request: crate::PublishManagedAgentTemplateReleaseRequest =
+            serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(request.deploy_defaults.max_tool_output_chars, None);
+        assert_eq!(serde_json::to_value(&request).unwrap(), wire);
+    }
+
+    #[test]
+    fn a_publication_preview_shows_the_deployments_tool_output_limit() {
+        let mut deploy_defaults = template_release_request_wire()["deploy_defaults"].clone();
+        deploy_defaults["max_tool_output_chars"] = json!(40_000);
+        let wire = json!({"published_files": [], "removed_files": [],
+            "deploy_defaults": deploy_defaults, "omitted_tools": [], "changes": []});
+        let preview: crate::ManagedAgentDeploymentPublicationPreview =
+            serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(preview.deploy_defaults.max_tool_output_chars, Some(40_000));
+        assert_eq!(serde_json::to_value(preview).unwrap(), wire);
+    }
+
+    #[test]
+    fn an_employer_sees_the_tool_output_limit_a_hire_runs_with() {
+        let wire = json!({"id": Uuid::new_v4(), "organization_id": Uuid::new_v4(),
+            "name": "Vera Hale", "skill_slug": "vera-hale", "mode": "cron", "platform_managed": true,
+            "status": "running", "desired_lifecycle_state": "running",
+            "template": {"slug": "vera-hale", "display_name": "Vera Hale", "revision": 9},
+            "serving_fallback": false, "run_kinds": [],
+            "spend_limits": {"per_task_atomic": 6000000, "per_day_atomic": 30000000,
+                "day_timezone": "UTC", "defaults": {"per_task_atomic": 6000000, "per_day_atomic": 30000000}, "run_kinds": []},
+            "max_tool_output_chars": 40000,
+            "created_at": "2026-11-01T01:00:00Z", "updated_at": "2026-11-01T01:00:00Z"});
+        let view: crate::CloudDeploymentView = serde_json::from_value(wire.clone()).unwrap();
+        let crate::CloudDeploymentView::ManagedAgentOwnerView(owner) = view else {
+            panic!("a hire decodes as the Employer's view");
+        };
+        assert_eq!(owner.max_tool_output_chars, Some(40_000));
+        assert_eq!(serde_json::to_value(owner).unwrap(), wire);
+    }
+
+    #[tokio::test]
     async fn template_publication_preserves_rollout_requests_and_applied_revision() {
         for rollout in [None, Some(false), Some(true)] {
             let server = MockServer::start().await;
@@ -1586,6 +1655,8 @@ mod tests {
             "staying",
             "held",
             "waiting_for_task",
+            "waiting_for_rollout",
+            "cannot_install_yet",
             "failed",
         ] {
             let decoded: crate::TemplateRevisionOutcome =
@@ -1674,7 +1745,12 @@ mod tests {
                     "triggers": ["hire_cron", "schedule", "chat", "webhook", "api"],
                     "amount": {"atomic": 500000, "usd": "$0.50"}, "changed_at": null,
                     "expected_cost_atomic": 300000
-                }]
+                }],
+                "catalog": {"hires_30d": 3, "hours_of_work": 802, "active_hires": 3,
+                    "best_sellers_rank": 1, "seren_choice": false, "also_hired": ["iris"],
+                    "updated_at": "2026-11-01T04:00:03.759627Z"},
+                "similar": [{"slug": "iris", "score": 0.842,
+                    "shared": {"words": ["research"], "tools": ["slack"], "skills": []}}]
             }]
         })
     }
@@ -1717,6 +1793,27 @@ mod tests {
             }
         }
         assert_eq!(actual, expected);
+    }
+
+    #[tokio::test]
+    async fn template_stats_decode_before_core_first_computes_them() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/templates/vera-hale/stats"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
+                "run_kinds": [], "hours_of_work": 0, "skills_count": 0, "active_hires": 0,
+                "threads_30d": 0, "top_skills": [], "updated_at": null
+            }})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let stats = Client::new(&server.uri())
+            .seren_agent_get_managed_agent_template_stats("vera-hale")
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(stats.data.updated_at, None);
+        server.verify().await;
     }
 
     fn template_profile_wire() -> serde_json::Value {
@@ -2043,6 +2140,7 @@ mod tests {
         for refusal in [
             "invalid_credentials",
             "too_many_attempts",
+            "password_sign_in_locked",
             "confirm_email",
             "expired_session",
             "service_unavailable",

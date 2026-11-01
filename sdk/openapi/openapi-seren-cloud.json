@@ -911,6 +911,9 @@
           },
           "404": {
             "description": "Deployment or connector not found"
+          },
+          "409": {
+            "description": "`channel_requires_line` when a hired Employee's chat channel must use a line"
           }
         },
         "security": [
@@ -1206,7 +1209,7 @@
             "description": "Invalid connector binding proposal, or `connector_receiver_not_available_yet` when the connector cannot yet be added to a hired Employee"
           },
           "409": {
-            "description": "Another proposal is active or the deployment changed"
+            "description": "Another proposal is active or the deployment changed, or `channel_requires_line` when a hired Employee's chat channel must use a line"
           }
         },
         "security": [
@@ -1268,7 +1271,7 @@
             "description": "Invalid connector binding proposal, or `connector_receiver_not_available_yet` when the connector cannot yet be added to a hired Employee"
           },
           "409": {
-            "description": "Active revision or connector binding changed"
+            "description": "Active revision or connector binding changed, or `channel_requires_line` when a hired Employee's chat channel must use a line"
           }
         },
         "security": [
@@ -26001,6 +26004,15 @@
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "max_tool_output_chars": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Most characters of one tool result the deployment keeps: its template's\nlimit, or its model policy's default when the template sets none.",
+            "minimum": 0
           },
           "mode": {
             "$ref": "#/components/schemas/CloudDeploymentMode"

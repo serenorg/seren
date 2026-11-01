@@ -358,7 +358,7 @@
             "description": "Invalid request"
           },
           "401": {
-            "description": "Sign-in refused: invalid credentials or temporarily unavailable password sign-in"
+            "description": "Sign-in refused: invalid credentials"
           },
           "403": {
             "description": "Email confirmation required (`email_verification_required`)",
@@ -371,7 +371,17 @@
             }
           },
           "429": {
-            "description": "Too many requests"
+            "description": "Too many requests, or password sign-in for this email is temporarily locked after repeated failed attempts (`password_sign_in_locked`). A lock answers with `Retry-After` and `retry_after_seconds`, the seconds until sign-in can be tried again.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 0
+                },
+                "description": "Seconds until sign-in can be tried again"
+              }
+            }
           },
           "503": {
             "description": "Password could not be checked; nothing changed. Try again later.",
@@ -2380,6 +2390,52 @@
         }
       }
     },
+    "/integrations/slack/callback": {
+      "get": {
+        "tags": [
+          "OAuth"
+        ],
+        "summary": "Finish installing a hire's own Slack app. Slack sends the browser here; it\nreturns to the setup page with `slack_app` or with `slack_app_error`.",
+        "operationId": "slack_app_callback",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "query",
+            "description": "Authorization code, omitted when the app was not installed",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "description": "The authorization's one-time state",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "description": "Error from Slack",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "Back to the setup page with slack_app, or with slack_app_error"
+          },
+          "400": {
+            "description": "The state names no authorization"
+          }
+        }
+      }
+    },
     "/managed-agent-secrets/setups/{setup_id}/status": {
       "get": {
         "tags": [
@@ -2993,7 +3049,7 @@
             }
           },
           "303": {
-            "description": "Continue to the application. A browser (`Accept: text/html`) whose sign-in is refused returns to the sign-in page with an `error` query parameter: `invalid_credentials` for any credential refusal, `too_many_attempts` for any sign-in rate limit, or `confirm_email` when the email address must be confirmed first. The page also receives the original `state`, `redirect_uri`, `code_challenge` and `client_id`. Where no separate sign-in page is used, the browser instead receives the sign-in form with a message and the refusal's status. With `response_mode=html` a refusal never redirects: it answers with the sign-in form (`text/html`), keeping the entered email and an empty password, under the refusal's status.",
+            "description": "Continue to the application. A browser (`Accept: text/html`) whose sign-in is refused returns to the sign-in page with an `error` query parameter: `invalid_credentials` for any credential refusal, `too_many_attempts` for any sign-in rate limit, `password_sign_in_locked` when repeated failed attempts have temporarily locked password sign-in for the email, or `confirm_email` when the email address must be confirmed first. The page also receives the original `state`, `redirect_uri`, `code_challenge` and `client_id`. Where no separate sign-in page is used, the browser instead receives the sign-in form with a message and the refusal's status. With `response_mode=html` a refusal never redirects: it answers with the sign-in form (`text/html`), keeping the entered email and an empty password, under the refusal's status.",
             "headers": {
               "Location": {
                 "schema": {
@@ -3014,7 +3070,7 @@
             }
           },
           "401": {
-            "description": "Sign-in refused: invalid credentials, temporarily unavailable password sign-in, or an expired sign-in. A browser receives a page when the sign-in has expired. With `response_mode=json` the body is a `BrowserSignInError` with `invalid_credentials` or `expired_session`.",
+            "description": "Sign-in refused: invalid credentials or an expired sign-in. A browser receives a page when the sign-in has expired. With `response_mode=json` the body is a `BrowserSignInError` with `invalid_credentials` or `expired_session`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3034,7 +3090,7 @@
             }
           },
           "429": {
-            "description": "Too many requests. JSON callers and browser requests without a valid form retain the rate-limit response when the limit applies before the form is read. Otherwise `response_mode=json` answers with a `BrowserSignInError` with `too_many_attempts`, `response_mode=html` with the sign-in form, and both send `Retry-After`. JSON refusals use either the flat `{error, message}` body or the nested `{error: {code, message}}` request-limit body.",
+            "description": "Too many requests. JSON callers and browser requests without a valid form retain the rate-limit response when the limit applies before the form is read. Otherwise `response_mode=json` answers with a `BrowserSignInError` with `too_many_attempts`, `response_mode=html` with the sign-in form, and both send `Retry-After`. When repeated failed attempts have temporarily locked password sign-in for the email, the refusal is `password_sign_in_locked` and `Retry-After` gives the seconds until sign-in can be tried again; without `response_mode` the body also carries `retry_after_seconds`. JSON refusals use either the flat `{error, message}` body or the nested `{error: {code, message}}` request-limit body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8997,6 +9053,50 @@
         ]
       }
     },
+    "/organizations/{organization_id}/template-pricing": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "List every Employee the organization publishes, whatever its listing,\nactivation or review state, with each run kind's fee, minimum, measured\ncost and measurement progress on the model its hires run now.",
+        "operationId": "list_managed_agent_template_pricing",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the managed agents",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The organization's managed agents and the pricing of each run kind of their current release",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_ManagedAgentTemplatePricing"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "A member of the organization using an unrestricted session, or an unrestricted user API key of the organization, is required (`managed_agent_pricing_member_required`)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/organizations/{organization_id}/templates": {
       "get": {
         "tags": [
@@ -10672,7 +10772,7 @@
             "description": "Direct organization Owner required, template published by another organization or suspended, or deployment material unavailable"
           },
           "404": {
-            "description": "Deployment not found"
+            "description": "Deployment not found, or the deployment asks for a sandbox runtime class Seren doesn't offer (`runtime_class_not_found`)"
           },
           "409": {
             "description": "Template publication conflict, including a reserved slug for a new template (`managed_agent_template_slug_reserved`), a publisher without a public name (`publisher_name_required`) or store address (`publisher_handle_required`), or a deployment model hires cannot run without an `llm_connection` choice (`publication_model_choice_required`, with `source_model` and `allowed_private_models` details)"
@@ -10744,7 +10844,7 @@
             "description": "Direct organization Owner required, template published by another organization or suspended, or deployment material unavailable"
           },
           "404": {
-            "description": "Deployment not found"
+            "description": "Deployment not found, or the deployment asks for a sandbox runtime class Seren doesn't offer (`runtime_class_not_found`)"
           },
           "409": {
             "description": "Template publication conflict, including a reserved slug for a new template (`managed_agent_template_slug_reserved`), a publisher without a public name (`publisher_name_required`) or store address (`publisher_handle_required`), or a deployment model hires cannot run without an `llm_connection` choice (`publication_model_choice_required`, with `source_model` and `allowed_private_models` details)"
@@ -10816,6 +10916,9 @@
           "403": {
             "description": "The credential or organization may not publish this template, or the template is suspended (`managed_agent_template_suspended`)"
           },
+          "404": {
+            "description": "The release asks for a sandbox runtime class Seren doesn't offer (`runtime_class_not_found`)"
+          },
           "409": {
             "description": "The slug is reserved, or is kept for Seren's own organization, and no template exists there (`managed_agent_template_slug_reserved`), a new template's publisher has no public name (`publisher_name_required`) or store address (`publisher_handle_required`), the display name differs from the template's, the release conflicts with the template or its bundle, the rollout of a published release could not start because the current revision is unavailable or the template is suspended, or one of the template's run kinds is priced below its minimum (`run_fee_below_minimum`)"
           }
@@ -10874,6 +10977,100 @@
           },
           "409": {
             "description": "Seren already approved the template (`managed_agent_template_review_not_rejected`)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/run-outcomes": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "List how each run of every hire of a template the organization publishes\nended, newest first.",
+        "description": "Each run names an opaque run identifier, the same one its charge names. It\ncarries no run content and does not identify the hirer.",
+        "operationId": "list_managed_agent_template_run_outcomes",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Runs to return, from 1 to 100. Defaults to 50.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Runs to skip, newest first. Defaults to 0.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of run outcomes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateRunOutcomes"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`limit` or `offset` is out of range"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner or Admin of the organization using a session or an unrestricted user API key of that organization, or the organization does not publish the template (`managed_agent_earnings_reader_required`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Some earnings were settled in an asset that cannot be valued in dollars (`managed_agent_earnings_unvalued`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -15075,6 +15272,46 @@
         }
       }
     },
+    "/webhooks/slack/apps/{events_route_id}": {
+      "post": {
+        "tags": [
+          "Connector Webhooks"
+        ],
+        "summary": "Receive events and URL verification for a hire's own Slack app.",
+        "operationId": "post_slack_app_webhook",
+        "parameters": [
+          {
+            "name": "events_route_id",
+            "in": "path",
+            "description": "The app's events route",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider verification or callback response"
+          },
+          "202": {
+            "description": "Callback accepted"
+          },
+          "404": {
+            "description": "App not installed"
+          },
+          "429": {
+            "description": "Too many callbacks for this app"
+          },
+          "502": {
+            "description": "Callback rejected or unavailable"
+          },
+          "503": {
+            "description": "Channel unavailable"
+          }
+        }
+      }
+    },
     "/webhooks/stripe": {
       "post": {
         "tags": [
@@ -15473,6 +15710,17 @@
               "$ref": "#/components/schemas/AdminTemplateRevisionDeploymentOutcome"
             }
           },
+          "rollout": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AdminTemplateRollout",
+                "description": "The template's current revision's gradual rollout; null before it starts."
+              }
+            ]
+          },
           "template_revision": {
             "type": "integer",
             "format": "int64"
@@ -15523,6 +15771,50 @@
             ],
             "format": "uuid",
             "description": "Deployment revision the template revision was written as."
+          }
+        }
+      },
+      "AdminTemplateRollout": {
+        "type": "object",
+        "description": "The newest revision's rollout, as a platform administrator sees it.",
+        "required": [
+          "revision",
+          "state",
+          "moved",
+          "total"
+        ],
+        "properties": {
+          "first_hire_deployment_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The hire that takes the revision first."
+          },
+          "moved": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Hires that took the revision."
+          },
+          "paused_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the rollout paused: the refusal's category."
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "state": {
+            "$ref": "#/components/schemas/TemplateRolloutState"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Hires the revision concerns."
           }
         }
       },
@@ -16961,6 +17253,7 @@
         "enum": [
           "invalid_credentials",
           "too_many_attempts",
+          "password_sign_in_locked",
           "confirm_email",
           "expired_session",
           "service_unavailable"
@@ -21920,6 +22213,55 @@
           }
         }
       },
+      "DataResponse_ManagedAgentTemplateRunOutcomes": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "outcomes",
+              "total",
+              "limit",
+              "offset"
+            ],
+            "properties": {
+              "limit": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "offset": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "outcomes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentTemplateRunOutcome"
+                }
+              },
+              "total": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedAgentWebhookReceipt": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -22924,6 +23266,17 @@
               "review_state": {
                 "$ref": "#/components/schemas/ManagedAgentTemplateReviewState",
                 "description": "Seren's review. Only an approved template is listed and can be hired."
+              },
+              "rollout": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/TemplateRollout",
+                    "description": "The current revision's gradual rollout to existing hires; null before it starts."
+                  }
+                ]
               },
               "slug": {
                 "type": "string"
@@ -26626,6 +26979,76 @@
           }
         }
       },
+      "DataResponse_Vec_ManagedAgentTemplatePricing": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "An Employee the organization publishes, in any listing, activation or\nreview state, with the pricing of each run kind of its current release.",
+              "required": [
+                "slug",
+                "display_name",
+                "active",
+                "listed",
+                "review_state",
+                "model_id",
+                "model_name",
+                "run_kinds"
+              ],
+              "properties": {
+                "active": {
+                  "type": "boolean"
+                },
+                "display_name": {
+                  "type": "string"
+                },
+                "listed": {
+                  "type": "boolean",
+                  "description": "The Owner's listing preference, independent of review and activation."
+                },
+                "model_id": {
+                  "type": "string",
+                  "description": "The model hires run now, which the measurements are for.",
+                  "example": "opus-5-5"
+                },
+                "model_name": {
+                  "type": "string",
+                  "example": "Claude Opus 5.5"
+                },
+                "review_state": {
+                  "$ref": "#/components/schemas/ManagedAgentTemplateReviewState"
+                },
+                "run_kinds": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ManagedAgentRunKindPricing"
+                  }
+                },
+                "slug": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_Vec_OAuthProviderResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -27289,6 +27712,17 @@
                 "review_state": {
                   "$ref": "#/components/schemas/ManagedAgentTemplateReviewState",
                   "description": "Seren's review. Only an approved template is listed and can be hired."
+                },
+                "rollout": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/TemplateRollout",
+                      "description": "The current revision's gradual rollout to existing hires; null before it starts."
+                    }
+                  ]
                 },
                 "slug": {
                   "type": "string"
@@ -32603,6 +33037,71 @@
         "example": "prospecting",
         "pattern": "^[a-z][a-z0-9_]{0,63}$"
       },
+      "ManagedAgentRunKindPricing": {
+        "type": "object",
+        "description": "One run kind of an Employee's current release, as its publishing\norganization's members see it.",
+        "required": [
+          "run_kind",
+          "name",
+          "charge",
+          "progress"
+        ],
+        "properties": {
+          "charge": {
+            "$ref": "#/components/schemas/ManagedAgentRunKindCharge"
+          },
+          "fee": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentRunFeeAmount",
+                "description": "The additive service fee; null for a cost-only kind."
+              }
+            ]
+          },
+          "measured_cost": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentRunMeasuredCost",
+                "description": "This kind's latest measured running cost on the current model; null\nwhile that measurement holds fewer than 10 runs."
+              }
+            ]
+          },
+          "minimum": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentRunMinimum",
+                "description": "The lowest fee the kind may be priced at; null for a cost-only kind."
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner_share_atomic": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The publishing organization's 70% of the service fee; null for a cost-only kind."
+          },
+          "progress": {
+            "$ref": "#/components/schemas/ManagedAgentRunMeasurementProgress"
+          },
+          "run_kind": {
+            "$ref": "#/components/schemas/ManagedAgentRunKindKey"
+          }
+        }
+      },
       "ManagedAgentRunKinds": {
         "type": "array",
         "items": {
@@ -32673,6 +33172,31 @@
           }
         },
         "additionalProperties": false
+      },
+      "ManagedAgentRunMeasurementProgress": {
+        "type": "object",
+        "description": "Runs measured toward a run kind's measured cost on the current model.",
+        "required": [
+          "runs",
+          "needed_runs",
+          "window_days"
+        ],
+        "properties": {
+          "needed_runs": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Runs the window needs before its measured cost is listed."
+          },
+          "runs": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Runs measured in the latest window, 0 when none are."
+          },
+          "window_days": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
       },
       "ManagedAgentRunMinimum": {
         "type": "object",
@@ -33321,6 +33845,15 @@
             "format": "int32",
             "minimum": 0
           },
+          "max_tool_output_chars": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Most characters of one tool result every hired copy keeps. Omit to use\nthe model policy's default (fast 6000, balanced 10000, deep 15000).\n1 to 1000000.",
+            "minimum": 0
+          },
           "mode": {
             "$ref": "#/components/schemas/CloudDeploymentMode"
           },
@@ -33511,6 +34044,53 @@
           "mail_and_files",
           "sign_in_only"
         ]
+      },
+      "ManagedAgentTemplatePricing": {
+        "type": "object",
+        "description": "An Employee the organization publishes, in any listing, activation or\nreview state, with the pricing of each run kind of its current release.",
+        "required": [
+          "slug",
+          "display_name",
+          "active",
+          "listed",
+          "review_state",
+          "model_id",
+          "model_name",
+          "run_kinds"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "listed": {
+            "type": "boolean",
+            "description": "The Owner's listing preference, independent of review and activation."
+          },
+          "model_id": {
+            "type": "string",
+            "description": "The model hires run now, which the measurements are for.",
+            "example": "opus-5-5"
+          },
+          "model_name": {
+            "type": "string",
+            "example": "Claude Opus 5.5"
+          },
+          "review_state": {
+            "$ref": "#/components/schemas/ManagedAgentTemplateReviewState"
+          },
+          "run_kinds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentRunKindPricing"
+            }
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
       },
       "ManagedAgentTemplateProfile": {
         "type": "object",
@@ -33747,6 +34327,119 @@
           "approved",
           "rejected"
         ]
+      },
+      "ManagedAgentTemplateRunOutcome": {
+        "type": "object",
+        "description": "How one run of a hire of the template ended. Carries no run content and no\nhirer identity.",
+        "required": [
+          "run_id",
+          "created_at",
+          "status",
+          "charged"
+        ],
+        "properties": {
+          "charged": {
+            "type": "boolean",
+            "description": "Whether the run's fee was charged."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Unset while the run has not ended."
+          },
+          "error_code": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Seren's reason code for the run's failure."
+          },
+          "fee_atomic": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What the charge collected; null unless charged.",
+            "example": "490000",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "owner_share_atomic": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Owner's share of the charge; null unless charged.",
+            "example": "490000",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "run_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Opaque identifier of the run, the same one its charge names."
+          },
+          "status": {
+            "type": "string",
+            "description": "Run lifecycle state, such as `running`, `completed`, `failed` or `cancelled`."
+          },
+          "step_code": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Step at which Seren reported the run's failure."
+          },
+          "stop_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the run stopped, such as `completed`, `startup_timeout` or `provider_error`."
+          },
+          "template_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Template revision the run used, when Seren recorded it."
+          }
+        }
+      },
+      "ManagedAgentTemplateRunOutcomes": {
+        "type": "object",
+        "required": [
+          "outcomes",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "outcomes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentTemplateRunOutcome"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
       },
       "ManagedAgentTemplateRuntimeClass": {
         "type": "string",
@@ -35084,6 +35777,17 @@
           "review_state": {
             "$ref": "#/components/schemas/ManagedAgentTemplateReviewState",
             "description": "Seren's review. Only an approved template is listed and can be hired."
+          },
+          "rollout": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TemplateRollout",
+                "description": "The current revision's gradual rollout to existing hires; null before it starts."
+              }
+            ]
           },
           "slug": {
             "type": "string"
@@ -40026,8 +40730,55 @@
           "declined",
           "staying",
           "held",
+          "cannot_install_yet",
+          "waiting_for_rollout",
           "waiting_for_task",
           "failed"
+        ]
+      },
+      "TemplateRollout": {
+        "type": "object",
+        "description": "The newest revision's rollout, as the template's Owner sees it.",
+        "required": [
+          "revision",
+          "state",
+          "moved",
+          "total"
+        ],
+        "properties": {
+          "moved": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Hires that took the revision."
+          },
+          "paused_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the rollout paused: the refusal's category."
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "state": {
+            "$ref": "#/components/schemas/TemplateRolloutState"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Hires the revision concerns."
+          }
+        }
+      },
+      "TemplateRolloutState": {
+        "type": "string",
+        "enum": [
+          "first_hire",
+          "rolling",
+          "paused",
+          "done"
         ]
       },
       "TemplateSetting": {

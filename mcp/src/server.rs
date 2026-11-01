@@ -26906,6 +26906,10 @@ pub(crate) mod tests {
                 if let Some(listed) = listed {
                     request["listed"] = serde_json::json!(listed);
                 }
+                if listed == Some(true) {
+                    // A release can set how much of each tool result its hires keep.
+                    request["deploy_defaults"]["max_tool_output_chars"] = serde_json::json!(40_000);
+                }
                 let mut expected_request = request.clone();
                 expected_request["listed"] = serde_json::json!(listed.unwrap_or(true));
                 let mut response = serde_json::json!({"data": {
@@ -35920,7 +35924,7 @@ pub(crate) mod tests {
     }
 
     /// Two real listings from Core's public Employee catalog
-    /// (`GET https://api.serendb.com/publishers/seren-agent/templates`, read on 2026-10-31).
+    /// (`GET https://api.serendb.com/publishers/seren-agent/templates`, read on 2026-11-01).
     fn public_employee_catalog() -> Value {
         serde_json::json!({
             "data": [
@@ -35974,13 +35978,13 @@ pub(crate) mod tests {
                             "measured_cost": {
                                 "model_id": "opus-5-5",
                                 "model_name": "Claude Opus 5.5",
-                                "runs": 29,
+                                "runs": 33,
                                 "window_days": 30,
-                                "average_atomic": 216270,
-                                "median_atomic": 238929,
-                                "p90_atomic": 383920,
-                                "average_price_atomic": 756270,
-                                "computed_at": "2026-10-31T00:00:05.53004Z",
+                                "average_atomic": 222339,
+                                "median_atomic": 233482,
+                                "p90_atomic": 400350,
+                                "average_price_atomic": 762339,
+                                "computed_at": "2026-11-01T00:00:02.774762Z",
                                 "price_list_version": 31
                             }
                         }
@@ -35989,9 +35993,24 @@ pub(crate) mod tests {
                         "per_task_atomic": 6000000,
                         "per_day_atomic": 30000000
                     },
+                    "hire_bonus": {
+                        "amount_atomic": 50000000,
+                        "amount_usd": "50",
+                        "expires_days": 30
+                    },
                     "catalog": {
-                        "rating": null
-                    }
+                        "hires_30d": 3,
+                        "hours_of_work": 802,
+                        "active_hires": 3,
+                        "best_sellers_rank": 1,
+                        "seren_choice": false,
+                        "also_hired": [
+                            "iris"
+                        ],
+                        "rating": null,
+                        "updated_at": "2026-11-01T04:00:03.759627Z"
+                    },
+                    "similar": []
                 },
                 {
                     "owner_connection": "sign_in_only",
@@ -36051,7 +36070,18 @@ pub(crate) mod tests {
                                 "webhook"
                             ],
                             "expected_cost_atomic": 300000,
-                            "measured_cost": null
+                            "measured_cost": {
+                                "model_id": "opus-5-5",
+                                "model_name": "Claude Opus 5.5",
+                                "runs": 11,
+                                "window_days": 30,
+                                "average_atomic": 133099,
+                                "median_atomic": 149674,
+                                "p90_atomic": 197790,
+                                "average_price_atomic": 433099,
+                                "computed_at": "2026-11-01T00:00:02.774762Z",
+                                "price_list_version": 31
+                            }
                         },
                         {
                             "charge": "cost",
@@ -36069,17 +36099,29 @@ pub(crate) mod tests {
                         "per_task_atomic": 6000000,
                         "per_day_atomic": 30000000
                     },
+                    "hire_bonus": {
+                        "amount_atomic": 50000000,
+                        "amount_usd": "50",
+                        "expires_days": 30
+                    },
                     "catalog": {
-                        "rating": null
-                    }
+                        "hires_30d": 1,
+                        "hours_of_work": 0,
+                        "active_hires": 1,
+                        "best_sellers_rank": 3,
+                        "seren_choice": false,
+                        "also_hired": [],
+                        "rating": null,
+                        "updated_at": "2026-11-01T04:00:03.759627Z"
+                    },
+                    "similar": []
                 }
             ]
         })
     }
 
     /// Core's listings as the generated client hands them back. Core's contract gives an
-    /// explicit null and an absent optional field the same meaning, and production Core
-    /// also sends `catalog`, which the committed seren-agent snapshot does not describe yet.
+    /// explicit null and an absent optional field the same meaning.
     fn listings_as_the_snapshot_describes_them(catalog: &Value) -> Value {
         fn without_nulls(value: &Value) -> Value {
             match value {
@@ -36094,12 +36136,7 @@ pub(crate) mod tests {
                 other => other.clone(),
             }
         }
-        let mut listings = without_nulls(&catalog["data"]);
-        for listing in listings.as_array_mut().unwrap() {
-            // Delete this line when the seren-agent snapshot sync adds `catalog`.
-            listing.as_object_mut().unwrap().remove("catalog");
-        }
-        listings
+        without_nulls(&catalog["data"])
     }
 
     async fn mount_public_employee_catalog(core: &wiremock::MockServer) {

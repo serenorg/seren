@@ -83,7 +83,11 @@ async fn managed_pricing_success_bodies_preserve_fee_and_cost_contracts() {
                 "owner_connection": "sign_in_only", "published_at": "2026-10-23T00:00:00Z",
                 "capabilities": [], "example_tasks": ["Run a pricing task"],
                 "works_in": ["slack"], "pronouns": "they/them", "run_kinds": run_kinds.clone(),
-                "spend_limit_defaults": {"per_task_atomic": 2000000, "per_day_atomic": 10000000}
+                "spend_limit_defaults": {"per_task_atomic": 2000000, "per_day_atomic": 10000000},
+                "catalog": {"hires_30d": 0, "hours_of_work": 0, "active_hires": 0,
+                    "best_sellers_rank": null, "seren_choice": false, "also_hired": [],
+                    "rating": null, "updated_at": null},
+                "similar": []
             }]})))
             .expect(1)
             .mount(&server)
