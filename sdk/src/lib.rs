@@ -1748,6 +1748,7 @@ mod tests {
                 }],
                 "catalog": {"hires_30d": 3, "hours_of_work": 802, "active_hires": 3,
                     "best_sellers_rank": 1, "seren_choice": false, "also_hired": ["iris"],
+                    "rating": {"average": 5.0, "count": 1, "histogram": [100, 0, 0, 0, 0]},
                     "updated_at": "2026-11-01T04:00:03.759627Z"},
                 "similar": [{"slug": "iris", "score": 0.842,
                     "shared": {"words": ["research"], "tools": ["slack"], "skills": []}}]
@@ -1901,6 +1902,7 @@ mod tests {
             "/data/0/example_tasks",
             "/data/0/works_in",
             "/data/0/pronouns",
+            "/data/0/catalog",
             "/data/0/publisher/made_by_seren",
             "/data/0/publisher/verified",
         ] {
@@ -1929,6 +1931,7 @@ mod tests {
         }
         for (pointer, value) in [
             ("/data/0/pronouns", json!("unknown")),
+            ("/data/0/catalog", json!(null)),
             ("/data/0/works_in", json!(["unknown"])),
             ("/data/0/publisher/verified", json!("true")),
         ] {
