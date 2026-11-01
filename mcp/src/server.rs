@@ -1461,6 +1461,11 @@ pub struct EndpointDefinitionParam {
     /// for unprotected GET endpoints.
     #[serde(default)]
     pub access: Option<EndpointAccessParam>,
+    /// Whether this operation changes upstream state. Set `read` on a POST that
+    /// only reads, such as a search. Omit it to use the method default: GET
+    /// reads, every other method changes state.
+    #[serde(default)]
+    pub operation_kind: Option<EndpointOperationKindParam>,
     /// If true, this endpoint is blocked (documented but not accessible)
     #[serde(default)]
     pub is_protected: bool,
@@ -1479,6 +1484,14 @@ pub struct EndpointDefinitionParam {
 pub enum EndpointAccessParam {
     Authenticated,
     PublicAnonymous,
+}
+
+/// Whether a publisher endpoint changes upstream state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EndpointOperationKindParam {
+    Read,
+    Mutation,
 }
 
 /// Query parameter definition for endpoint documentation
@@ -1587,7 +1600,7 @@ fn endpoint_param_to_definition(
         EndpointAccessParam::PublicAnonymous => "public_anonymous",
     };
 
-    let endpoint = serde_json::json!({
+    let mut endpoint = serde_json::json!({
         "access": access,
         "method": method,
         "path": path,
@@ -1605,6 +1618,14 @@ fn endpoint_param_to_definition(
         "body_template": null,
         "is_default": null,
     });
+    // Sent only when declared, so an endpoint without one keeps its body; Core
+    // decides what a declared kind means.
+    if let Some(kind) = param.operation_kind {
+        endpoint["operation_kind"] = serde_json::json!(match kind {
+            EndpointOperationKindParam::Read => "read",
+            EndpointOperationKindParam::Mutation => "mutation",
+        });
+    }
 
     serde_json::from_value(endpoint).map_err(|e| {
         McpError::invalid_params(
@@ -14312,7 +14333,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Create a new publisher in the agent store. Publishers provide databases or APIs that AI agents can query with micropayments. Requires API key authentication (organization-level). Set forward_caller_identity to send opaque organization and user identifiers in X-Seren-Caller-Organization-Id and X-Seren-Caller-User-Id. The organization identifier is scoped to publisher and authenticated organization; the user identifier is scoped to publisher, authenticated organization and authenticated user. Neither value is a raw Seren account ID.",
+        description = "Create a new publisher in the agent store. Publishers provide databases or APIs that AI agents can query with micropayments. Requires API key authentication (organization-level). Set forward_caller_identity to send opaque organization and user identifiers in X-Seren-Caller-Organization-Id and X-Seren-Caller-User-Id. The organization identifier is scoped to publisher and authenticated organization; the user identifier is scoped to publisher, authenticated organization and authenticated user. Neither value is a raw Seren account ID. Each endpoint may set operation_kind (read or mutation); mark a search or other read-only POST as read so hired Employees can call it without an approval.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn create_publisher(
@@ -14628,7 +14649,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Update an existing publisher's details. Supports both API key and OAuth authentication. Only fields provided will be updated. Set forward_caller_identity to send opaque organization and user identifiers in X-Seren-Caller-Organization-Id and X-Seren-Caller-User-Id. The organization identifier is scoped to publisher and authenticated organization; the user identifier is scoped to publisher, authenticated organization and authenticated user. Neither value is a raw Seren account ID.",
+        description = "Update an existing publisher's details. Supports both API key and OAuth authentication. Only fields provided will be updated. Set forward_caller_identity to send opaque organization and user identifiers in X-Seren-Caller-Organization-Id and X-Seren-Caller-User-Id. The organization identifier is scoped to publisher and authenticated organization; the user identifier is scoped to publisher, authenticated organization and authenticated user. Neither value is a raw Seren account ID. Each endpoint may set operation_kind (read or mutation); mark a search or other read-only POST as read so hired Employees can call it without an approval.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn update_publisher(
@@ -26465,6 +26486,7 @@ pub(crate) mod tests {
             query_params: None,
             request_content_type: None,
             access: None,
+            operation_kind: None,
             is_protected: false,
             protection_reason: None,
             price: None,
@@ -26510,6 +26532,25 @@ pub(crate) mod tests {
             endpoint_param_to_definition(param).expect_err("protected endpoint cannot be public");
 
         assert!(error.to_string().contains("cannot be combined"));
+    }
+
+    /// Core decides what a declared kind means, so the MCP passes any
+    /// combination through without rules of its own.
+    #[test]
+    fn endpoint_param_to_definition_passes_a_declared_operation_kind_through() {
+        let mut get = endpoint_param("GET", "/places/{placeId}");
+        get.operation_kind = Some(EndpointOperationKindParam::Mutation);
+        let mut protected_post = endpoint_param("POST", "/places:searchText");
+        protected_post.operation_kind = Some(EndpointOperationKindParam::Read);
+        protected_post.is_protected = true;
+
+        for (param, kind) in [(get, "mutation"), (protected_post, "read")] {
+            let is_protected = param.is_protected;
+            let endpoint = endpoint_param_to_definition(param).expect("Core decides, not the MCP");
+            let value = serde_json::to_value(endpoint).unwrap();
+            assert_eq!(value["operation_kind"], kind);
+            assert_eq!(value["is_protected"], is_protected);
+        }
     }
 
     #[test]
@@ -30439,6 +30480,265 @@ pub(crate) mod tests {
             error.data.as_ref().and_then(|data| data.get("status")),
             Some(&serde_json::json!(503))
         );
+    }
+
+    /// One search endpoint, carrying `operation_kind` only when given.
+    fn search_endpoint(operation_kind: Option<&str>) -> serde_json::Value {
+        let mut endpoint = serde_json::json!({
+            "method": "POST",
+            "path": "/places:searchText",
+            "description": "Find places matching a text query."
+        });
+        if let Some(kind) = operation_kind {
+            endpoint["operation_kind"] = kind.into();
+        }
+        endpoint
+    }
+
+    fn create_params_with_endpoint(
+        organization_id: Uuid,
+        endpoint: serde_json::Value,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "organization_id": organization_id,
+            "name": "Places",
+            "slug": "places",
+            "wallet_address": "0x1111111111111111111111111111111111111111",
+            "wallet_network_id": "eip155:8453",
+            "publisher_category": "integration",
+            "integration_type": "api",
+            "api_url": "https://upstream.example.com",
+            "endpoints": [endpoint]
+        })
+    }
+
+    fn update_params_with_endpoint(
+        organization_id: Uuid,
+        publisher_id: Uuid,
+        endpoint: serde_json::Value,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "organization_id": organization_id,
+            "publisher_id": publisher_id,
+            "endpoints": [endpoint]
+        })
+    }
+
+    #[tokio::test]
+    async fn create_publisher_sends_a_declared_operation_kind() {
+        let organization_id = Uuid::from_u128(0x7601);
+        let publisher_id = Uuid::from_u128(0x7602);
+        for kind in ["read", "mutation"] {
+            let proxy = publisher_write_server(
+                "POST",
+                &format!("/organizations/{organization_id}/publishers"),
+                wiremock::ResponseTemplate::new(201)
+                    .set_body_json(caller_identity_publisher_response(publisher_id, None)),
+            )
+            .await;
+            let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+            let params = create_params_with_endpoint(organization_id, search_endpoint(Some(kind)));
+            server
+                .create_publisher(
+                    Parameters(serde_json::from_value(params).expect("create_publisher params")),
+                    extensions_with_headers(&[]),
+                )
+                .await
+                .expect("the publisher is created");
+            let body = only_request_body(&proxy).await;
+            assert_eq!(body["endpoints"][0]["path"], "/places:searchText");
+            assert_eq!(
+                body["endpoints"][0]["operation_kind"], kind,
+                "declared {kind}, sent {body}"
+            );
+        }
+    }
+
+    /// The create body for an endpoint that declares no kind, exactly as the
+    /// MCP sent it before endpoints could declare one.
+    const UNDECLARED_KIND_CREATE_BODY: &str = concat!(
+        r#"{"api_url":"https://upstream.example.com","#,
+        r#""endpoints":[{"access":"authenticated","#,
+        r#""description":"Find places matching a text query.","#,
+        r#""is_protected":false,"method":"POST","path":"/places:searchText"}],"#,
+        r#""integration_type":"api","name":"Places","publisher_category":"integration","#,
+        r#""slug":"places","wallet_address":"0x1111111111111111111111111111111111111111","#,
+        r#""wallet_network_id":"eip155:8453"}"#
+    );
+
+    #[tokio::test]
+    async fn create_publisher_omits_an_undeclared_operation_kind() {
+        let organization_id = Uuid::from_u128(0x7611);
+        let proxy = publisher_write_server(
+            "POST",
+            &format!("/organizations/{organization_id}/publishers"),
+            wiremock::ResponseTemplate::new(201).set_body_json(caller_identity_publisher_response(
+                Uuid::from_u128(0x7612),
+                None,
+            )),
+        )
+        .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let params = create_params_with_endpoint(organization_id, search_endpoint(None));
+        server
+            .create_publisher(
+                Parameters(serde_json::from_value(params).expect("create_publisher params")),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .expect("the publisher is created");
+        let requests = proxy.received_requests().await.expect("recorded requests");
+        assert_eq!(requests.len(), 1);
+        let body: serde_json::Value = requests[0].body_json().expect("JSON body");
+        assert!(
+            body["endpoints"][0].get("operation_kind").is_none(),
+            "sent {body}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&requests[0].body),
+            UNDECLARED_KIND_CREATE_BODY
+        );
+    }
+
+    #[tokio::test]
+    async fn update_publisher_sends_an_operation_kind_only_when_declared() {
+        let organization_id = Uuid::from_u128(0x7621);
+        let publisher_id = Uuid::from_u128(0x7622);
+        for kind in [Some("read"), Some("mutation"), None] {
+            let proxy = publisher_write_server(
+                "PUT",
+                &format!("/organizations/{organization_id}/publishers/{publisher_id}"),
+                wiremock::ResponseTemplate::new(200)
+                    .set_body_json(caller_identity_publisher_response(publisher_id, None)),
+            )
+            .await;
+            let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+            let params =
+                update_params_with_endpoint(organization_id, publisher_id, search_endpoint(kind));
+            server
+                .update_publisher(
+                    Parameters(serde_json::from_value(params).expect("update_publisher params")),
+                    extensions_with_headers(&[]),
+                )
+                .await
+                .expect("the publisher is updated");
+            let body = only_request_body(&proxy).await;
+            assert_eq!(body["endpoints"][0]["path"], "/places:searchText");
+            assert_eq!(
+                body["endpoints"][0].get("operation_kind"),
+                kind.map(Value::from).as_ref(),
+                "declared {kind:?}, sent {body}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn publisher_tools_refuse_an_unknown_operation_kind_before_any_request() {
+        let proxy = wiremock::MockServer::start().await;
+        let (client, server_task) = oauth_provider_test_client(&proxy).await;
+        let organization_id = Uuid::from_u128(0x7631);
+        for (tool, arguments) in [
+            (
+                "create_publisher",
+                create_params_with_endpoint(organization_id, search_endpoint(Some("write"))),
+            ),
+            (
+                "update_publisher",
+                update_params_with_endpoint(
+                    organization_id,
+                    Uuid::from_u128(0x7632),
+                    search_endpoint(Some("write")),
+                ),
+            ),
+        ] {
+            let result = client
+                .call_tool(
+                    CallToolRequestParams::new(tool)
+                        .with_arguments(arguments.as_object().unwrap().clone()),
+                )
+                .await
+                .expect("the MCP router returns parameter errors as tool errors");
+            assert_eq!(result.is_error, Some(true), "{tool}");
+            assert!(
+                result_contains(&result, "unknown variant `write`"),
+                "{tool}: {result:?}"
+            );
+        }
+        assert!(proxy.received_requests().await.unwrap().is_empty());
+        client.cancel().await.unwrap();
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn publisher_tools_serve_an_optional_operation_kind_on_endpoints() {
+        fn resolve<'a>(root: &'a Value, node: &'a Value) -> &'a Value {
+            match node.get("$ref").and_then(Value::as_str) {
+                Some(reference) => root
+                    .pointer(reference.trim_start_matches('#'))
+                    .unwrap_or_else(|| panic!("unresolved schema reference {reference}")),
+                None => node,
+            }
+        }
+        /// Every subschema reachable through references and schema combinators.
+        fn alternatives<'a>(root: &'a Value, node: &'a Value) -> Vec<&'a Value> {
+            let mut found = Vec::new();
+            let mut pending = vec![node];
+            while let Some(node) = pending.pop() {
+                let node = resolve(root, node);
+                found.push(node);
+                for keyword in ["anyOf", "oneOf", "allOf"] {
+                    if let Some(items) = node.get(keyword).and_then(Value::as_array) {
+                        pending.extend(items);
+                    }
+                }
+            }
+            found
+        }
+
+        let proxy = wiremock::MockServer::start().await;
+        let (client, server_task) = oauth_provider_test_client(&proxy).await;
+        const GUIDANCE: &str = concat!(
+            "Each endpoint may set operation_kind (read or mutation); mark a search or other ",
+            "read-only POST as read so hired Employees can call it without an approval."
+        );
+        let tools = client.list_all_tools().await.unwrap();
+        for name in ["create_publisher", "update_publisher"] {
+            let tool = tools.iter().find(|tool| tool.name == name).unwrap();
+            assert!(
+                tool.description
+                    .as_deref()
+                    .is_some_and(|description| description.contains(GUIDANCE)),
+                "{name}: the description explains operation_kind"
+            );
+            let schema = serde_json::to_value(&tool.input_schema).unwrap();
+            let endpoint = alternatives(&schema, &schema["properties"]["endpoints"])
+                .into_iter()
+                .find_map(|node| node.get("items"))
+                .map(|items| resolve(&schema, items))
+                .unwrap_or_else(|| panic!("{name}: endpoints has no item schema"));
+            let kind = endpoint["properties"]
+                .get("operation_kind")
+                .unwrap_or_else(|| panic!("{name}: endpoints[] has no operation_kind"));
+            let values = alternatives(&schema, kind)
+                .into_iter()
+                .filter_map(|node| node.get("enum").and_then(Value::as_array))
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect::<BTreeSet<_>>();
+            assert_eq!(values, BTreeSet::from(["mutation", "read"]), "{name}");
+            let required = endpoint
+                .get("required")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            assert!(
+                !required.contains(&serde_json::json!("operation_kind")),
+                "{name}: operation_kind must stay optional"
+            );
+        }
+        assert!(proxy.received_requests().await.unwrap().is_empty());
+        client.cancel().await.unwrap();
+        server_task.await.unwrap();
     }
 
     #[test]
