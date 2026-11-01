@@ -1466,6 +1466,12 @@ pub struct EndpointDefinitionParam {
     /// reads, every other method changes state.
     #[serde(default)]
     pub operation_kind: Option<EndpointOperationKindParam>,
+    /// Stable operation identifier. Required, and distinct, on every row when
+    /// two endpoints share a method and path (for example Drive's upload rows);
+    /// those rows must also share a required query parameter with distinct
+    /// examples. Used by grants and tool_refs to name one row. Omit it otherwise.
+    #[serde(default)]
+    pub operation_id: Option<String>,
     /// If true, this endpoint is blocked (documented but not accessible)
     #[serde(default)]
     pub is_protected: bool,
@@ -1625,6 +1631,11 @@ fn endpoint_param_to_definition(
             EndpointOperationKindParam::Read => "read",
             EndpointOperationKindParam::Mutation => "mutation",
         });
+    }
+    // Sent only when declared and exactly as given; Core decides whether rows
+    // that share a method and path name distinct operations.
+    if let Some(operation_id) = param.operation_id {
+        endpoint["operation_id"] = serde_json::Value::String(operation_id);
     }
 
     serde_json::from_value(endpoint).map_err(|e| {
@@ -14333,7 +14344,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Create a new publisher in the agent store. Publishers provide databases or APIs that AI agents can query with micropayments. Requires API key authentication (organization-level). Set forward_caller_identity to send opaque organization and user identifiers in X-Seren-Caller-Organization-Id and X-Seren-Caller-User-Id. The organization identifier is scoped to publisher and authenticated organization; the user identifier is scoped to publisher, authenticated organization and authenticated user. Neither value is a raw Seren account ID. Each endpoint may set operation_kind (read or mutation); mark a search or other read-only POST as read so hired Employees can call it without an approval.",
+        description = "Create a new publisher in the agent store. Publishers provide databases or APIs that AI agents can query with micropayments. Requires API key authentication (organization-level). Set forward_caller_identity to send opaque organization and user identifiers in X-Seren-Caller-Organization-Id and X-Seren-Caller-User-Id. The organization identifier is scoped to publisher and authenticated organization; the user identifier is scoped to publisher, authenticated organization and authenticated user. Neither value is a raw Seren account ID. Each endpoint may set operation_kind (read or mutation); mark a search or other read-only POST as read so hired Employees can call it without an approval. When two endpoints share a method and path, give each its own operation_id and a shared required query parameter with distinct examples, or Core refuses the catalog.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn create_publisher(
@@ -14649,7 +14660,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Update an existing publisher's details. Supports both API key and OAuth authentication. Only fields provided will be updated. Set forward_caller_identity to send opaque organization and user identifiers in X-Seren-Caller-Organization-Id and X-Seren-Caller-User-Id. The organization identifier is scoped to publisher and authenticated organization; the user identifier is scoped to publisher, authenticated organization and authenticated user. Neither value is a raw Seren account ID. Each endpoint may set operation_kind (read or mutation); mark a search or other read-only POST as read so hired Employees can call it without an approval.",
+        description = "Update an existing publisher's details. Supports both API key and OAuth authentication. Only fields provided will be updated. Set forward_caller_identity to send opaque organization and user identifiers in X-Seren-Caller-Organization-Id and X-Seren-Caller-User-Id. The organization identifier is scoped to publisher and authenticated organization; the user identifier is scoped to publisher, authenticated organization and authenticated user. Neither value is a raw Seren account ID. Each endpoint may set operation_kind (read or mutation); mark a search or other read-only POST as read so hired Employees can call it without an approval. When two endpoints share a method and path, give each its own operation_id and a shared required query parameter with distinct examples, or Core refuses the catalog.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn update_publisher(
@@ -26487,6 +26498,7 @@ pub(crate) mod tests {
             request_content_type: None,
             access: None,
             operation_kind: None,
+            operation_id: None,
             is_protected: false,
             protection_reason: None,
             price: None,
@@ -30734,6 +30746,335 @@ pub(crate) mod tests {
             assert!(
                 !required.contains(&serde_json::json!("operation_kind")),
                 "{name}: operation_kind must stay optional"
+            );
+        }
+        assert!(proxy.received_requests().await.unwrap().is_empty());
+        client.cancel().await.unwrap();
+        server_task.await.unwrap();
+    }
+
+    /// One row of Drive's overloaded upload pair, in the shape Core's own
+    /// catalog test accepts: the rows share a method and path and are told
+    /// apart by the example of a required `uploadType` parameter.
+    fn upload_endpoint(operation_id: Option<&str>, upload_type: &str) -> serde_json::Value {
+        let mut endpoint = serde_json::json!({
+            "method": "POST",
+            "path": "/upload/drive/v3/files",
+            "query_params": [{
+                "name": "uploadType",
+                "required": true,
+                "param_type": "string",
+                "example": upload_type
+            }]
+        });
+        if let Some(operation_id) = operation_id {
+            endpoint["operation_id"] = operation_id.into();
+        }
+        endpoint
+    }
+
+    #[tokio::test]
+    async fn create_publisher_sends_a_declared_operation_id() {
+        let organization_id = Uuid::from_u128(0x7641);
+        let proxy = publisher_write_server(
+            "POST",
+            &format!("/organizations/{organization_id}/publishers"),
+            wiremock::ResponseTemplate::new(201).set_body_json(caller_identity_publisher_response(
+                Uuid::from_u128(0x7642),
+                None,
+            )),
+        )
+        .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let params = create_params_with_endpoint(
+            organization_id,
+            upload_endpoint(Some("upload_multipart"), "multipart"),
+        );
+        server
+            .create_publisher(
+                Parameters(serde_json::from_value(params).expect("create_publisher params")),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .expect("the publisher is created");
+        let body = only_request_body(&proxy).await;
+        assert_eq!(body["endpoints"][0]["path"], "/upload/drive/v3/files");
+        assert_eq!(
+            body["endpoints"][0]["operation_id"], "upload_multipart",
+            "sent {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_publisher_omits_an_undeclared_operation_id() {
+        let organization_id = Uuid::from_u128(0x7651);
+        let proxy = publisher_write_server(
+            "POST",
+            &format!("/organizations/{organization_id}/publishers"),
+            wiremock::ResponseTemplate::new(201).set_body_json(caller_identity_publisher_response(
+                Uuid::from_u128(0x7652),
+                None,
+            )),
+        )
+        .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let params = create_params_with_endpoint(organization_id, search_endpoint(None));
+        server
+            .create_publisher(
+                Parameters(serde_json::from_value(params).expect("create_publisher params")),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .expect("the publisher is created");
+        let requests = proxy.received_requests().await.expect("recorded requests");
+        assert_eq!(requests.len(), 1);
+        let body: serde_json::Value = requests[0].body_json().expect("JSON body");
+        assert!(
+            body["endpoints"][0].get("operation_id").is_none(),
+            "sent {body}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&requests[0].body),
+            UNDECLARED_KIND_CREATE_BODY
+        );
+    }
+
+    /// The update body for an upload row that names no operation, exactly as
+    /// the MCP sent it before endpoints could name one.
+    const UNDECLARED_ID_UPDATE_BODY: &str = concat!(
+        r#"{"endpoints":[{"access":"authenticated","is_protected":false,"method":"POST","#,
+        r#""path":"/upload/drive/v3/files","query_params":[{"example":"multipart","#,
+        r#""name":"uploadType","param_type":"string","required":true}]}]}"#
+    );
+
+    #[tokio::test]
+    async fn update_publisher_sends_an_operation_id_only_when_declared() {
+        let organization_id = Uuid::from_u128(0x7661);
+        let publisher_id = Uuid::from_u128(0x7662);
+        for operation_id in [None, Some("upload_multipart")] {
+            let proxy = publisher_write_server(
+                "PUT",
+                &format!("/organizations/{organization_id}/publishers/{publisher_id}"),
+                wiremock::ResponseTemplate::new(200)
+                    .set_body_json(caller_identity_publisher_response(publisher_id, None)),
+            )
+            .await;
+            let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+            let params = update_params_with_endpoint(
+                organization_id,
+                publisher_id,
+                upload_endpoint(operation_id, "multipart"),
+            );
+            server
+                .update_publisher(
+                    Parameters(serde_json::from_value(params).expect("update_publisher params")),
+                    extensions_with_headers(&[]),
+                )
+                .await
+                .expect("the publisher is updated");
+            let requests = proxy.received_requests().await.expect("recorded requests");
+            assert_eq!(requests.len(), 1);
+            let body: serde_json::Value = requests[0].body_json().expect("JSON body");
+            assert_eq!(
+                body["endpoints"][0].get("operation_id"),
+                operation_id.map(Value::from).as_ref(),
+                "declared {operation_id:?}, sent {body}"
+            );
+            if operation_id.is_none() {
+                assert_eq!(
+                    String::from_utf8_lossy(&requests[0].body),
+                    UNDECLARED_ID_UPDATE_BODY
+                );
+            }
+        }
+    }
+
+    /// Core accepts two rows on one method and path only when each names its
+    /// own operation and their shared `uploadType` examples differ, so both
+    /// tools must send each row's ID and query parameter intact.
+    #[tokio::test]
+    async fn publisher_tools_send_an_overloaded_pair_with_its_operation_ids() {
+        let organization_id = Uuid::from_u128(0x7671);
+        let publisher_id = Uuid::from_u128(0x7672);
+        let pair = serde_json::json!([
+            upload_endpoint(Some("upload_media"), "media"),
+            upload_endpoint(Some("upload_multipart"), "multipart"),
+        ]);
+        let sent_row = |operation_id: &str, upload_type: &str| {
+            serde_json::json!({
+                "access": "authenticated",
+                "is_protected": false,
+                "method": "POST",
+                "operation_id": operation_id,
+                "path": "/upload/drive/v3/files",
+                "query_params": [{
+                    "example": upload_type,
+                    "name": "uploadType",
+                    "param_type": "string",
+                    "required": true
+                }]
+            })
+        };
+        let expected = serde_json::json!([
+            sent_row("upload_media", "media"),
+            sent_row("upload_multipart", "multipart"),
+        ]);
+
+        let proxy = publisher_write_server(
+            "POST",
+            &format!("/organizations/{organization_id}/publishers"),
+            wiremock::ResponseTemplate::new(201)
+                .set_body_json(caller_identity_publisher_response(publisher_id, None)),
+        )
+        .await;
+        let mut params = create_params_with_endpoint(organization_id, Value::Null);
+        params["endpoints"] = pair.clone();
+        SerenMcpServer::new("test-key", &proxy.uri())
+            .unwrap()
+            .create_publisher(
+                Parameters(serde_json::from_value(params).expect("create_publisher params")),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .expect("the publisher is created");
+        let body = only_request_body(&proxy).await;
+        assert_eq!(body["endpoints"], expected, "create sent {body}");
+
+        let proxy = publisher_write_server(
+            "PUT",
+            &format!("/organizations/{organization_id}/publishers/{publisher_id}"),
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(caller_identity_publisher_response(publisher_id, None)),
+        )
+        .await;
+        let mut params = update_params_with_endpoint(organization_id, publisher_id, Value::Null);
+        params["endpoints"] = pair;
+        SerenMcpServer::new("test-key", &proxy.uri())
+            .unwrap()
+            .update_publisher(
+                Parameters(serde_json::from_value(params).expect("update_publisher params")),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .expect("the publisher is updated");
+        let body = only_request_body(&proxy).await;
+        assert_eq!(body["endpoints"], expected, "update sent {body}");
+    }
+
+    /// Core trims and compares operation IDs itself, so the MCP sends what it
+    /// was given: no trimming, no lowercasing and no refusal of an empty ID.
+    #[tokio::test]
+    async fn create_publisher_sends_an_operation_id_exactly_as_given() {
+        let organization_id = Uuid::from_u128(0x7681);
+        for operation_id in [" Upload_Media ", ""] {
+            let proxy = publisher_write_server(
+                "POST",
+                &format!("/organizations/{organization_id}/publishers"),
+                wiremock::ResponseTemplate::new(201).set_body_json(
+                    caller_identity_publisher_response(Uuid::from_u128(0x7682), None),
+                ),
+            )
+            .await;
+            let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+            let params = create_params_with_endpoint(
+                organization_id,
+                upload_endpoint(Some(operation_id), "media"),
+            );
+            server
+                .create_publisher(
+                    Parameters(serde_json::from_value(params).expect("create_publisher params")),
+                    extensions_with_headers(&[]),
+                )
+                .await
+                .expect("the publisher is created");
+            let body = only_request_body(&proxy).await;
+            assert_eq!(
+                body["endpoints"][0]["operation_id"], operation_id,
+                "declared {operation_id:?}, sent {body}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn publisher_tools_serve_an_optional_operation_id_on_endpoints() {
+        fn resolve<'a>(root: &'a Value, node: &'a Value) -> &'a Value {
+            match node.get("$ref").and_then(Value::as_str) {
+                Some(reference) => root
+                    .pointer(reference.trim_start_matches('#'))
+                    .unwrap_or_else(|| panic!("unresolved schema reference {reference}")),
+                None => node,
+            }
+        }
+        /// Every subschema reachable through references and schema combinators.
+        fn alternatives<'a>(root: &'a Value, node: &'a Value) -> Vec<&'a Value> {
+            let mut found = Vec::new();
+            let mut pending = vec![node];
+            while let Some(node) = pending.pop() {
+                let node = resolve(root, node);
+                found.push(node);
+                for keyword in ["anyOf", "oneOf", "allOf"] {
+                    if let Some(items) = node.get(keyword).and_then(Value::as_array) {
+                        pending.extend(items);
+                    }
+                }
+            }
+            found
+        }
+
+        let proxy = wiremock::MockServer::start().await;
+        let (client, server_task) = oauth_provider_test_client(&proxy).await;
+        const GUIDANCE: &str = concat!(
+            "When two endpoints share a method and path, give each its own operation_id and a ",
+            "shared required query parameter with distinct examples, or Core refuses the catalog."
+        );
+        const FIELD_DESCRIPTION: &str = concat!(
+            "Stable operation identifier. Required, and distinct, on every row when two ",
+            "endpoints share a method and path (for example Drive's upload rows); those rows ",
+            "must also share a required query parameter with distinct examples. Used by grants ",
+            "and tool_refs to name one row. Omit it otherwise."
+        );
+        let tools = client.list_all_tools().await.unwrap();
+        for name in ["create_publisher", "update_publisher"] {
+            let tool = tools.iter().find(|tool| tool.name == name).unwrap();
+            assert!(
+                tool.description
+                    .as_deref()
+                    .is_some_and(|description| description.contains(GUIDANCE)),
+                "{name}: the description explains operation_id"
+            );
+            let schema = serde_json::to_value(&tool.input_schema).unwrap();
+            let endpoint = alternatives(&schema, &schema["properties"]["endpoints"])
+                .into_iter()
+                .find_map(|node| node.get("items"))
+                .map(|items| resolve(&schema, items))
+                .unwrap_or_else(|| panic!("{name}: endpoints has no item schema"));
+            let operation_id = endpoint["properties"]
+                .get("operation_id")
+                .unwrap_or_else(|| panic!("{name}: endpoints[] has no operation_id"));
+            let types = alternatives(&schema, operation_id)
+                .into_iter()
+                .filter_map(|node| node.get("type"))
+                .flat_map(|types| match types {
+                    Value::Array(types) => types.iter().filter_map(Value::as_str).collect(),
+                    other => other.as_str().into_iter().collect::<Vec<_>>(),
+                })
+                .collect::<BTreeSet<_>>();
+            assert_eq!(types, BTreeSet::from(["null", "string"]), "{name}");
+            let description = operation_id["description"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{name}: operation_id has no description"))
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            assert_eq!(description, FIELD_DESCRIPTION, "{name}");
+            let required = endpoint
+                .get("required")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            assert!(
+                !required.contains(&serde_json::json!("operation_id")),
+                "{name}: operation_id must stay optional"
             );
         }
         assert!(proxy.received_requests().await.unwrap().is_empty());
