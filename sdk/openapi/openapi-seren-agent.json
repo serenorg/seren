@@ -1277,6 +1277,843 @@
         ]
       }
     },
+    "/deployments/{id}/channels/slack-app": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "The hire's Slack app: status, health, next action, identity, workspace,\npermissions with their reasons, approved channels and readiness.",
+        "operationId": "seren_agent_get_managed_agent_slack_app",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The Slack app. Do not cache this response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SlackAppView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment or Slack app not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Start the hire's own Slack app, or return the live one. The hirer's\ncompany owns the app; Seren runs the managed agent. For the deployment owner only.",
+        "operationId": "seren_agent_create_managed_agent_slack_app",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSlackAppRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The hire's live Slack app",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SlackAppView"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Slack app started. Do not cache this response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SlackAppView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid name, handle, description or color"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment not found"
+          },
+          "409": {
+            "description": "The update outcome could not be confirmed; read the installation before retrying"
+          },
+          "503": {
+            "description": "Slack apps are not available yet"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Remove the app: routing stops at once and Slack is asked to revoke its\ntokens. The response links to the app's Slack settings so the admin can\ndelete the app itself. Repeating it succeeds.",
+        "operationId": "seren_agent_delete_managed_agent_slack_app",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SlackAppRemoval"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment or Slack app not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Change the app's identity and options before it exists in Slack.",
+        "operationId": "seren_agent_update_managed_agent_slack_app",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSlackAppRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Slack app updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SlackAppView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid change"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment or Slack app not found"
+          },
+          "409": {
+            "description": "The app exists in Slack; change it with a configuration token"
+          },
+          "503": {
+            "description": "Slack apps are not available yet"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/channels/slack-app/app": {
+      "put": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Create or change the app in Slack with a configuration token the Slack\nadmin generated. Repeating it never creates a second app.",
+        "operationId": "seren_agent_put_managed_agent_slack_app",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutSlackAppRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The app exists in Slack",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SlackAppView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_configuration_token, configuration_token_expired, enterprise_configuration_token, invalid_manifest or invalid_icon"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment or Slack app not found"
+          },
+          "409": {
+            "description": "The app is set up manually, an earlier creation needs credential recovery, or an update outcome could not be confirmed"
+          },
+          "502": {
+            "description": "slack_unavailable"
+          },
+          "503": {
+            "description": "Slack apps are not available yet"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/channels/slack-app/app-credentials": {
+      "put": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Enter a manually created app's credentials, or recover an app after an\ninterrupted automatic creation. Credentials are never returned.",
+        "operationId": "seren_agent_put_managed_agent_slack_app_credentials",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlackAppCredentialsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Credentials stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SlackAppView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_app_credentials"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment or Slack app not found"
+          },
+          "409": {
+            "description": "The app does not accept credential entry, is installed, is another hire's, or the update outcome could not be confirmed"
+          },
+          "503": {
+            "description": "Slack apps are not available yet"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/channels/slack-app/authorize": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Start Slack's approval screen to install the app. The link may be handed\nto the Slack admin; it expires in 10 minutes and works once.",
+        "operationId": "seren_agent_authorize_managed_agent_slack_app",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthorizeSlackAppRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Approval started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SlackAppAuthorizationView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid body, or return_to is not an allowed redirect"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment or Slack app not found"
+          },
+          "409": {
+            "description": "The app is not waiting to be installed, or the update outcome could not be confirmed"
+          },
+          "503": {
+            "description": "Slack apps are not available yet"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/channels/slack-app/channel-bindings": {
+      "put": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Replace the channels that reach the hire. A removed channel stops at once.",
+        "operationId": "seren_agent_set_managed_agent_slack_app_channels",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlackAppChannelBindingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Approved channels replaced",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SlackAppView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_slack_channel, too_many_slack_channels or slack_channel_unavailable"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment or Slack app not found"
+          },
+          "409": {
+            "description": "The app is not installed, Slack revoked its token, or the update outcome could not be confirmed"
+          },
+          "502": {
+            "description": "slack_unavailable"
+          },
+          "503": {
+            "description": "Slack apps are not available yet"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/channels/slack-app/channels": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Channels the app can see, to choose from. Pass `cursor` for the next page.",
+        "operationId": "seren_agent_list_managed_agent_slack_app_channels",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "The previous page's next_cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of channels",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SlackAppChannelPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment or Slack app not found"
+          },
+          "409": {
+            "description": "The app is not installed, or Slack revoked its token"
+          },
+          "502": {
+            "description": "slack_unavailable"
+          },
+          "503": {
+            "description": "Slack apps are not available yet"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/channels/slack-app/manifest": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "The app's manifest and Slack's create-from-manifest link. It holds no secret.",
+        "operationId": "seren_agent_get_managed_agent_slack_app_manifest",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The manifest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SlackAppManifestView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment or Slack app not found"
+          },
+          "503": {
+            "description": "Slack apps are not available yet"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/channels/slack-app/pause": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Pause the app: Slack messages start nothing until it resumes.",
+        "operationId": "seren_agent_pause_managed_agent_slack_app",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SlackAppView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment or Slack app not found"
+          },
+          "409": {
+            "description": "The app is not installed"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/channels/slack-app/readiness-test": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Start a readiness check: a real mention in an approved channel, a real\nrun, and a reply in the same thread. It lasts 15 minutes.",
+        "operationId": "seren_agent_start_managed_agent_slack_app_readiness",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Check started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SlackAppReadinessStart"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment or Slack app not found"
+          },
+          "409": {
+            "description": "The app is not installed and working, or has no approved channel"
+          },
+          "503": {
+            "description": "Slack apps are not available yet"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/channels/slack-app/reinstall": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Reinstall the app to rotate its token, or to grant permissions it now\nasks for. The hire and its approved channels stay as they are.",
+        "operationId": "seren_agent_reinstall_managed_agent_slack_app",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthorizeSlackAppRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Approval started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SlackAppAuthorizationView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid body, or return_to is not an allowed redirect"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment or Slack app not found"
+          },
+          "409": {
+            "description": "The app is not installed, or the update outcome could not be confirmed"
+          },
+          "503": {
+            "description": "Slack apps are not available yet"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/channels/slack-app/resume": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Resume a paused app.",
+        "operationId": "seren_agent_resume_managed_agent_slack_app",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resumed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SlackAppView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment or Slack app not found"
+          },
+          "409": {
+            "description": "The app is not paused"
+          },
+          "503": {
+            "description": "Slack apps are not available yet"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/channels/{channel}": {
       "delete": {
         "tags": [
@@ -3353,7 +4190,7 @@
         "tags": [
           "seren-agent"
         ],
-        "summary": "Email the deployment's owner a short notice, for the deployment's runtime\nonly. The email opens the named conversation, or the owner's updates\nconversation when none is named. A deployment sends at most three notices\nper day in its time zone, at most one of them an `update`. A notice over\nthat limit, or one the owner turned off or cannot receive, is skipped with\nits reason. The owner's switch for the weekly check-in also turns notices off.",
+        "summary": "Email the deployment's owner a notice, for the deployment's runtime only.\nThe email opens the named conversation, or the owner's updates\nconversation when none is named. A deployment sends at most three notices\nper day in its time zone, at most one of them an `update` and at most one\na `report`, the full scheduled report the email shows. A notice over\nthat limit, or one the owner turned off or cannot receive, is skipped with\nits reason. The owner's switch for the weekly check-in also turns notices off.",
         "operationId": "seren_agent_notify_managed_agent_owner",
         "parameters": [
           {
@@ -6813,7 +7650,7 @@
             }
           },
           "404": {
-            "description": "Template not found, suspended, or taken off the catalog by its Owner (new hires only), or connected account not found",
+            "description": "Template not found, suspended, or taken off the catalog by its Owner (new hires by anyone outside the publishing organization), connected account not found, or the Employee needs a sandbox runtime class Seren doesn't offer (`runtime_class_not_found`; `details.runtime_class` names it and `details.offered` lists the offered classes)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6851,6 +7688,247 @@
                 }
               }
             }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/templates/{template_slug}/reviews": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "List a template's visible written reviews, newest first, with its rating and\n\"Businesses say\" summary. Star-only ratings count in the rating but are not listed.",
+        "operationId": "seren_agent_list_template_reviews",
+        "parameters": [
+          {
+            "name": "template_slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Reviews to return, from 1 to 50. Defaults to 10.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Reviews to skip, newest first. Defaults to 0.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of reviews",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "public, max-age=60"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateReviewsPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`limit` or `offset` is out of range, or the query has an unknown parameter"
+          },
+          "404": {
+            "description": "Template not found"
+          }
+        },
+        "security": []
+      }
+    },
+    "/templates/{template_slug}/reviews/mine": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Get the signed-in user's review of a template and whether they can write one.",
+        "operationId": "seren_agent_get_my_template_review",
+        "parameters": [
+          {
+            "name": "template_slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The user's review, if any, and their eligibility",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_MyManagedAgentTemplateReview"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "User credential required"
+          },
+          "404": {
+            "description": "Template not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Create or replace the signed-in user's review of a template they hired and\nthat has finished work for them. Each user has one review per template.",
+        "operationId": "seren_agent_put_my_template_review",
+        "parameters": [
+          {
+            "name": "template_slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutManagedAgentTemplateReview"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The saved review",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateReview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid review, or a reviewer name that reads as Seren"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "User credential required, or the user cannot review the template (`not_hired`, `no_finished_run` or `publisher_member`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Template not found"
+          },
+          "413": {
+            "description": "Review is too large"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Delete the signed-in user's review of a template. Repeating a deletion succeeds.",
+        "operationId": "seren_agent_delete_my_template_review",
+        "parameters": [
+          {
+            "name": "template_slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Review deleted or already absent",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "User credential required"
+          },
+          "404": {
+            "description": "Template not found"
           }
         },
         "security": [
@@ -6899,30 +7977,6 @@
           },
           "404": {
             "description": "Template not found"
-          },
-          "503": {
-            "description": "Statistics are temporarily unavailable; retry after the indicated delay",
-            "headers": {
-              "Cache-Control": {
-                "schema": {
-                  "type": "string"
-                },
-                "description": "no-store"
-              },
-              "Retry-After": {
-                "schema": {
-                  "type": "string"
-                },
-                "description": "Seconds to wait before retrying"
-              }
-            },
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
           }
         },
         "security": []
@@ -9471,6 +10525,33 @@
         },
         "additionalProperties": false
       },
+      "AuthorizeSlackAppRequest": {
+        "type": "object",
+        "required": [
+          "return_to"
+        ],
+        "properties": {
+          "client_secret": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A manual app's regenerated client secret, on reinstall only."
+          },
+          "return_to": {
+            "type": "string",
+            "description": "The setup page the browser returns to. It must be an allowed redirect."
+          },
+          "signing_secret": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A manual app's regenerated signing secret, on reinstall only."
+          }
+        },
+        "additionalProperties": false
+      },
       "AvatarImage": {
         "type": "string",
         "format": "binary"
@@ -10265,6 +11346,42 @@
           },
           "keys": {
             "$ref": "#/components/schemas/PushSubscriptionKeys"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateSlackAppRequest": {
+        "type": "object",
+        "required": [
+          "setup",
+          "name",
+          "display_name",
+          "description"
+        ],
+        "properties": {
+          "background_color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "direct_messages": {
+            "type": "boolean"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "private_channels": {
+            "type": "boolean"
+          },
+          "setup": {
+            "$ref": "#/components/schemas/SlackAppSetup"
           }
         },
         "additionalProperties": false
@@ -11699,6 +12816,15 @@
                 "type": "string",
                 "format": "uuid"
               },
+              "max_tool_output_chars": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "description": "Most characters of one tool result the deployment keeps: its template's\nlimit, or its model policy's default when the template sets none.",
+                "minimum": 0
+              },
               "mode": {
                 "$ref": "#/components/schemas/CloudDeploymentMode"
               },
@@ -12652,6 +13778,121 @@
           }
         }
       },
+      "DataResponse_ManagedAgentTemplateReview": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "A verified hirer's review.",
+            "required": [
+              "review_id",
+              "stars",
+              "reviewer_name",
+              "created_at",
+              "updated_at",
+              "verified_hire"
+            ],
+            "properties": {
+              "body": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ReviewBody"
+                  }
+                ]
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "review_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "reviewer_name": {
+                "$ref": "#/components/schemas/ReviewerName"
+              },
+              "stars": {
+                "$ref": "#/components/schemas/ReviewStars"
+              },
+              "title": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ReviewTitle"
+                  }
+                ]
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "verified_hire": {
+                "type": "boolean",
+                "description": "Always true: only users who hired the managed agent and got a finished run can review."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentTemplateReviewsPage": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "One page of written reviews, newest first. Star-only ratings count in the\nrating but are not listed.",
+            "required": [
+              "summary",
+              "items"
+            ],
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentTemplateReview"
+                }
+              },
+              "summary": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateReviewsSummary"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedAgentTemplateStats": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -12667,13 +13908,13 @@
               "skills_count",
               "active_hires",
               "threads_30d",
-              "top_skills",
-              "updated_at"
+              "top_skills"
             ],
             "properties": {
               "active_hires": {
                 "type": "integer",
-                "format": "int64"
+                "format": "int64",
+                "description": "Current hires by users outside the publisher."
               },
               "hours_of_work": {
                 "type": "integer",
@@ -12701,9 +13942,12 @@
                 }
               },
               "updated_at": {
-                "type": "string",
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "format": "date-time",
-                "description": "Time these statistics were computed."
+                "description": "Time these numbers were computed; null until first computed."
               }
             }
           },
@@ -12760,6 +14004,17 @@
                   {
                     "$ref": "#/components/schemas/ManagedAgentTemplateUpdateApplying",
                     "description": "A recorded choice awaiting persistence or verified activation, without starting a stopped hire."
+                  }
+                ]
+              },
+              "cannot_install_yet": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/TemplateUpdateCannotInstallYet",
+                    "description": "The newest version cannot install yet; the hire keeps working on its current one."
                   }
                 ]
               },
@@ -13490,6 +14745,59 @@
           }
         }
       },
+      "DataResponse_MyManagedAgentTemplateReview": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "The signed-in user's review of a template and whether they can write one.",
+            "required": [
+              "can_review"
+            ],
+            "properties": {
+              "can_review": {
+                "type": "boolean"
+              },
+              "reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ReviewIneligibility",
+                    "description": "Why the user cannot review; null when they can."
+                  }
+                ]
+              },
+              "review": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateReview"
+                  }
+                ]
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_OrganizationInstructionRecord": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -13951,6 +15259,428 @@
                 "propertyNames": {
                   "type": "string"
                 }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_SlackAppAuthorizationView": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "authorization_id",
+              "authorize_url",
+              "expires_at"
+            ],
+            "properties": {
+              "authorization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "authorize_url": {
+                "type": "string",
+                "description": "Slack's approval screen. The hirer may hand it to their Slack admin."
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_SlackAppChannelPage": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "channels"
+            ],
+            "properties": {
+              "channels": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SlackAppChannelOption"
+                }
+              },
+              "next_cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_SlackAppManifestView": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "manifest",
+              "create_url",
+              "events_url"
+            ],
+            "properties": {
+              "create_url": {
+                "type": "string",
+                "description": "Slack's create-from-manifest link for a manual setup."
+              },
+              "events_url": {
+                "type": "string"
+              },
+              "manifest": {}
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_SlackAppReadinessStart": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "check_id",
+              "message",
+              "expires_at"
+            ],
+            "properties": {
+              "check_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "message": {
+                "type": "string",
+                "description": "The mention to send in an approved channel."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_SlackAppRemoval": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "installation"
+            ],
+            "properties": {
+              "app_settings_url": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Where the Slack admin can delete the app itself."
+              },
+              "installation": {
+                "$ref": "#/components/schemas/SlackAppView"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_SlackAppView": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "A hire's own Slack app as its hirer sees it. It never carries a token or secret.",
+            "required": [
+              "id",
+              "ownership",
+              "setup",
+              "status",
+              "next_action",
+              "direct_messages",
+              "private_channels",
+              "manifest_version",
+              "scopes",
+              "bot_events",
+              "channels",
+              "cleanup_pending",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "app_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "app_settings_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "bot_events": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "channels": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SlackAppChannel"
+                }
+              },
+              "cleanup_pending": {
+                "type": "boolean"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "credentials_rotated_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "direct_messages": {
+                "type": "boolean"
+              },
+              "disconnected_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "events_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "events_verified_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "health": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SlackAppHealth"
+                  }
+                ]
+              },
+              "health_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "identity": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SlackAppIdentity"
+                  }
+                ]
+              },
+              "installed_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "last_event_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "last_reply_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "manifest_version": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "next_action": {
+                "$ref": "#/components/schemas/SlackAppNextAction"
+              },
+              "ownership": {
+                "type": "string"
+              },
+              "paused_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "private_channels": {
+                "type": "boolean"
+              },
+              "readiness": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SlackAppReadinessView"
+                  }
+                ]
+              },
+              "retry_action": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SlackAppNextAction",
+                    "description": "What to do about the current health problem, if any."
+                  }
+                ]
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SlackAppScopeView"
+                }
+              },
+              "setup": {
+                "$ref": "#/components/schemas/SlackAppSetup"
+              },
+              "status": {
+                "$ref": "#/components/schemas/SlackAppStatus"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "workspace": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SlackAppWorkspaceView"
+                  }
+                ]
               }
             }
           },
@@ -14649,7 +16379,9 @@
                 "publisher",
                 "published_at",
                 "run_kinds",
-                "spend_limit_defaults"
+                "spend_limit_defaults",
+                "catalog",
+                "similar"
               ],
               "properties": {
                 "activity_url": {
@@ -14671,6 +16403,10 @@
                     "$ref": "#/components/schemas/CapabilityLabel"
                   }
                 },
+                "catalog": {
+                  "$ref": "#/components/schemas/ManagedAgentTemplateCatalogFacts",
+                  "description": "Facts Core computes about the template for the catalog."
+                },
                 "description": {
                   "oneOf": [
                     {
@@ -14689,6 +16425,17 @@
                   "items": {
                     "$ref": "#/components/schemas/ExampleTask"
                   }
+                },
+                "hire_bonus": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ManagedAgentTemplateHireBonusOffer",
+                      "description": "The bonus a first hire earns now; null when no bonus is offered."
+                    }
+                  ]
                 },
                 "intro_video": {
                   "oneOf": [
@@ -14732,6 +16479,13 @@
                     "$ref": "#/components/schemas/ManagedAgentRunKindPrice"
                   },
                   "description": "Each kind of run of the current release, with what it charges."
+                },
+                "similar": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateSimilar"
+                  },
+                  "description": "Listed managed agents that do similar work, closest first; empty when none."
                 },
                 "slug": {
                   "type": "string"
@@ -17822,7 +19576,8 @@
         "type": "string",
         "enum": [
           "action_needed",
-          "update"
+          "update",
+          "report"
         ]
       },
       "ManagedAgentOwnerNoticeReceipt": {
@@ -17859,8 +19614,8 @@
         "properties": {
           "body": {
             "type": "string",
-            "description": "Plain-text message.",
-            "maxLength": 1500,
+            "description": "Plain-text message. A `report` body is at most 20,000 characters;\n`action_needed` and `update` bodies are at most 1,500 characters.",
+            "maxLength": 20000,
             "minLength": 1
           },
           "conversation_id": {
@@ -17881,7 +19636,7 @@
           },
           "kind": {
             "$ref": "#/components/schemas/ManagedAgentOwnerNoticeKind",
-            "description": "`action_needed` when the owner must do something; `update` for news."
+            "description": "`action_needed` when the owner must do something; `update` for news;\n`report` for a full scheduled report the owner reads in the email."
           },
           "subject": {
             "type": "string",
@@ -17998,6 +19753,15 @@
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "max_tool_output_chars": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Most characters of one tool result the deployment keeps: its template's\nlimit, or its model policy's default when the template sets none.",
+            "minimum": 0
           },
           "mode": {
             "$ref": "#/components/schemas/CloudDeploymentMode"
@@ -20170,6 +21934,71 @@
         },
         "additionalProperties": false
       },
+      "ManagedAgentTemplateCatalogFacts": {
+        "type": "object",
+        "description": "Facts Core computes about a listed template for the catalog. The counts,\nrank, choice and related templates are recomputed hourly; until the first\ncomputation the counts are zero, the rank is null and `updated_at` is null.",
+        "required": [
+          "hires_30d",
+          "hours_of_work",
+          "active_hires",
+          "seren_choice",
+          "also_hired"
+        ],
+        "properties": {
+          "active_hires": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Current hires by users outside the publisher."
+          },
+          "also_hired": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Slugs of other listed templates the same organizations hired, best match\nfirst, at most six."
+          },
+          "best_sellers_rank": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Position among templates hired in the past 30 days, 1 first; null when\nnot hired then."
+          },
+          "hires_30d": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Organizations outside the publisher that hired this template in the past\n30 days, not counting hires ended within a day."
+          },
+          "hours_of_work": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "rating": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RatingSummary",
+                "description": "Verified hirers' rating; null before the first visible rating."
+              }
+            ]
+          },
+          "seren_choice": {
+            "type": "boolean",
+            "description": "Whether this is the one template Seren currently recommends."
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Time the counts, rank, choice and related templates were computed; null\nuntil first computed."
+          }
+        }
+      },
       "ManagedAgentTemplateEgressRule": {
         "type": "object",
         "required": [
@@ -20211,6 +22040,29 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "expires_days": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "ManagedAgentTemplateHireBonusOffer": {
+        "type": "object",
+        "description": "The bonus a first hire earns now, in the terms `GET …/bonus` reports.",
+        "required": [
+          "amount_atomic",
+          "amount_usd",
+          "expires_days"
+        ],
+        "properties": {
+          "amount_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "amount_usd": {
+            "type": "string",
+            "description": "Dollar amount as a decimal string."
           },
           "expires_days": {
             "type": "integer",
@@ -20267,7 +22119,9 @@
           "publisher",
           "published_at",
           "run_kinds",
-          "spend_limit_defaults"
+          "spend_limit_defaults",
+          "catalog",
+          "similar"
         ],
         "properties": {
           "activity_url": {
@@ -20289,6 +22143,10 @@
               "$ref": "#/components/schemas/CapabilityLabel"
             }
           },
+          "catalog": {
+            "$ref": "#/components/schemas/ManagedAgentTemplateCatalogFacts",
+            "description": "Facts Core computes about the template for the catalog."
+          },
           "description": {
             "oneOf": [
               {
@@ -20307,6 +22165,17 @@
             "items": {
               "$ref": "#/components/schemas/ExampleTask"
             }
+          },
+          "hire_bonus": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplateHireBonusOffer",
+                "description": "The bonus a first hire earns now; null when no bonus is offered."
+              }
+            ]
           },
           "intro_video": {
             "oneOf": [
@@ -20350,6 +22219,13 @@
               "$ref": "#/components/schemas/ManagedAgentRunKindPrice"
             },
             "description": "Each kind of run of the current release, with what it charges."
+          },
+          "similar": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentTemplateSimilar"
+            },
+            "description": "Listed managed agents that do similar work, closest first; empty when none."
           },
           "slug": {
             "type": "string"
@@ -20499,6 +22375,136 @@
           }
         }
       },
+      "ManagedAgentTemplateReview": {
+        "type": "object",
+        "description": "A verified hirer's review.",
+        "required": [
+          "review_id",
+          "stars",
+          "reviewer_name",
+          "created_at",
+          "updated_at",
+          "verified_hire"
+        ],
+        "properties": {
+          "body": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReviewBody"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "review_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reviewer_name": {
+            "$ref": "#/components/schemas/ReviewerName"
+          },
+          "stars": {
+            "$ref": "#/components/schemas/ReviewStars"
+          },
+          "title": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReviewTitle"
+              }
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "verified_hire": {
+            "type": "boolean",
+            "description": "Always true: only users who hired the managed agent and got a finished run can review."
+          }
+        }
+      },
+      "ManagedAgentTemplateReviewSays": {
+        "type": "object",
+        "description": "The \"Businesses say\" summary of the written reviews.",
+        "required": [
+          "text",
+          "topics",
+          "generated_at"
+        ],
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 600,
+            "minLength": 1
+          },
+          "topics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewTopic"
+            },
+            "maxItems": 6
+          }
+        }
+      },
+      "ManagedAgentTemplateReviewsPage": {
+        "type": "object",
+        "description": "One page of written reviews, newest first. Star-only ratings count in the\nrating but are not listed.",
+        "required": [
+          "summary",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentTemplateReview"
+            }
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ManagedAgentTemplateReviewsSummary"
+          }
+        }
+      },
+      "ManagedAgentTemplateReviewsSummary": {
+        "type": "object",
+        "description": "The rating and summary over every visible review.",
+        "properties": {
+          "rating": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RatingSummary",
+                "description": "Null before the first visible rating."
+              }
+            ]
+          },
+          "says": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplateReviewSays",
+                "description": "Null until enough written reviews have been summarized."
+              }
+            ]
+          }
+        }
+      },
       "ManagedAgentTemplateRuntimeClass": {
         "type": "string",
         "enum": [
@@ -20537,6 +22543,58 @@
         },
         "additionalProperties": false
       },
+      "ManagedAgentTemplateSimilar": {
+        "type": "object",
+        "description": "A listed managed agent that does similar work.",
+        "required": [
+          "slug",
+          "score",
+          "shared"
+        ],
+        "properties": {
+          "score": {
+            "$ref": "#/components/schemas/SimilarityScore"
+          },
+          "shared": {
+            "$ref": "#/components/schemas/ManagedAgentTemplateSimilarShared"
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentTemplateSimilarShared": {
+        "type": "object",
+        "description": "What a similar managed agent has in common with this one.",
+        "required": [
+          "words",
+          "tools",
+          "skills"
+        ],
+        "properties": {
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Skills both have used recently."
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Specialty products both work in."
+          },
+          "words": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Up to five words both profiles use, most telling first."
+          }
+        }
+      },
       "ManagedAgentTemplateSkillUsage": {
         "type": "object",
         "required": [
@@ -20561,13 +22619,13 @@
           "skills_count",
           "active_hires",
           "threads_30d",
-          "top_skills",
-          "updated_at"
+          "top_skills"
         ],
         "properties": {
           "active_hires": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "description": "Current hires by users outside the publisher."
           },
           "hours_of_work": {
             "type": "integer",
@@ -20595,9 +22653,12 @@
             }
           },
           "updated_at": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "format": "date-time",
-            "description": "Time these statistics were computed."
+            "description": "Time these numbers were computed; null until first computed."
           }
         }
       },
@@ -20653,6 +22714,17 @@
               {
                 "$ref": "#/components/schemas/ManagedAgentTemplateUpdateApplying",
                 "description": "A recorded choice awaiting persistence or verified activation, without starting a stopped hire."
+              }
+            ]
+          },
+          "cannot_install_yet": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TemplateUpdateCannotInstallYet",
+                "description": "The newest version cannot install yet; the hire keeps working on its current one."
               }
             ]
           },
@@ -22345,6 +24417,39 @@
           "unavailable"
         ]
       },
+      "MyManagedAgentTemplateReview": {
+        "type": "object",
+        "description": "The signed-in user's review of a template and whether they can write one.",
+        "required": [
+          "can_review"
+        ],
+        "properties": {
+          "can_review": {
+            "type": "boolean"
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReviewIneligibility",
+                "description": "Why the user cannot review; null when they can."
+              }
+            ]
+          },
+          "review": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplateReview"
+              }
+            ]
+          }
+        }
+      },
       "OrchestrationMode": {
         "type": "string",
         "description": "Cloud deployment orchestration mode.\n\n`Script` (default): container runs user code directly (existing behavior).\n`Llm`: container runs the seren-orchestrator LLM tool-calling loop.",
@@ -23113,6 +25218,152 @@
           }
         }
       },
+      "PutManagedAgentTemplateReview": {
+        "type": "object",
+        "description": "Creates or replaces the signed-in user's review. Omitted or null text removes it.",
+        "required": [
+          "stars",
+          "reviewer_name"
+        ],
+        "properties": {
+          "body": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReviewBody"
+              }
+            ]
+          },
+          "reviewer_name": {
+            "$ref": "#/components/schemas/ReviewerName",
+            "description": "The name shown with the review. It must not read as Seren."
+          },
+          "stars": {
+            "$ref": "#/components/schemas/ReviewStars"
+          },
+          "title": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReviewTitle"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "PutSlackAppRequest": {
+        "type": "object",
+        "description": "A configuration token from the Slack admin, with any changes to make.",
+        "required": [
+          "configuration_token"
+        ],
+        "properties": {
+          "background_color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "configuration_token": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "direct_messages": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "icon": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SlackAppIcon"
+              }
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "private_channels": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "refresh_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "RatingSummary": {
+        "type": "object",
+        "description": "Verified hirers' rating of a template.",
+        "required": [
+          "average",
+          "count",
+          "histogram"
+        ],
+        "properties": {
+          "average": {
+            "type": "number",
+            "format": "double",
+            "description": "Plain average of the ratings, rounded half up to one decimal.",
+            "example": 4.7,
+            "maximum": 5,
+            "minimum": 1
+          },
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of ratings.",
+            "minimum": 0
+          },
+          "histogram": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "description": "Whole percentages of ratings at 5, 4, 3, 2 and 1 stars, adding up to 100.",
+            "example": [
+              81,
+              12,
+              4,
+              2,
+              1
+            ],
+            "maxItems": 5,
+            "minItems": 5
+          }
+        }
+      },
       "RebindManagedAgentConnectionRequest": {
         "type": "object",
         "required": [
@@ -23351,6 +25602,69 @@
           }
         }
       },
+      "ReviewBody": {
+        "type": "string",
+        "maxLength": 2000,
+        "minLength": 1
+      },
+      "ReviewIneligibility": {
+        "type": "string",
+        "description": "Why a signed-in user cannot review a template.",
+        "enum": [
+          "not_hired",
+          "no_finished_run",
+          "publisher_member"
+        ]
+      },
+      "ReviewStars": {
+        "type": "integer",
+        "maximum": 5,
+        "minimum": 1
+      },
+      "ReviewTitle": {
+        "type": "string",
+        "maxLength": 120,
+        "minLength": 1
+      },
+      "ReviewTopic": {
+        "type": "object",
+        "description": "A topic that at least two reviews mention.",
+        "required": [
+          "label",
+          "mentions",
+          "sentiment"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 24,
+            "minLength": 1
+          },
+          "mentions": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of reviews that mention the topic.",
+            "minimum": 2
+          },
+          "sentiment": {
+            "$ref": "#/components/schemas/ReviewTopicSentiment"
+          }
+        }
+      },
+      "ReviewTopicSentiment": {
+        "type": "string",
+        "description": "How the reviews mentioning a topic feel about it.",
+        "enum": [
+          "positive",
+          "negative",
+          "mixed"
+        ]
+      },
+      "ReviewerName": {
+        "type": "string",
+        "maxLength": 40,
+        "minLength": 1
+      },
       "RevokeManagedAgentPublisherGrant": {
         "type": "object",
         "properties": {
@@ -23504,6 +25818,12 @@
           }
         }
       },
+      "SimilarityScore": {
+        "type": "number",
+        "multipleOf": 0.001,
+        "maximum": 1,
+        "minimum": 0
+      },
       "SkillChangeHunk": {
         "type": "object",
         "description": "One run of changed lines. Lines carry no terminator; `line` is the\n1-based position in the proposed file where the run begins.",
@@ -23545,6 +25865,634 @@
           },
           "reason": {
             "$ref": "#/components/schemas/InviteSkipReason"
+          }
+        }
+      },
+      "SlackAppAuthorizationView": {
+        "type": "object",
+        "required": [
+          "authorization_id",
+          "authorize_url",
+          "expires_at"
+        ],
+        "properties": {
+          "authorization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authorize_url": {
+            "type": "string",
+            "description": "Slack's approval screen. The hirer may hand it to their Slack admin."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "SlackAppChannel": {
+        "type": "object",
+        "description": "An approved channel as the hirer sees it.",
+        "required": [
+          "id",
+          "private"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "private": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SlackAppChannelBindingsRequest": {
+        "type": "object",
+        "required": [
+          "channel_ids"
+        ],
+        "properties": {
+          "channel_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "SlackAppChannelOption": {
+        "type": "object",
+        "required": [
+          "id",
+          "private",
+          "member",
+          "approved"
+        ],
+        "properties": {
+          "approved": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "member": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "private": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SlackAppChannelPage": {
+        "type": "object",
+        "required": [
+          "channels"
+        ],
+        "properties": {
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SlackAppChannelOption"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "SlackAppCredentialsRequest": {
+        "type": "object",
+        "required": [
+          "app_id",
+          "client_id",
+          "client_secret",
+          "signing_secret"
+        ],
+        "properties": {
+          "app_id": {
+            "type": "string"
+          },
+          "client_id": {
+            "type": "string"
+          },
+          "client_secret": {
+            "type": "string"
+          },
+          "signing_secret": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SlackAppHealth": {
+        "type": "string",
+        "description": "The installation's last observed condition.",
+        "enum": [
+          "awaiting_slack_admin",
+          "permission_denied",
+          "missing_required_scope",
+          "app_created_not_installed",
+          "bot_not_in_channel",
+          "channel_inaccessible",
+          "credential_revoked",
+          "event_without_binding",
+          "runtime_unavailable",
+          "capability_missing",
+          "out_of_credits",
+          "reply_failed",
+          "reply_rate_limited",
+          "healthy"
+        ]
+      },
+      "SlackAppIcon": {
+        "type": "object",
+        "required": [
+          "content_type",
+          "data_base64"
+        ],
+        "properties": {
+          "content_type": {
+            "type": "string",
+            "description": "`image/png` or `image/jpeg`, 512 to 2000 pixels square or not."
+          },
+          "data_base64": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SlackAppIdentity": {
+        "type": "object",
+        "description": "The app's name and look, checked against Slack's manifest limits.",
+        "required": [
+          "name",
+          "display_name",
+          "description"
+        ],
+        "properties": {
+          "background_color": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`#rgb` or `#rrggbb`."
+          },
+          "description": {
+            "type": "string",
+            "description": "At most 140 characters."
+          },
+          "display_name": {
+            "type": "string",
+            "description": "The bot's handle: at most 80 of `a-z`, `0-9`, `-`, `_` and `.`."
+          },
+          "name": {
+            "type": "string",
+            "description": "The app's name in Slack, at most 35 characters."
+          }
+        },
+        "additionalProperties": false
+      },
+      "SlackAppManifestView": {
+        "type": "object",
+        "required": [
+          "manifest",
+          "create_url",
+          "events_url"
+        ],
+        "properties": {
+          "create_url": {
+            "type": "string",
+            "description": "Slack's create-from-manifest link for a manual setup."
+          },
+          "events_url": {
+            "type": "string"
+          },
+          "manifest": {}
+        }
+      },
+      "SlackAppNextAction": {
+        "type": "string",
+        "description": "What the hirer or their Slack admin does next.",
+        "enum": [
+          "create_app",
+          "enter_app_credentials",
+          "authorize",
+          "refresh_configuration_token",
+          "turn_on_events",
+          "choose_channels",
+          "invite_bot",
+          "run_readiness_check",
+          "none"
+        ]
+      },
+      "SlackAppReadinessFailure": {
+        "type": "string",
+        "description": "Why a readiness check failed, from a typed signal.",
+        "enum": [
+          "no_event_received",
+          "bot_not_in_channel",
+          "event_without_binding",
+          "runtime_unavailable",
+          "capability_missing",
+          "out_of_credits",
+          "reply_failed",
+          "reply_rate_limited",
+          "credential_revoked",
+          "platform_fault"
+        ]
+      },
+      "SlackAppReadinessStart": {
+        "type": "object",
+        "required": [
+          "check_id",
+          "message",
+          "expires_at"
+        ],
+        "properties": {
+          "check_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "message": {
+            "type": "string",
+            "description": "The mention to send in an approved channel."
+          }
+        }
+      },
+      "SlackAppReadinessStatus": {
+        "type": "string",
+        "enum": [
+          "waiting",
+          "received",
+          "passed",
+          "failed",
+          "expired"
+        ]
+      },
+      "SlackAppReadinessView": {
+        "type": "object",
+        "required": [
+          "check_id",
+          "status",
+          "expires_at"
+        ],
+        "properties": {
+          "check_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "delivery_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "failure": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SlackAppReadinessFailure"
+              }
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "received_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SlackAppReadinessStatus"
+          }
+        }
+      },
+      "SlackAppRemoval": {
+        "type": "object",
+        "required": [
+          "installation"
+        ],
+        "properties": {
+          "app_settings_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where the Slack admin can delete the app itself."
+          },
+          "installation": {
+            "$ref": "#/components/schemas/SlackAppView"
+          }
+        }
+      },
+      "SlackAppScope": {
+        "type": "string",
+        "description": "A Slack bot permission the app asks for.",
+        "enum": [
+          "app_mentions:read",
+          "chat:write",
+          "channels:read",
+          "reactions:write",
+          "groups:read",
+          "im:history"
+        ]
+      },
+      "SlackAppScopeView": {
+        "type": "object",
+        "required": [
+          "scope",
+          "reason",
+          "granted"
+        ],
+        "properties": {
+          "granted": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/SlackAppScope"
+          }
+        }
+      },
+      "SlackAppSetup": {
+        "type": "string",
+        "description": "How the app came to exist: Core created it from a configuration token,\nor the Slack admin created it and entered its credentials.",
+        "enum": [
+          "automatic",
+          "manual"
+        ]
+      },
+      "SlackAppStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "creating",
+          "app_created",
+          "installed",
+          "paused",
+          "disconnected"
+        ]
+      },
+      "SlackAppView": {
+        "type": "object",
+        "description": "A hire's own Slack app as its hirer sees it. It never carries a token or secret.",
+        "required": [
+          "id",
+          "ownership",
+          "setup",
+          "status",
+          "next_action",
+          "direct_messages",
+          "private_channels",
+          "manifest_version",
+          "scopes",
+          "bot_events",
+          "channels",
+          "cleanup_pending",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "app_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "app_settings_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bot_events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SlackAppChannel"
+            }
+          },
+          "cleanup_pending": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "credentials_rotated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "direct_messages": {
+            "type": "boolean"
+          },
+          "disconnected_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "events_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "events_verified_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "health": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SlackAppHealth"
+              }
+            ]
+          },
+          "health_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "identity": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SlackAppIdentity"
+              }
+            ]
+          },
+          "installed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_event_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_reply_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "manifest_version": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/SlackAppNextAction"
+          },
+          "ownership": {
+            "type": "string"
+          },
+          "paused_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "private_channels": {
+            "type": "boolean"
+          },
+          "readiness": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SlackAppReadinessView"
+              }
+            ]
+          },
+          "retry_action": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SlackAppNextAction",
+                "description": "What to do about the current health problem, if any."
+              }
+            ]
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SlackAppScopeView"
+            }
+          },
+          "setup": {
+            "$ref": "#/components/schemas/SlackAppSetup"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SlackAppStatus"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "workspace": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SlackAppWorkspaceView"
+              }
+            ]
+          }
+        }
+      },
+      "SlackAppWorkspaceView": {
+        "type": "object",
+        "required": [
+          "enterprise"
+        ],
+        "properties": {
+          "enterprise": {
+            "type": "boolean"
+          },
+          "team_name": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -24170,6 +27118,24 @@
           "rollback"
         ]
       },
+      "TemplateUpdateCannotInstallYet": {
+        "type": "object",
+        "description": "Why a hire cannot take the template's newest revision yet: the rollout is\npaused on a refusal, and the hire is the refused one or has not moved.",
+        "required": [
+          "revision",
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "The refusal's category."
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "TemplateUpdateHeldReason": {
         "type": "string",
         "description": "Why an update is held.",
@@ -24559,6 +27525,49 @@
           "per_task_atomic": {
             "type": "integer",
             "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "UpdateSlackAppRequest": {
+        "type": "object",
+        "description": "Changes to the app's identity and options. A field left out keeps its value.",
+        "properties": {
+          "background_color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "direct_messages": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "private_channels": {
+            "type": [
+              "boolean",
+              "null"
+            ]
           }
         },
         "additionalProperties": false
