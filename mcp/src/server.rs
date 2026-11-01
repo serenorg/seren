@@ -1472,6 +1472,29 @@ pub struct EndpointDefinitionParam {
     /// examples. Used by grants and tool_refs to name one row. Omit it otherwise.
     #[serde(default)]
     pub operation_id: Option<String>,
+    /// Request body schema (JSON Schema or simplified description)
+    #[serde(default)]
+    pub request_body: Option<serde_json::Value>,
+    /// Response schema (JSON Schema or simplified description)
+    #[serde(default)]
+    pub response: Option<serde_json::Value>,
+    /// Example request body
+    #[serde(default)]
+    pub example_request: Option<serde_json::Value>,
+    /// Example response body
+    #[serde(default)]
+    pub example_response: Option<serde_json::Value>,
+    /// Headers required for this endpoint (beyond publisher defaults)
+    #[serde(default)]
+    pub required_headers: Option<Vec<String>>,
+    /// Template for request body with {{query}} placeholder for user input
+    /// Used by browser extensions and LLMs to construct valid requests
+    #[serde(default)]
+    pub body_template: Option<serde_json::Value>,
+    /// Whether this is the default endpoint for simple queries
+    /// When multiple endpoints exist, the default is used for basic operations
+    #[serde(default)]
+    pub is_default: Option<bool>,
     /// If true, this endpoint is blocked (documented but not accessible)
     #[serde(default)]
     pub is_protected: bool,
@@ -1606,6 +1629,8 @@ fn endpoint_param_to_definition(
         EndpointAccessParam::PublicAnonymous => "public_anonymous",
     };
 
+    // Each optional field is sent only when the caller gave it, exactly as
+    // given; the generated type skips the rest. Core decides what they mean.
     let mut endpoint = serde_json::json!({
         "access": access,
         "method": method,
@@ -1615,14 +1640,14 @@ fn endpoint_param_to_definition(
         "is_protected": param.is_protected,
         "protection_reason": param.protection_reason,
         "price": param.price,
-        "example_request": null,
-        "example_response": null,
-        "request_body": null,
+        "example_request": param.example_request,
+        "example_response": param.example_response,
+        "request_body": param.request_body,
         "request_content_type": param.request_content_type,
-        "required_headers": null,
-        "response": null,
-        "body_template": null,
-        "is_default": null,
+        "required_headers": param.required_headers,
+        "response": param.response,
+        "body_template": param.body_template,
+        "is_default": param.is_default,
     });
     // Sent only when declared, so an endpoint without one keeps its body; Core
     // decides what a declared kind means.
@@ -14660,7 +14685,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Update an existing publisher's details. Supports both API key and OAuth authentication. Only fields provided will be updated. Set forward_caller_identity to send opaque organization and user identifiers in X-Seren-Caller-Organization-Id and X-Seren-Caller-User-Id. The organization identifier is scoped to publisher and authenticated organization; the user identifier is scoped to publisher, authenticated organization and authenticated user. Neither value is a raw Seren account ID. Each endpoint may set operation_kind (read or mutation); mark a search or other read-only POST as read so hired Employees can call it without an approval. When two endpoints share a method and path, give each its own operation_id and a shared required query parameter with distinct examples, or Core refuses the catalog.",
+        description = "Update an existing publisher's details. Supports both API key and OAuth authentication. Only fields provided will be updated, except endpoints: sending endpoints replaces the publisher's whole endpoint list, so re-send every row with all of its fields, or the fields you leave out are cleared. A row's request_body and required_headers are part of the publisher's credential review, so changing them means the review must be done again. Set forward_caller_identity to send opaque organization and user identifiers in X-Seren-Caller-Organization-Id and X-Seren-Caller-User-Id. The organization identifier is scoped to publisher and authenticated organization; the user identifier is scoped to publisher, authenticated organization and authenticated user. Neither value is a raw Seren account ID. Each endpoint may set operation_kind (read or mutation); mark a search or other read-only POST as read so hired Employees can call it without an approval. When two endpoints share a method and path, give each its own operation_id and a shared required query parameter with distinct examples, or Core refuses the catalog.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn update_publisher(
@@ -26499,6 +26524,13 @@ pub(crate) mod tests {
             access: None,
             operation_kind: None,
             operation_id: None,
+            request_body: None,
+            response: None,
+            example_request: None,
+            example_response: None,
+            required_headers: None,
+            body_template: None,
+            is_default: None,
             is_protected: false,
             protection_reason: None,
             price: None,
@@ -31081,6 +31113,1281 @@ pub(crate) mod tests {
                 "{name}: operation_id must stay optional"
             );
         }
+        assert!(proxy.received_requests().await.unwrap().is_empty());
+        client.cancel().await.unwrap();
+        server_task.await.unwrap();
+    }
+
+    /// The `endpoints` array of the live `google-places` publisher, copied
+    /// verbatim from a read-only `get_agent_publisher` read on 2026-11-01 UTC
+    /// (Core's `GET /publishers/google-places` through the generated client).
+    const LIVE_GOOGLE_PLACES_ENDPOINTS: &str = r#"[
+    {
+        "access": "authenticated",
+        "description": "Text Search (New): find places matching a text query. Read-only search. JSON body fields: textQuery (required, e.g. \"gift shop in Austin, TX\"), includedType (one place type, e.g. \"gift_shop\"), strictTypeFiltering (true to return only includedType), locationBias or locationRestriction (circle or rectangle), pageSize (1-20, at most 20 per page) and pageToken (the previous response's nextPageToken). At most 60 results across all pages. The `fields` URL parameter is required: Google rejects the call without it, and the fields chosen decide Google's price. Keep place IDs only; do not store other Places content.",
+        "example_request": {
+            "pageSize": 20,
+            "textQuery": "gift shop in Austin, TX"
+        },
+        "is_default": true,
+        "is_protected": false,
+        "method": "POST",
+        "operation_kind": "read",
+        "path": "/places:searchText",
+        "query_params": [
+            {
+                "description": "Required field mask: comma-separated response fields, each prefixed with places. (and nextPageToken to page). Decides Google's price.",
+                "example": "places.id,places.displayName,places.formattedAddress,places.primaryType,places.websiteUri",
+                "name": "fields",
+                "param_type": "string",
+                "required": true
+            }
+        ],
+        "request_body": {
+            "properties": {
+                "includedType": {
+                    "type": "string"
+                },
+                "locationBias": {
+                    "type": "object"
+                },
+                "locationRestriction": {
+                    "type": "object"
+                },
+                "pageSize": {
+                    "maximum": 20,
+                    "minimum": 1,
+                    "type": "integer"
+                },
+                "pageToken": {
+                    "type": "string"
+                },
+                "strictTypeFiltering": {
+                    "type": "boolean"
+                },
+                "textQuery": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "textQuery"
+            ],
+            "type": "object"
+        }
+    },
+    {
+        "access": "authenticated",
+        "description": "Place Details (New): read one place by its place ID. The `fields` URL parameter is required: Google rejects the call without it, and the fields chosen decide Google's price. Keep place IDs only; do not store other Places content.",
+        "is_default": false,
+        "is_protected": false,
+        "method": "GET",
+        "path": "/places/{placeId}",
+        "query_params": [
+            {
+                "description": "Required field mask: comma-separated response fields (no places. prefix). Decides Google's price.",
+                "example": "id,displayName,websiteUri",
+                "name": "fields",
+                "param_type": "string",
+                "required": true
+            }
+        ]
+    }
+]"#;
+
+    /// The `endpoints` array of the live `google-drive` publisher, copied
+    /// verbatim from a read-only `get_agent_publisher` read on 2026-11-01 UTC.
+    const LIVE_GOOGLE_DRIVE_ENDPOINTS: &str = r#"[
+    {
+        "access": "authenticated",
+        "description": "List files and folders",
+        "is_default": false,
+        "is_protected": false,
+        "method": "GET",
+        "path": "/drive/v3/files",
+        "query_params": [
+            {
+                "description": "Response fields to include.",
+                "name": "fields",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "File collection to search: user, domain, drive, or allDrives.",
+                "name": "corpora",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Shared drive to search.",
+                "name": "driveId",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Include shared drive items.",
+                "name": "includeItemsFromAllDrives",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Comma-separated label IDs to include.",
+                "name": "includeLabels",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Additional permission view to include.",
+                "name": "includePermissionsForView",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Comma-separated sort keys, optionally followed by desc.",
+                "name": "orderBy",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Maximum number of results per page.",
+                "name": "pageSize",
+                "param_type": "integer",
+                "required": false
+            },
+            {
+                "description": "Continuation token from the previous response.",
+                "name": "pageToken",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Google Drive search filter.",
+                "name": "q",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Comma-separated storage spaces to search.",
+                "name": "spaces",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Whether the client supports shared drives.",
+                "name": "supportsAllDrives",
+                "param_type": "boolean",
+                "required": false
+            }
+        ]
+    },
+    {
+        "access": "authenticated",
+        "description": "Get file metadata",
+        "is_default": false,
+        "is_protected": false,
+        "method": "GET",
+        "path": "/drive/v3/files/{fileId}",
+        "query_params": [
+            {
+                "description": "Response fields to include.",
+                "name": "fields",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Use media to download file content.",
+                "name": "alt",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Acknowledge the risk when downloading a flagged file.",
+                "name": "acknowledgeAbuse",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Comma-separated label IDs to include.",
+                "name": "includeLabels",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Additional permission view to include.",
+                "name": "includePermissionsForView",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Whether the client supports shared drives.",
+                "name": "supportsAllDrives",
+                "param_type": "boolean",
+                "required": false
+            }
+        ]
+    },
+    {
+        "access": "authenticated",
+        "description": "Create a new file or folder",
+        "is_default": false,
+        "is_protected": false,
+        "method": "POST",
+        "path": "/drive/v3/files",
+        "query_params": [
+            {
+                "description": "Response fields to include.",
+                "name": "fields",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Ignore domain-wide default visibility for the new file.",
+                "name": "ignoreDefaultVisibility",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Comma-separated label IDs to include.",
+                "name": "includeLabels",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Additional permission view to include.",
+                "name": "includePermissionsForView",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Keep the new binary revision permanently.",
+                "name": "keepRevisionForever",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Language hint for OCR.",
+                "name": "ocrLanguage",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Whether the client supports shared drives.",
+                "name": "supportsAllDrives",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Index the uploaded content for search.",
+                "name": "useContentAsIndexableText",
+                "param_type": "boolean",
+                "required": false
+            }
+        ]
+    },
+    {
+        "access": "authenticated",
+        "description": "Update file metadata",
+        "is_default": false,
+        "is_protected": false,
+        "method": "PATCH",
+        "path": "/drive/v3/files/{fileId}",
+        "query_params": [
+            {
+                "description": "Response fields to include.",
+                "name": "fields",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Comma-separated parent folder IDs to add.",
+                "name": "addParents",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Comma-separated label IDs to include.",
+                "name": "includeLabels",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Additional permission view to include.",
+                "name": "includePermissionsForView",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Keep the new binary revision permanently.",
+                "name": "keepRevisionForever",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Language hint for OCR.",
+                "name": "ocrLanguage",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Comma-separated parent folder IDs to remove.",
+                "name": "removeParents",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Whether the client supports shared drives.",
+                "name": "supportsAllDrives",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Index the uploaded content for search.",
+                "name": "useContentAsIndexableText",
+                "param_type": "boolean",
+                "required": false
+            }
+        ]
+    },
+    {
+        "access": "authenticated",
+        "description": "Delete a file",
+        "is_default": false,
+        "is_protected": false,
+        "method": "DELETE",
+        "path": "/drive/v3/files/{fileId}",
+        "query_params": [
+            {
+                "description": "Response fields to include.",
+                "name": "fields",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Whether the client supports shared drives.",
+                "name": "supportsAllDrives",
+                "param_type": "boolean",
+                "required": false
+            }
+        ]
+    },
+    {
+        "access": "authenticated",
+        "description": "Export Google Docs to other formats",
+        "is_default": false,
+        "is_protected": false,
+        "method": "GET",
+        "path": "/drive/v3/files/{fileId}/export",
+        "query_params": [
+            {
+                "description": "Response fields to include.",
+                "name": "fields",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "MIME type of the exported document.",
+                "name": "mimeType",
+                "param_type": "string",
+                "required": true
+            }
+        ]
+    },
+    {
+        "access": "authenticated",
+        "description": "Copy a file",
+        "is_default": false,
+        "is_protected": false,
+        "method": "POST",
+        "path": "/drive/v3/files/{fileId}/copy",
+        "query_params": [
+            {
+                "description": "Response fields to include.",
+                "name": "fields",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Copy comments along with the file.",
+                "name": "copyComments",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Ignore domain-wide default visibility for the new file.",
+                "name": "ignoreDefaultVisibility",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Comma-separated label IDs to include.",
+                "name": "includeLabels",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Additional permission view to include.",
+                "name": "includePermissionsForView",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Keep the new binary revision permanently.",
+                "name": "keepRevisionForever",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Language hint for OCR.",
+                "name": "ocrLanguage",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Whether the client supports shared drives.",
+                "name": "supportsAllDrives",
+                "param_type": "boolean",
+                "required": false
+            }
+        ]
+    },
+    {
+        "access": "authenticated",
+        "description": "Get user and storage info",
+        "is_default": false,
+        "is_protected": false,
+        "method": "GET",
+        "path": "/drive/v3/about",
+        "query_params": [
+            {
+                "description": "Response fields to include.",
+                "name": "fields",
+                "param_type": "string",
+                "required": true
+            }
+        ]
+    },
+    {
+        "access": "authenticated",
+        "description": "Add a member / share a file",
+        "is_default": false,
+        "is_protected": false,
+        "method": "POST",
+        "path": "/drive/v3/files/{fileId}/permissions",
+        "query_params": [
+            {
+                "description": "Response fields to include.",
+                "name": "fields",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Message to include in the sharing notification.",
+                "name": "emailMessage",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Move the file to the new owner root folder.",
+                "name": "moveToNewOwnersRoot",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Send a sharing notification email.",
+                "name": "sendNotificationEmail",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Whether the client supports shared drives.",
+                "name": "supportsAllDrives",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Acknowledge an ownership transfer.",
+                "name": "transferOwnership",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Apply the authenticated domain administrator authority.",
+                "name": "useDomainAdminAccess",
+                "param_type": "boolean",
+                "required": false
+            }
+        ]
+    },
+    {
+        "access": "authenticated",
+        "description": "List permissions on a file",
+        "is_default": false,
+        "is_protected": false,
+        "method": "GET",
+        "path": "/drive/v3/files/{fileId}/permissions",
+        "query_params": [
+            {
+                "description": "Response fields to include.",
+                "name": "fields",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Additional permission view to include.",
+                "name": "includePermissionsForView",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Maximum number of results per page.",
+                "name": "pageSize",
+                "param_type": "integer",
+                "required": false
+            },
+            {
+                "description": "Continuation token from the previous response.",
+                "name": "pageToken",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Whether the client supports shared drives.",
+                "name": "supportsAllDrives",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Apply the authenticated domain administrator authority.",
+                "name": "useDomainAdminAccess",
+                "param_type": "boolean",
+                "required": false
+            }
+        ]
+    },
+    {
+        "access": "authenticated",
+        "description": "Update a member's role",
+        "is_default": false,
+        "is_protected": false,
+        "method": "PATCH",
+        "path": "/drive/v3/files/{fileId}/permissions/{permissionId}",
+        "query_params": [
+            {
+                "description": "Response fields to include.",
+                "name": "fields",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Remove the permission expiration.",
+                "name": "removeExpiration",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Whether the client supports shared drives.",
+                "name": "supportsAllDrives",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Acknowledge an ownership transfer.",
+                "name": "transferOwnership",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Apply the authenticated domain administrator authority.",
+                "name": "useDomainAdminAccess",
+                "param_type": "boolean",
+                "required": false
+            }
+        ]
+    },
+    {
+        "access": "authenticated",
+        "description": "Remove a member / unshare",
+        "is_default": false,
+        "is_protected": false,
+        "method": "DELETE",
+        "path": "/drive/v3/files/{fileId}/permissions/{permissionId}",
+        "query_params": [
+            {
+                "description": "Response fields to include.",
+                "name": "fields",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Whether the client supports shared drives.",
+                "name": "supportsAllDrives",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Apply the authenticated domain administrator authority.",
+                "name": "useDomainAdminAccess",
+                "param_type": "boolean",
+                "required": false
+            }
+        ]
+    },
+    {
+        "access": "authenticated",
+        "description": "Upload raw file bytes to Google Drive. Set uploadType=media and provide body_base64; the returned file can be renamed or moved with PATCH /drive/v3/files/{fileId}.",
+        "is_default": false,
+        "is_protected": false,
+        "method": "POST",
+        "operation_id": "post_upload_drive_v3_files_media",
+        "path": "/upload/drive/v3/files",
+        "query_params": [
+            {
+                "description": "Google Drive upload protocol. Use media for raw bytes.",
+                "example": "media",
+                "name": "uploadType",
+                "param_type": "string",
+                "required": true
+            },
+            {
+                "description": "Response fields to include.",
+                "example": "id,name,mimeType,webViewLink",
+                "name": "fields",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Ignore domain-wide default visibility for the new file.",
+                "name": "ignoreDefaultVisibility",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Comma-separated label IDs to include.",
+                "name": "includeLabels",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Additional permission view to include.",
+                "name": "includePermissionsForView",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Keep the new binary revision permanently.",
+                "name": "keepRevisionForever",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Language hint for OCR.",
+                "name": "ocrLanguage",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Whether the client supports shared drives.",
+                "name": "supportsAllDrives",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Index the uploaded content for search.",
+                "name": "useContentAsIndexableText",
+                "param_type": "boolean",
+                "required": false
+            }
+        ],
+        "request_content_type": "application/octet-stream"
+    },
+    {
+        "access": "authenticated",
+        "description": "Upload file metadata and bytes in one Google Drive multipart/related request. Set uploadType=multipart, provide the complete MIME multipart payload via body_base64, and pass Content-Type with the matching boundary.",
+        "is_default": false,
+        "is_protected": false,
+        "method": "POST",
+        "operation_id": "post_upload_drive_v3_files_multipart",
+        "path": "/upload/drive/v3/files",
+        "query_params": [
+            {
+                "description": "Google Drive upload protocol. Use multipart for metadata plus file content.",
+                "example": "multipart",
+                "name": "uploadType",
+                "param_type": "string",
+                "required": true
+            },
+            {
+                "description": "Response fields to include.",
+                "example": "id,name,mimeType,webViewLink",
+                "name": "fields",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Ignore domain-wide default visibility for the new file.",
+                "name": "ignoreDefaultVisibility",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Comma-separated label IDs to include.",
+                "name": "includeLabels",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Additional permission view to include.",
+                "name": "includePermissionsForView",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Keep the new binary revision permanently.",
+                "name": "keepRevisionForever",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Language hint for OCR.",
+                "name": "ocrLanguage",
+                "param_type": "string",
+                "required": false
+            },
+            {
+                "description": "Whether the client supports shared drives.",
+                "name": "supportsAllDrives",
+                "param_type": "boolean",
+                "required": false
+            },
+            {
+                "description": "Index the uploaded content for search.",
+                "name": "useContentAsIndexableText",
+                "param_type": "boolean",
+                "required": false
+            }
+        ],
+        "request_content_type": "multipart/related"
+    }
+]"#;
+
+    /// Live rows that use fields no Places or Drive row uses, copied verbatim
+    /// from a read-only `list_agent_publishers` read on 2026-11-01 UTC:
+    /// daertho's priced screen row, email-checker's `example_response` row,
+    /// benthic-news' `body_template` row and a seren-storage row with
+    /// `request_body` and `response`.
+    const LIVE_ENDPOINT_ROWS_WITH_OTHER_FIELDS: &str = r##"[
+    {
+        "access": "authenticated",
+        "description": "Screen one person or company against global sanctions, PEP and watchlists. Returns a result band and per-match score, list, record and explanation.",
+        "example_request": {
+            "country": "NG",
+            "dob": "1965-03-02",
+            "name": "Amara Okonkwo-Test"
+        },
+        "is_default": false,
+        "is_protected": false,
+        "method": "POST",
+        "operation_id": "screen",
+        "operation_kind": "read",
+        "path": "/v1/screen",
+        "price": "0.008",
+        "request_content_type": "application/json"
+    },
+    {
+        "access": "authenticated",
+        "description": "Check if an email address is valid and deliverable",
+        "example_response": {
+            "email": "elon@x.com",
+            "format_valid": true,
+            "is_disposable": false,
+            "is_free_provider": false,
+            "mx_found": true,
+            "smtp_check": true,
+            "validated_at": "2026-01-18T18:56:08Z"
+        },
+        "is_default": false,
+        "is_protected": false,
+        "method": "GET",
+        "path": "/email/check",
+        "query_params": [
+            {
+                "description": "The email address to validate",
+                "name": "email",
+                "param_type": "string",
+                "required": true
+            }
+        ]
+    },
+    {
+        "access": "authenticated",
+        "body_template": "{\"url\": \"{{query}}\"}",
+        "description": "Evaluate a URL for crypto/DeFi newsworthiness via AI. Returns score (1-10), summary, tags.",
+        "is_default": false,
+        "is_protected": false,
+        "method": "POST",
+        "path": "/analyze"
+    },
+    {
+        "access": "authenticated",
+        "is_default": false,
+        "is_protected": false,
+        "method": "POST",
+        "operation_id": "confirm_upload",
+        "path": "/buckets/{bucket_slug}/objects/{object_id}/confirm-upload",
+        "request_body": {
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "$ref": "#/components/schemas/ConfirmObjectStorageUploadRequest"
+                    }
+                }
+            },
+            "required": true
+        },
+        "request_content_type": "application/json",
+        "response": {
+            "200": {
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/DataResponse_ObjectStorageObject"
+                        }
+                    }
+                },
+                "description": "Upload confirmed"
+            }
+        }
+    }
+]"##;
+
+    /// Endpoint fields Core stores that the MCP dropped before endpoints could
+    /// carry them.
+    const STORED_ENDPOINT_FIELDS: [&str; 7] = [
+        "request_body",
+        "response",
+        "example_request",
+        "example_response",
+        "required_headers",
+        "body_template",
+        "is_default",
+    ];
+
+    /// One value for each stored field, in the shape its description gives.
+    fn declared_endpoint_fields() -> serde_json::Map<String, Value> {
+        let fields = serde_json::json!({
+            "request_body": {
+                "type": "object",
+                "required": ["textQuery"],
+                "properties": { "textQuery": { "type": "string" } }
+            },
+            "response": {
+                "type": "object",
+                "properties": {
+                    "places": { "type": "array", "items": { "type": "object" } }
+                }
+            },
+            "example_request": { "textQuery": "gift shop in Austin, TX", "pageSize": 20 },
+            "example_response": {
+                "places": [{ "id": "place-1", "displayName": { "text": "Gifts" } }]
+            },
+            "required_headers": ["X-Goog-FieldMask"],
+            "body_template": { "textQuery": "{{query}}" },
+            "is_default": true
+        });
+        fields.as_object().expect("an object of fields").clone()
+    }
+
+    /// The search endpoint with `fields` added.
+    fn search_endpoint_with(fields: &serde_json::Map<String, Value>) -> Value {
+        let mut endpoint = search_endpoint(None);
+        for (field, value) in fields {
+            endpoint[field] = value.clone();
+        }
+        endpoint
+    }
+
+    /// The one request `tool` sends to Core when called with `endpoints`.
+    async fn publisher_write_request(tool: &str, endpoints: Value) -> wiremock::Request {
+        let organization_id = Uuid::from_u128(0x7701);
+        let publisher_id = Uuid::from_u128(0x7702);
+        let (http_method, route, status, mut params) = match tool {
+            "create_publisher" => (
+                "POST",
+                format!("/organizations/{organization_id}/publishers"),
+                201,
+                create_params_with_endpoint(organization_id, Value::Null),
+            ),
+            "update_publisher" => (
+                "PUT",
+                format!("/organizations/{organization_id}/publishers/{publisher_id}"),
+                200,
+                update_params_with_endpoint(organization_id, publisher_id, Value::Null),
+            ),
+            other => panic!("not a publisher write tool: {other}"),
+        };
+        params["endpoints"] = endpoints;
+        let proxy = publisher_write_server(
+            http_method,
+            &route,
+            wiremock::ResponseTemplate::new(status)
+                .set_body_json(caller_identity_publisher_response(publisher_id, None)),
+        )
+        .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        if tool == "create_publisher" {
+            server
+                .create_publisher(
+                    Parameters(serde_json::from_value(params).expect("create_publisher params")),
+                    extensions_with_headers(&[]),
+                )
+                .await
+                .expect("the publisher is created");
+        } else {
+            server
+                .update_publisher(
+                    Parameters(serde_json::from_value(params).expect("update_publisher params")),
+                    extensions_with_headers(&[]),
+                )
+                .await
+                .expect("the publisher is updated");
+        }
+        let mut requests = proxy.received_requests().await.expect("recorded requests");
+        assert_eq!(requests.len(), 1, "{tool}");
+        requests.remove(0)
+    }
+
+    /// The endpoints `tool` sends to Core when called with `endpoints`.
+    async fn sent_endpoints(tool: &str, endpoints: Value) -> Value {
+        let body: Value = publisher_write_request(tool, endpoints)
+            .await
+            .body_json()
+            .expect("publisher request body is JSON");
+        body["endpoints"].clone()
+    }
+
+    /// #279: a publisher's endpoint list read with get_agent_publisher can be
+    /// written back through update_publisher without losing any field.
+    #[tokio::test]
+    async fn update_publisher_writes_back_a_read_endpoint_list_without_losing_a_field() {
+        let mut fields_in_reads = BTreeSet::new();
+        for (publisher, read) in [
+            ("google-places", LIVE_GOOGLE_PLACES_ENDPOINTS),
+            ("google-drive", LIVE_GOOGLE_DRIVE_ENDPOINTS),
+            ("other live rows", LIVE_ENDPOINT_ROWS_WITH_OTHER_FIELDS),
+        ] {
+            let read: Value = serde_json::from_str(read).expect("a live endpoints array");
+            for row in read.as_array().expect("an endpoints array") {
+                fields_in_reads.extend(
+                    STORED_ENDPOINT_FIELDS
+                        .into_iter()
+                        .filter(|field| row.get(*field).is_some_and(|value| value != false)),
+                );
+            }
+            let sent = sent_endpoints("update_publisher", read.clone()).await;
+            assert_eq!(
+                sent, read,
+                "{publisher}: update_publisher must send the rows as read"
+            );
+        }
+        // No live row sets required_headers; every other stored field is covered.
+        assert_eq!(
+            fields_in_reads,
+            BTreeSet::from([
+                "body_template",
+                "example_request",
+                "example_response",
+                "is_default",
+                "request_body",
+                "response",
+            ])
+        );
+    }
+
+    #[tokio::test]
+    async fn create_publisher_sends_each_declared_endpoint_field() {
+        let fields = declared_endpoint_fields();
+        let sent = sent_endpoints(
+            "create_publisher",
+            serde_json::json!([search_endpoint_with(&fields)]),
+        )
+        .await;
+        for field in STORED_ENDPOINT_FIELDS {
+            assert_eq!(
+                sent[0].get(field),
+                fields.get(field),
+                "{field}: sent {sent}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn update_publisher_sends_each_endpoint_field_only_when_declared() {
+        let fields = declared_endpoint_fields();
+        for field in STORED_ENDPOINT_FIELDS {
+            let declared = serde_json::Map::from_iter([(field.to_string(), fields[field].clone())]);
+            let sent = sent_endpoints(
+                "update_publisher",
+                serde_json::json!([search_endpoint_with(&declared)]),
+            )
+            .await;
+            for stored in STORED_ENDPOINT_FIELDS {
+                assert_eq!(
+                    sent[0].get(stored),
+                    declared.get(stored),
+                    "declared only {field}; sent {sent}"
+                );
+            }
+        }
+    }
+
+    /// A row that declares none of the stored fields goes to Core byte for
+    /// byte as it did before endpoints could carry them.
+    #[tokio::test]
+    async fn publisher_tools_leave_undeclared_endpoint_fields_out_of_the_body() {
+        let create = publisher_write_request(
+            "create_publisher",
+            serde_json::json!([search_endpoint(None)]),
+        )
+        .await;
+        let update = publisher_write_request(
+            "update_publisher",
+            serde_json::json!([upload_endpoint(None, "multipart")]),
+        )
+        .await;
+        for (tool, request) in [("create_publisher", &create), ("update_publisher", &update)] {
+            let body: Value = request.body_json().expect("JSON body");
+            for field in STORED_ENDPOINT_FIELDS {
+                assert!(
+                    body["endpoints"][0].get(field).is_none(),
+                    "{tool} sent an undeclared {field}: {body}"
+                );
+            }
+        }
+        assert_eq!(
+            String::from_utf8_lossy(&create.body),
+            UNDECLARED_KIND_CREATE_BODY
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&update.body),
+            UNDECLARED_ID_UPDATE_BODY
+        );
+    }
+
+    /// Core decides what each value means, so the MCP refuses and rewrites
+    /// none of them: no schema or object check, no header normalization and
+    /// no reordering or de-duplication.
+    #[tokio::test]
+    async fn publisher_tools_send_endpoint_field_values_exactly_as_given() {
+        let cases = [
+            serde_json::json!({
+                "request_body": {
+                    "oneOf": [{
+                        "type": "object",
+                        "properties": {
+                            "filters": {
+                                "type": "array",
+                                "items": [{
+                                    "type": "object",
+                                    "properties": { "field": { "type": "string" } }
+                                }]
+                            }
+                        }
+                    }]
+                },
+                "response": [{
+                    "status": 200,
+                    "body": { "places": [{ "id": "a" }, { "id": "b" }] }
+                }]
+            }),
+            serde_json::json!({ "request_body": ["textQuery", "pageSize"] }),
+            serde_json::json!({ "request_body": "A JSON object with textQuery" }),
+            serde_json::json!({
+                "example_request": ["gift shop in Austin, TX", 20],
+                "example_response": "OK"
+            }),
+            serde_json::json!({
+                "required_headers": ["X-Goog-FieldMask", "accept", "x-goog-fieldmask", "Accept"]
+            }),
+            serde_json::json!({ "is_default": false }),
+            serde_json::json!({
+                "request_body": {},
+                "response": {},
+                "example_request": {},
+                "example_response": {},
+                "body_template": {}
+            }),
+        ];
+        for tool in ["create_publisher", "update_publisher"] {
+            for case in &cases {
+                let fields = case.as_object().expect("an object of fields");
+                let sent =
+                    sent_endpoints(tool, serde_json::json!([search_endpoint_with(fields)])).await;
+                for (field, value) in fields {
+                    assert_eq!(&sent[0][field], value, "{tool}: sent {sent}");
+                }
+            }
+        }
+    }
+
+    /// An explicit JSON null reads as omitted, which is also how Core reads it.
+    #[tokio::test]
+    async fn publisher_tools_send_an_explicit_null_endpoint_field_as_omitted() {
+        let nulls = STORED_ENDPOINT_FIELDS
+            .into_iter()
+            .map(|field| (field.to_string(), Value::Null))
+            .collect::<serde_json::Map<_, _>>();
+        let create = publisher_write_request(
+            "create_publisher",
+            serde_json::json!([search_endpoint_with(&nulls)]),
+        )
+        .await;
+        let mut upload = upload_endpoint(None, "multipart");
+        upload["example_request"] = Value::Null;
+        let update = publisher_write_request("update_publisher", serde_json::json!([upload])).await;
+        assert_eq!(
+            String::from_utf8_lossy(&create.body),
+            UNDECLARED_KIND_CREATE_BODY
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&update.body),
+            UNDECLARED_ID_UPDATE_BODY
+        );
+    }
+
+    #[tokio::test]
+    async fn publisher_tools_serve_every_endpoint_field_core_stores() {
+        fn resolve<'a>(root: &'a Value, node: &'a Value) -> &'a Value {
+            match node.get("$ref").and_then(Value::as_str) {
+                Some(reference) => root
+                    .pointer(reference.trim_start_matches('#'))
+                    .unwrap_or_else(|| panic!("unresolved schema reference {reference}")),
+                None => node,
+            }
+        }
+        /// Every subschema reachable through references and schema combinators.
+        fn alternatives<'a>(root: &'a Value, node: &'a Value) -> Vec<&'a Value> {
+            let mut found = Vec::new();
+            let mut pending = vec![node];
+            while let Some(node) = pending.pop() {
+                let node = resolve(root, node);
+                found.push(node);
+                for keyword in ["anyOf", "oneOf", "allOf"] {
+                    if let Some(items) = node.get(keyword).and_then(Value::as_array) {
+                        pending.extend(items);
+                    }
+                }
+            }
+            found
+        }
+        fn served_types<'a>(root: &'a Value, node: &'a Value) -> BTreeSet<&'a str> {
+            alternatives(root, node)
+                .into_iter()
+                .filter_map(|node| node.get("type"))
+                .flat_map(|types| match types {
+                    Value::Array(types) => types.iter().filter_map(Value::as_str).collect(),
+                    other => other.as_str().into_iter().collect::<Vec<_>>(),
+                })
+                .collect()
+        }
+        fn normalized(text: &str) -> String {
+            text.split_whitespace().collect::<Vec<_>>().join(" ")
+        }
+
+        let snapshot: Value =
+            serde_json::from_str(include_str!("../../sdk/openapi/openapi.json")).unwrap();
+        let core_fields = &snapshot["components"]["schemas"]["EndpointDefinition"]["properties"];
+        const REPLACES_THE_ENDPOINT_LIST: &str = concat!(
+            "Only fields provided will be updated, except endpoints: sending endpoints replaces ",
+            "the publisher's whole endpoint list, so re-send every row with all of its fields, ",
+            "or the fields you leave out are cleared. A row's request_body and required_headers ",
+            "are part of the publisher's credential review, so changing them means the review ",
+            "must be done again."
+        );
+
+        let proxy = wiremock::MockServer::start().await;
+        let (client, server_task) = oauth_provider_test_client(&proxy).await;
+        let tools = client.list_all_tools().await.unwrap();
+        for name in ["create_publisher", "update_publisher"] {
+            let tool = tools.iter().find(|tool| tool.name == name).unwrap();
+            let schema = serde_json::to_value(&tool.input_schema).unwrap();
+            let endpoint = alternatives(&schema, &schema["properties"]["endpoints"])
+                .into_iter()
+                .find_map(|node| node.get("items"))
+                .map(|items| resolve(&schema, items))
+                .unwrap_or_else(|| panic!("{name}: endpoints has no item schema"));
+            let required = endpoint
+                .get("required")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            for field in STORED_ENDPOINT_FIELDS {
+                let served = endpoint["properties"]
+                    .get(field)
+                    .unwrap_or_else(|| panic!("{name}: endpoints[] has no {field}"));
+                assert!(
+                    !required.contains(&serde_json::json!(field)),
+                    "{name}: {field} must stay optional"
+                );
+                let description = served["description"]
+                    .as_str()
+                    .unwrap_or_else(|| panic!("{name}: {field} has no description"));
+                let core_description = core_fields[field]["description"]
+                    .as_str()
+                    .unwrap_or_else(|| panic!("the snapshot describes no {field}"));
+                assert_eq!(
+                    normalized(description),
+                    normalized(core_description),
+                    "{name}: {field} says what Core's contract says"
+                );
+            }
+            let headers = &endpoint["properties"]["required_headers"];
+            assert_eq!(
+                served_types(&schema, headers),
+                BTreeSet::from(["array", "null"]),
+                "{name}"
+            );
+            let header = alternatives(&schema, headers)
+                .into_iter()
+                .find_map(|node| node.get("items"))
+                .unwrap_or_else(|| panic!("{name}: required_headers has no item schema"));
+            assert_eq!(
+                served_types(&schema, header),
+                BTreeSet::from(["string"]),
+                "{name}"
+            );
+            assert_eq!(
+                served_types(&schema, &endpoint["properties"]["is_default"]),
+                BTreeSet::from(["boolean", "null"]),
+                "{name}"
+            );
+            // A row read from Core can only be written back whole if the tools
+            // offer every field Core's endpoint has.
+            let served_fields = endpoint["properties"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name}: endpoints[] has no properties"))
+                .keys()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>();
+            let core_field_names = core_fields
+                .as_object()
+                .expect("the snapshot's EndpointDefinition properties")
+                .keys()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>();
+            assert_eq!(served_fields, core_field_names, "{name}");
+        }
+        let update = tools
+            .iter()
+            .find(|tool| tool.name == "update_publisher")
+            .and_then(|tool| tool.description.as_deref())
+            .unwrap();
+        assert!(
+            update.contains(REPLACES_THE_ENDPOINT_LIST),
+            "update_publisher says that endpoints replace the stored list: {update}"
+        );
+        assert!(
+            !update.contains("Only fields provided will be updated."),
+            "update_publisher no longer says every omitted field is kept: {update}"
+        );
         assert!(proxy.received_requests().await.unwrap().is_empty());
         client.cancel().await.unwrap();
         server_task.await.unwrap();
