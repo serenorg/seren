@@ -82,7 +82,8 @@ async fn managed_pricing_success_bodies_preserve_fee_and_cost_contracts() {
                     "made_by_seren": false, "verified": false},
                 "owner_connection": "sign_in_only", "published_at": "2026-10-23T00:00:00Z",
                 "capabilities": [], "example_tasks": ["Run a pricing task"],
-                "works_in": ["slack"], "pronouns": "they/them", "run_kinds": run_kinds.clone(),
+                "works_in": ["slack"], "pronouns": "they/them", "intro_videos": [],
+                "run_kinds": run_kinds.clone(),
                 "spend_limit_defaults": {"per_task_atomic": 2000000, "per_day_atomic": 10000000},
                 "catalog": {"hires_30d": 0, "hours_of_work": 0, "active_hires": 0,
                     "best_sellers_rank": null, "seren_choice": false, "also_hired": [],
@@ -165,4 +166,68 @@ async fn managed_owner_pricing_rejects_missing_serving_fallback() {
         .unwrap_err();
     assert!(matches!(error, seren::Error::InvalidResponsePayload(_, _)));
     server.verify().await;
+}
+
+fn measured_cost(tasks: Value, average_task: Value, average_task_price: Value) -> Value {
+    json!({
+        "model_id": "opus-5-5", "model_name": "Claude Opus 5.5", "runs": 12, "window_days": 30,
+        "average_atomic": 250000, "median_atomic": 240000, "p90_atomic": 400000,
+        "average_price_atomic": 1250000, "computed_at": "2026-11-03T12:00:00Z",
+        "price_list_version": 3, "tasks": tasks, "average_task_atomic": average_task,
+        "average_task_price_atomic": average_task_price
+    })
+}
+
+#[tokio::test]
+async fn hired_employee_reads_keep_measured_task_costs() {
+    for cost in [
+        measured_cost(Value::Null, Value::Null, Value::Null),
+        measured_cost(json!(10), json!(310000), json!(1310000)),
+    ] {
+        let server = MockServer::start().await;
+        let deployment_id = Uuid::from_u128(43);
+        let mut run_kinds = prices(Value::Null);
+        for price in run_kinds.as_array_mut().unwrap() {
+            price["measured_cost"] = cost.clone();
+        }
+        let owner = owner(deployment_id, run_kinds.clone());
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/managed"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": owner.clone()})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/deployments"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": [owner]})))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = Client::new(&server.uri());
+        let detail = client
+            .seren_agent_get_managed_deployment(&deployment_id)
+            .await
+            .expect("an owner view with measured task costs decodes")
+            .into_inner();
+        let detail = serde_json::to_value(detail).unwrap();
+        let list = client
+            .seren_agent_list_deployments()
+            .await
+            .expect("a hired Employee list with measured task costs decodes")
+            .into_inner();
+        let list = serde_json::to_value(list).unwrap();
+        for read in [&detail["data"], &list["data"][0]] {
+            for price in read["run_kinds"].as_array().unwrap() {
+                let decoded = price["measured_cost"].as_object().unwrap();
+                for (field, value) in cost.as_object().unwrap() {
+                    let decoded = decoded.get(field).unwrap_or(&Value::Null);
+                    assert_eq!(decoded, value, "{field}");
+                }
+            }
+        }
+        server.verify().await;
+    }
 }
