@@ -113,7 +113,7 @@ mod storage_gateway {
                 .unwrap();
             for body in [
                 json!({"signed":SIGNED}),
-                json!({"data":{"status":200,"body":{"data":{"status":SIGNED}}}}),
+                json!({"data":{"status":200,"body":{"data":{"status":[SIGNED]}}}}),
                 json!({"data":{"status":"200","body":SIGNED}}),
                 json!({"data":{"status":200,"body":SIGNED}}),
             ] {
