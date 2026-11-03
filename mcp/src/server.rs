@@ -21537,10 +21537,12 @@ pub(crate) mod tests {
                     .into_iter()
                     .find(|c| c.tool == tool)
                     .unwrap();
+                // String health statuses are valid direct data; these malformed
+                // fixtures must violate both the direct and gateway contracts.
                 for body in [
                     json!({"signed":SIGNED}),
                     json!({"data":{"status":200,"body":{"data":{"status":[SIGNED]}}}}),
-                    json!({"data":{"status":"200","body":SIGNED}}),
+                    json!({"data":{"status":200.5,"body":SIGNED}}),
                     json!({"data":{"status":200,"body":SIGNED}}),
                 ] {
                     let proxy = MockServer::start().await;
