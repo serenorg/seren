@@ -3836,6 +3836,68 @@
         ]
       }
     },
+    "/deployments/{id}/runs/workspace-snapshot-failure": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_report_workspace_snapshot_failure",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceSnapshotFailureRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Diagnostic accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentRunCompletionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid diagnostic"
+          },
+          "401": {
+            "description": "Runtime authentication required"
+          },
+          "403": {
+            "description": "Runtime access denied"
+          },
+          "404": {
+            "description": "Deployment not found"
+          },
+          "409": {
+            "description": "The dispatch cannot accept a snapshot diagnostic"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/runs/{run_id}": {
       "get": {
         "tags": [
@@ -3893,6 +3955,7 @@
           "seren-cloud"
         ],
         "summary": "List artifacts emitted by a specific deployment run.",
+        "description": "Includes the latest revision of each published file and its authenticated download path.\nPublished files remain available when the run pauses or fails.",
         "operationId": "seren_cloud_deployment_run_artifacts",
         "parameters": [
           {
@@ -4985,6 +5048,137 @@
         ]
       }
     },
+    "/deployments/{id}/snapshots": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_register_workspace_snapshot",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterWorkspaceSnapshot"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Registered workspace snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_WorkspaceSnapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or query parameters"
+          },
+          "401": {
+            "description": "Workspace authentication required"
+          },
+          "402": {
+            "description": "Organization storage writes are blocked (storage_balance_exhausted)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Workspace credential does not match this deployment"
+          },
+          "409": {
+            "description": "Workspace snapshot is stale or storage is in a conflicting state"
+          },
+          "502": {
+            "description": "Storage returned an unusable response"
+          },
+          "503": {
+            "description": "Workspace is temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/snapshots/failures": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_report_workspace_save_failure",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceSnapshotFailureReport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Snapshot diagnostic accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_WorkspaceSnapshotFailureAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid snapshot diagnostic"
+          },
+          "401": {
+            "description": "Workspace authentication required"
+          },
+          "403": {
+            "description": "Workspace credential does not match this deployment"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/snapshots/latest": {
       "get": {
         "tags": [
@@ -5031,6 +5225,81 @@
           },
           "410": {
             "description": "The workspace archive is no longer available"
+          },
+          "502": {
+            "description": "Storage returned an unusable response"
+          },
+          "503": {
+            "description": "Workspace is temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/snapshots/uploads": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_create_workspace_upload",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkspaceUpload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Workspace archive upload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_WorkspaceUpload"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or query parameters"
+          },
+          "401": {
+            "description": "Workspace authentication required"
+          },
+          "402": {
+            "description": "Organization storage writes are blocked (storage_balance_exhausted)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Workspace credential does not match this deployment"
+          },
+          "409": {
+            "description": "Workspace storage is in a conflicting state"
           },
           "502": {
             "description": "Storage returned an unusable response"
@@ -8723,6 +8992,7 @@
           "seren-cloud"
         ],
         "summary": "List artifacts emitted by a run event.",
+        "description": "Includes the latest revision of each published file and its authenticated download path.\nPublished files remain available when the run pauses or fails.",
         "operationId": "seren_cloud_run_artifacts",
         "parameters": [
           {
@@ -11903,7 +12173,7 @@
         "properties": {
           "allow_always": {
             "type": "boolean",
-            "description": "Whether the caller may choose standing approval for this pending request.\nEach email send requires an individual approval. Decisions recheck availability."
+            "description": "Whether the caller may choose standing approval for this pending request.\nNew email destinations require the exact message's approval. Decisions recheck availability."
           },
           "always_ask": {
             "oneOf": [
@@ -11932,6 +12202,13 @@
                 "description": "The exact publisher request the model is waiting to send. Its `request`\nis present only when it reproduces `payload_digest`; an entry served\nwithout it is not reviewable and `allow_always` is false. Its\n`operation` is present while the current review matches the hold's\nbinding. A message body or request value is untrusted content and must\nbe displayed as text, never rendered as markup."
               }
             ]
+          },
+          "new_recipients": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Unconfirmed email destinations, as bare addresses, on this hire."
           },
           "reason": {
             "type": [
@@ -11981,7 +12258,7 @@
               },
               {
                 "$ref": "#/components/schemas/ManagedStorageWorkspaceRequest",
-                "description": "Workspace policy is not accepted by the storage-attachment endpoint."
+                "description": "Optional workspace snapshot settings for a self-deployed managed agent."
               }
             ]
           }
@@ -12202,7 +12479,7 @@
       },
       "CloudConversationMessageFile": {
         "type": "object",
-        "description": "A file a conversation message cited.",
+        "description": "A file attached to a conversation message.",
         "required": [
           "file_id",
           "name",
@@ -12293,7 +12570,7 @@
             "items": {
               "$ref": "#/components/schemas/CloudConversationMessageFile"
             },
-            "description": "Files the message cited; empty when it cited none."
+            "description": "Files cited by a user or the latest files published by an assistant turn.\nPublished files remain available when the turn pauses or fails."
           },
           "message_id": {
             "type": "string",
@@ -13529,6 +13806,22 @@
             ]
           },
           "user_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "CloudDeploymentRunCompletionResponse": {
+        "type": "object",
+        "required": [
+          "accepted",
+          "run_id"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          },
+          "run_id": {
             "type": "string",
             "format": "uuid"
           }
@@ -15890,12 +16183,14 @@
           "conversation_busy",
           "conversation_awaiting_approval",
           "managed_output_empty",
+          "conversation_persistence_failed",
           "budget_reached",
           "operator_stop",
           "approval_expired",
           "runtime_missing",
           "runtime_outdated",
           "runtime_error",
+          "iteration_limit",
           "timeout",
           "unknown"
         ]
@@ -18008,6 +18303,33 @@
         },
         "additionalProperties": false
       },
+      "CreateWorkspaceUpload": {
+        "type": "object",
+        "required": [
+          "byte_length",
+          "sha256",
+          "crc32c"
+        ],
+        "properties": {
+          "byte_length": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "crc32c": {
+            "type": "string"
+          },
+          "part_crc32c": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "DataResponse_AgentCredentialSecret": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -19327,6 +19649,42 @@
                 ],
                 "format": "int32",
                 "description": "`current_passed - baseline_passed` when both sides are present."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudDeploymentRunCompletionResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "accepted",
+              "run_id"
+            ],
+            "properties": {
+              "accepted": {
+                "type": "boolean"
+              },
+              "run_id": {
+                "type": "string",
+                "format": "uuid"
               }
             }
           },
@@ -22682,6 +23040,13 @@
                     "$ref": "#/components/schemas/ManagedStorageWorkspaceRequest"
                   }
                 ]
+              },
+              "workspace_notice": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Information about workspace snapshots for this managed agent."
               }
             }
           },
@@ -24437,6 +24802,110 @@
           }
         }
       },
+      "DataResponse_WorkspaceSnapshot": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "organization_id",
+              "bucket_id",
+              "bucket_slug",
+              "deployment_id",
+              "object",
+              "archive_sha256",
+              "file_count",
+              "uncompressed_bytes",
+              "status",
+              "created_by_user_id",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "archive_sha256": {
+                "type": "string"
+              },
+              "base_snapshot_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "bucket_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "bucket_slug": {
+                "type": "string"
+              },
+              "created_at": {
+                "$ref": "#/components/schemas/StorageTimestamp"
+              },
+              "created_by_user_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "file_count": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "object": {
+                "$ref": "#/components/schemas/StorageObject"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "retired_at": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/StorageTimestamp"
+                  }
+                ]
+              },
+              "status": {
+                "$ref": "#/components/schemas/WorkspaceSnapshotStatus"
+              },
+              "uncompressed_bytes": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "updated_at": {
+                "$ref": "#/components/schemas/StorageTimestamp"
+              }
+            },
+            "additionalProperties": false
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_WorkspaceSnapshotDownload": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -24473,6 +24942,128 @@
               }
             },
             "additionalProperties": false
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_WorkspaceSnapshotFailureAccepted": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "accepted"
+            ],
+            "properties": {
+              "accepted": {
+                "type": "boolean"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_WorkspaceUpload": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "object_id",
+                  "upload_url",
+                  "upload_headers",
+                  "upload_expires_at",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "single"
+                    ]
+                  },
+                  "object_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "upload_expires_at": {
+                    "$ref": "#/components/schemas/StorageTimestamp"
+                  },
+                  "upload_headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "type": "string"
+                    }
+                  },
+                  "upload_url": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "object_id",
+                  "parts",
+                  "upload_expires_at",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "multipart"
+                    ]
+                  },
+                  "object_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "parts": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/WorkspaceUploadPart"
+                    }
+                  },
+                  "upload_expires_at": {
+                    "$ref": "#/components/schemas/StorageTimestamp"
+                  }
+                }
+              }
+            ]
           },
           "pagination": {
             "oneOf": [
@@ -26124,7 +26715,7 @@
         "properties": {
           "charge": {
             "$ref": "#/components/schemas/RunFeeCharge",
-            "description": "`fee` adds the kind's service fee to recorded cost; `cost_only` bills recorded cost alone."
+            "description": "`fee` includes the service fee; `cost_only` bills running cost; `free` bills nothing."
           },
           "run_kind": {
             "type": "string"
@@ -26382,6 +26973,22 @@
             "format": "int64",
             "description": "Current task service fee plus average completed-run running cost,\nor the average alone for a cost kind. Not a measured full-task total."
           },
+          "average_task_atomic": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Average billable running cost of a finished task; null below ten tasks."
+          },
+          "average_task_price_atomic": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Current service fee once plus average finished-task running cost, or the\naverage alone for a cost kind; null below ten tasks."
+          },
           "computed_at": {
             "type": "string",
             "format": "date-time"
@@ -26412,6 +27019,14 @@
             "type": "integer",
             "format": "int32",
             "description": "Runs measured in the window."
+          },
+          "tasks": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Finished tasks measured; null below ten tasks."
           },
           "window_days": {
             "type": "integer",
@@ -27709,6 +28324,13 @@
                 "$ref": "#/components/schemas/ManagedStorageWorkspaceRequest"
               }
             ]
+          },
+          "workspace_notice": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Information about workspace snapshots for this managed agent."
           }
         }
       },
@@ -28412,6 +29034,45 @@
           "unknown"
         ]
       },
+      "RegisterWorkspaceSnapshot": {
+        "type": "object",
+        "required": [
+          "object_id",
+          "archive_sha256",
+          "file_count",
+          "uncompressed_bytes",
+          "retention_count"
+        ],
+        "properties": {
+          "archive_sha256": {
+            "type": "string"
+          },
+          "base_snapshot_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "file_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "object_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "retention_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "uncompressed_bytes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
       "RequirementSource": {
         "type": "string",
         "description": "Where a deployment requirement should be satisfied from.",
@@ -28467,12 +29128,60 @@
         "description": "How much of a reserved fee a run's ending charges.",
         "enum": [
           "fee",
-          "cost_only"
+          "cost_only",
+          "free"
         ]
       },
       "RunFileContent": {
         "type": "string",
         "format": "binary"
+      },
+      "RuntimeDispatchKind": {
+        "type": "string",
+        "description": "One submission operation authorized by Core for its exact execution.",
+        "enum": [
+          "execute",
+          "resume"
+        ]
+      },
+      "RuntimeDispatchRequest": {
+        "type": "object",
+        "required": [
+          "run_event_id",
+          "execution_id",
+          "submission_token",
+          "kind"
+        ],
+        "properties": {
+          "deployment_revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "execution_id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/RuntimeDispatchKind"
+          },
+          "run_event_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "runtime_release_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "submission_token": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
       },
       "RuntimeReconcileRejectionKind": {
         "type": "string",
@@ -29851,12 +30560,170 @@
         },
         "additionalProperties": false
       },
+      "WorkspaceSnapshotFailureAccepted": {
+        "type": "object",
+        "required": [
+          "accepted"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          }
+        }
+      },
+      "WorkspaceSnapshotFailurePhase": {
+        "type": "string",
+        "enum": [
+          "stop",
+          "periodic"
+        ]
+      },
+      "WorkspaceSnapshotFailureReport": {
+        "type": "object",
+        "required": [
+          "phase",
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/WorkspaceSnapshotFailurePhase"
+          }
+        },
+        "additionalProperties": false
+      },
+      "WorkspaceSnapshotFailureRequest": {
+        "type": "object",
+        "required": [
+          "core_dispatch",
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "core_dispatch": {
+            "$ref": "#/components/schemas/RuntimeDispatchRequest"
+          }
+        }
+      },
       "WorkspaceSnapshotStatus": {
         "type": "string",
         "enum": [
           "active",
           "retired"
         ]
+      },
+      "WorkspaceUpload": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "object_id",
+              "upload_url",
+              "upload_headers",
+              "upload_expires_at",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "single"
+                ]
+              },
+              "object_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "upload_expires_at": {
+                "$ref": "#/components/schemas/StorageTimestamp"
+              },
+              "upload_headers": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                }
+              },
+              "upload_url": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "object_id",
+              "parts",
+              "upload_expires_at",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "multipart"
+                ]
+              },
+              "object_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "parts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceUploadPart"
+                }
+              },
+              "upload_expires_at": {
+                "$ref": "#/components/schemas/StorageTimestamp"
+              }
+            }
+          }
+        ]
+      },
+      "WorkspaceUploadPart": {
+        "type": "object",
+        "required": [
+          "part_number",
+          "byte_length",
+          "upload_url",
+          "upload_headers"
+        ],
+        "properties": {
+          "byte_length": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "part_number": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "upload_headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "upload_url": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       }
     },
     "securitySchemes": {

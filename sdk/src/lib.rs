@@ -2231,6 +2231,11 @@ mod tests {
                 Some(CloudRunErrorCode::ConversationAwaitingApproval),
                 false,
             ),
+            (
+                "conversation_persistence_failed",
+                Some(CloudRunErrorCode::ConversationPersistenceFailed),
+                true,
+            ),
             ("conversation_unrecognized", None, false),
         ] {
             assert_eq!(
