@@ -23,6 +23,7 @@ serde = { workspace = true }
 serde_json = { workspace = true, features = ["arbitrary_precision"] }
 thiserror = { workspace = true }
 base62 = { workspace = true }
+base64 = { workspace = true }
 futures = { workspace = true }
 progenitor-client = { workspace = true }
 jiff = { workspace = true }

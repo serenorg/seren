@@ -27,6 +27,7 @@ mod generated {
 mod config;
 mod examples;
 mod models;
+mod publisher_gateway;
 mod query_error;
 mod shared;
 mod storage_gateway;
@@ -52,6 +53,7 @@ pub use examples::*;
 
 // Re-export additional model types
 pub use models::*;
+pub use publisher_gateway::{PublisherError, publisher_bytes_result, publisher_result};
 pub use query_error::*;
 pub use shared::*;
 pub use storage_gateway::{StoragePublisherError, storage_publisher_result};

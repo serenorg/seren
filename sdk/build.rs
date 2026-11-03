@@ -1128,6 +1128,28 @@ fn normalize_datetime_types(syntax: &mut syn::File) {
     DateTimeNormalizer.visit_file_mut(syntax);
 }
 
+// Skills has an unconstrained Value response. A gateway must trigger recovery
+// rather than deserialize successfully as publisher data.
+fn guard_publisher_value_response(syntax: &mut syn::File) {
+    use syn::visit_mut::VisitMut;
+    struct Guard;
+    impl VisitMut for Guard {
+        fn visit_item_struct_mut(&mut self, item: &mut syn::ItemStruct) {
+            if item.ident == "DataResponseValue" {
+                for field in &mut item.fields {
+                    if field.ident.as_ref().is_some_and(|name| name == "data") {
+                        field.attrs.push(syn::parse_quote!(
+                            #[serde(deserialize_with = "crate::publisher_gateway::deserialize_direct_data")]
+                        ));
+                    }
+                }
+            }
+            syn::visit_mut::visit_item_struct_mut(self, item);
+        }
+    }
+    Guard.visit_file_mut(syntax);
+}
+
 fn main() -> anyhow::Result<()> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let openapi_dir = manifest_dir.join("openapi");
@@ -1228,6 +1250,22 @@ fn main() -> anyhow::Result<()> {
 
     strip_error_response_content(&mut raw_json);
     preserve_diagnostic_error_responses(&mut raw_json)?;
+    // Notes documents binary downloads but omits content schemas. Preserve the
+    // body as a stream, just as Progenitor already does for Skills' skill.md.
+    for path in [
+        "/publishers/seren-notes/attachments/{attachment_id}/data",
+        "/publishers/seren-notes/attachments/{attachment_id}/thumbnail",
+    ] {
+        let response = raw_json["paths"][path]["get"]["responses"]["200"]
+            .as_object_mut()
+            .context("missing Notes binary response")?;
+        response.insert(
+            "content".into(),
+            serde_json::json!({
+                "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
+            }),
+        );
+    }
     normalize_binary_content_schemas(&mut raw_json);
     remove_unsupported_operations(&mut raw_json)?;
 
@@ -1309,6 +1347,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut syntax: syn::File = syn::parse2(tokens)?;
     normalize_datetime_types(&mut syntax);
+    guard_publisher_value_response(&mut syntax);
     let formatted = prettyplease::unparse(&syntax);
 
     // Preserve status, headers, and body for every documented HTTP error.
