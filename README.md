@@ -48,7 +48,7 @@ graph TB
 
 ## Skill Ecosystem
 
-Seren skills are installable capability packs for coding agents. The `seren` CLI pulls from a public registry ([serenorg/seren-skills](https://github.com/serenorg/seren-skills)) and installs a skill into the skills directory of whatever agent you use - Claude Code, Codex, Cursor, Gemini, GitHub Copilot, Windsurf, and more - so one skill works across agents instead of being tied to a single assistant. Many skills are built around Seren publishers, so an installed skill teaches an agent to call that integration, run SQL, or drive a managed agent through the Seren backend.
+Seren skills are installable capability packs for coding agents. The `seren` CLI reads the public Seren skills catalog (the `seren-skills` publisher at `https://api.serendb.com/publishers/seren-skills`), with no login, and installs a skill into the skills directory of whatever agent you use - Claude Code, Codex, Cursor, Gemini, GitHub Copilot, Windsurf, and more - so one skill works across agents instead of being tied to a single assistant. Many skills are built around Seren publishers, so an installed skill teaches an agent to call that integration, run SQL, or drive a managed agent through the Seren backend.
 
 ```bash
 seren skills search issues              # discover skills in the registry
@@ -85,15 +85,17 @@ After authorization, ask your assistant to deploy managed agents, review cloud r
 ### Install and Use the CLI
 
 ```bash
-cargo install --git https://github.com/serenorg/seren.git --package seren-cli
+cargo install --git https://github.com/serenorg/seren.git seren-cli
 
 seren auth login
 seren -o json agent cloud overview
 seren skills search issues
 seren projects list
-seren projects create --name my-project --region aws-us-east-1
-seren branches --project-id <project-id> create --name dev
+PROJECT_ID=$(seren -o json projects create --name my-project --region us-east-1 | jq -r '.id')
+seren branches --project-id "$PROJECT_ID" create --name dev
 ```
+
+The quick start uses [`jq`](https://jqlang.org/) to save the new project's ID in `PROJECT_ID`.
 
 See [cli/README.md](./cli/README.md) for the command reference and common workflows.
 

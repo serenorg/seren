@@ -180,7 +180,7 @@ pub async fn init(
                 Cell::new(if result.pooled { "yes" } else { "no" }),
             ]);
 
-            println!("{table}");
+            output::print_table(&mut table);
         }
     }
 

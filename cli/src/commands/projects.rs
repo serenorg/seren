@@ -84,14 +84,15 @@ pub async fn create(
         .map_err(|e| anyhow::anyhow!("Failed to create project: {}", e))?;
 
     let project = response.into_inner();
-    println!("{}", "✓ Project created successfully!".green().bold());
-    println!();
+    // Status lines go to stderr so `-o json` output stays valid JSON on stdout.
+    eprintln!("{}", "✓ Project created successfully!".green().bold());
+    eprintln!();
     output::print_create_project_response(&project.data, ctx.format)?;
 
     // Set context if requested
     if set_context {
         crate::config::set_context_project(&project.data.id.to_string())?;
-        println!(
+        eprintln!(
             "{}",
             format!("✓ Set project '{}' as current context", project.data.name).green()
         );

@@ -183,7 +183,7 @@ pub async fn list_all(project_id: Option<&str>, ctx: &CommandContext) -> Result<
                     ]);
                 }
 
-                println!("{table}");
+                output::print_table(&mut table);
                 println!();
                 println!(
                     "{}",

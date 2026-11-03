@@ -1,5 +1,5 @@
 use colored::Colorize;
-use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
+use comfy_table::{Cell, Color, ColumnConstraint, ContentArrangement, Table, presets::UTF8_FULL};
 use serde::Serialize;
 
 use crate::OutputFormat;
@@ -36,6 +36,47 @@ pub fn print_json<T: Serialize + ?Sized>(data: &T) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Keep every ID column whole so a copied ID is never split across lines.
+///
+/// A column counts as an ID column when its header ends in "ID" or any of its
+/// cells holds a UUID. Other columns still wrap to fit the terminal.
+pub fn keep_id_columns_whole(table: &mut Table) {
+    let mut id_columns = vec![false; table.column_count()];
+    if let Some(header) = table.header() {
+        for (index, cell) in header.cell_iter().enumerate() {
+            let text = cell.content();
+            let text = text.trim();
+            if text == "ID" || text.ends_with(" ID") || text.ends_with(" Id") {
+                id_columns[index] = true;
+            }
+        }
+    }
+    for row in table.row_iter() {
+        for (index, cell) in row.cell_iter().enumerate() {
+            if index < id_columns.len()
+                && !id_columns[index]
+                && cell
+                    .content()
+                    .split_whitespace()
+                    .any(|token| uuid::Uuid::parse_str(token).is_ok())
+            {
+                id_columns[index] = true;
+            }
+        }
+    }
+    for (column, keep) in table.column_iter_mut().zip(id_columns) {
+        if keep {
+            column.set_constraint(ColumnConstraint::ContentWidth);
+        }
+    }
+}
+
+/// Print a table with its ID columns kept whole.
+pub fn print_table(table: &mut Table) {
+    keep_id_columns_whole(table);
+    println!("{table}");
+}
+
 pub fn print_key_value_table(title: Option<&str>, rows: &[(&str, String)]) {
     let mut table = Table::new();
     table
@@ -56,7 +97,7 @@ pub fn print_key_value_table(title: Option<&str>, rows: &[(&str, String)]) {
     {
         println!("{}", title.bold());
     }
-    println!("{table}");
+    print_table(&mut table);
 }
 
 pub fn print_list_table<T: std::fmt::Display>(title: Option<&str>, header: &str, items: &[T]) {
@@ -80,7 +121,7 @@ pub fn print_list_table<T: std::fmt::Display>(title: Option<&str>, header: &str,
     {
         println!("{}", title.bold());
     }
-    println!("{table}");
+    print_table(&mut table);
 }
 
 pub fn print_cloud_run_replay_comparison(
@@ -167,7 +208,7 @@ pub fn print_cloud_run_replay_comparison(
                 Cell::new(render_json_value(&field.candidate)),
             ]);
         }
-        println!("{table}");
+        print_table(&mut table);
     }
 
     if let Some(mismatch) = &comparison.first_event_mismatch {
@@ -259,7 +300,7 @@ pub fn print_projects_table(projects: &[seren::Project]) {
         ]);
     }
 
-    println!("{table}");
+    print_table(&mut table);
 }
 
 pub fn print_project(project: &seren::Project, format: OutputFormat) -> anyhow::Result<()> {
@@ -314,7 +355,7 @@ pub fn print_project(project: &seren::Project, format: OutputFormat) -> anyhow::
                 Cell::new(project.updated_at.to_string()),
             ]);
 
-            println!("{table}");
+            print_table(&mut table);
         }
     }
     Ok(())
@@ -371,7 +412,7 @@ pub fn print_create_project_response(
                 Cell::new(project.created_at.to_string()),
             ]);
 
-            println!("{table}");
+            print_table(&mut table);
         }
     }
     Ok(())
@@ -411,7 +452,7 @@ pub fn print_branches_table(branches: &[seren::Branch]) {
         ]);
     }
 
-    println!("{table}");
+    print_table(&mut table);
 }
 
 pub fn print_branch(branch: &seren::Branch, format: OutputFormat) -> anyhow::Result<()> {
@@ -468,7 +509,7 @@ pub fn print_branch(branch: &seren::Branch, format: OutputFormat) -> anyhow::Res
                 Cell::new(branch.created_at.to_string()),
             ]);
 
-            println!("{table}");
+            print_table(&mut table);
         }
     }
     Ok(())
@@ -502,7 +543,7 @@ pub fn print_databases_table(databases: &[seren::DatabaseWithOwner]) {
         ]);
     }
 
-    println!("{table}");
+    print_table(&mut table);
 }
 
 // Billing: usage summaries
@@ -574,7 +615,7 @@ pub fn print_usage_summaries_table(summaries: &[seren::UsageSummary]) {
     }
 
     println!("{}", "Usage Summary".bold());
-    println!("{table}");
+    print_table(&mut table);
     if grand_total_parse_failed {
         println!(
             "\n{}",
@@ -640,7 +681,7 @@ pub fn print_payment_methods_table(methods: &[seren::PaymentMethod]) {
     }
 
     println!("{}", "Payment Methods".bold());
-    println!("{table}");
+    print_table(&mut table);
 }
 
 // Billing: health summary
@@ -687,7 +728,7 @@ pub fn print_billing_health_table(health: &seren::DataResponseBillingHealth) {
     ]);
 
     println!("{}", "Billing Health".bold());
-    println!("{table}");
+    print_table(&mut table);
 
     if !health.data.jobs.is_empty() {
         let mut jobs_table = Table::new();
@@ -785,7 +826,7 @@ pub fn print_publishers_table(publishers: &[seren::PublisherResponse]) {
     }
 
     println!("{}", "Store Publishers".bold());
-    println!("{table}");
+    print_table(&mut table);
 }
 
 fn format_usd_cents(amount_cents: i64) -> String {
@@ -826,7 +867,7 @@ pub fn print_wallet_transfers_table(transfers: &[seren::WalletTransferListItem])
     }
 
     println!("{}", "Wallet Transfers".bold());
-    println!("{table}");
+    print_table(&mut table);
 }
 
 pub fn print_store_publisher(
@@ -907,7 +948,7 @@ pub fn print_store_publisher(
             ]);
 
             println!("{}", "Publisher Details".bold());
-            println!("{table}");
+            print_table(&mut table);
 
             if let Some(pricing) = &publisher.pricing
                 && !pricing.is_empty()
@@ -983,7 +1024,7 @@ pub fn print_database(
                 Cell::new(database.created_at.to_string()),
             ]);
 
-            println!("{table}");
+            print_table(&mut table);
         }
     }
     Ok(())
@@ -1017,7 +1058,7 @@ pub fn print_roles_table(roles: &[seren::RoleInfo]) {
         ]);
     }
 
-    println!("{table}");
+    print_table(&mut table);
 }
 
 pub fn print_role_with_password(
@@ -1048,7 +1089,7 @@ pub fn print_role_with_password(
                 Cell::new(role.data.created_at.to_string()),
             ]);
 
-            println!("{table}");
+            print_table(&mut table);
         }
     }
     Ok(())
@@ -1089,7 +1130,7 @@ pub fn print_endpoints_table(endpoints: &[seren::EndpointResponse]) {
         ]);
     }
 
-    println!("{table}");
+    print_table(&mut table);
 }
 
 pub fn print_endpoint(
@@ -1142,7 +1183,7 @@ pub fn print_endpoint(
                 Cell::new(endpoint.created_at.to_string()),
             ]);
 
-            println!("{table}");
+            print_table(&mut table);
         }
     }
     Ok(())
@@ -1186,7 +1227,7 @@ pub fn print_create_endpoint_response(
                 Cell::new(endpoint.created_at.to_string()),
             ]);
 
-            println!("{table}");
+            print_table(&mut table);
         }
     }
     Ok(())
@@ -1225,7 +1266,7 @@ pub fn print_connection_string(
             ]);
             table.add_row(vec![Cell::new("Connection String"), Cell::new(&active)]);
 
-            println!("{table}");
+            print_table(&mut table);
         }
     }
     Ok(())
@@ -1273,7 +1314,7 @@ pub fn print_created_endpoints(
             }
 
             println!("{}", "Provisioned Endpoints".green().bold());
-            println!("{table}");
+            print_table(&mut table);
         }
     }
 
@@ -1329,7 +1370,7 @@ pub fn print_operations_table(operations: &serde_json::Value) {
         ]);
     }
 
-    println!("{table}");
+    print_table(&mut table);
 }
 
 pub fn print_operation(operation: &serde_json::Value, format: OutputFormat) -> anyhow::Result<()> {
@@ -1393,7 +1434,7 @@ pub fn print_operation(operation: &serde_json::Value, format: OutputFormat) -> a
                 table.add_row(vec!["Metadata", &metadata_str]);
             }
 
-            println!("{table}");
+            print_table(&mut table);
         }
     }
 
@@ -1426,7 +1467,7 @@ pub fn print_user(user: &seren::DataResponseUserMe) -> anyhow::Result<()> {
         Cell::new(user.data.created_at.to_string()),
     ]);
 
-    println!("{table}");
+    print_table(&mut table);
     Ok(())
 }
 
@@ -1458,7 +1499,7 @@ pub fn print_organizations_table(organizations: &[seren::Organization]) {
         ]);
     }
 
-    println!("{table}");
+    print_table(&mut table);
 }
 
 pub fn print_organization_memberships_table(memberships: &[seren::OrganizationMembership]) {
@@ -1490,7 +1531,7 @@ pub fn print_organization_memberships_table(memberships: &[seren::OrganizationMe
         ]);
     }
 
-    println!("{table}");
+    print_table(&mut table);
 }
 
 // IP Allow Lists
@@ -1521,7 +1562,7 @@ pub fn print_ip_allow_list_table(ips: &[seren::IpAllowList]) {
         ]);
     }
 
-    println!("{table}");
+    print_table(&mut table);
 }
 
 // VPC Endpoints
@@ -1556,7 +1597,7 @@ pub fn print_org_vpc_endpoints_table(endpoints: &[seren::OrganizationVpcEndpoint
         ]);
     }
 
-    println!("{table}");
+    print_table(&mut table);
 }
 
 pub fn print_project_vpc_endpoints_table(assignments: &serde_json::Value) {
@@ -1600,7 +1641,7 @@ pub fn print_project_vpc_endpoints_table(assignments: &serde_json::Value) {
         ]);
     }
 
-    println!("{table}");
+    print_table(&mut table);
 }
 
 // Sessions
@@ -1633,7 +1674,7 @@ pub fn print_sessions_table(sessions: &[seren::Session]) {
         ]);
     }
 
-    println!("{table}");
+    print_table(&mut table);
 }
 
 // Webhooks
@@ -1668,7 +1709,7 @@ pub fn print_webhooks_table(webhooks: &[seren::WebhookInfo]) {
         ]);
     }
 
-    println!("{table}");
+    print_table(&mut table);
 }
 
 pub fn print_webhook_deliveries_table(deliveries: &[seren::WebhookDelivery]) {
@@ -1719,7 +1760,7 @@ pub fn print_webhook_deliveries_table(deliveries: &[seren::WebhookDelivery]) {
         ]);
     }
 
-    println!("{table}");
+    print_table(&mut table);
 }
 
 // Audit Logs
@@ -1764,7 +1805,7 @@ pub fn print_audit_logs_table(logs: &[seren::AuditLog]) {
         ]);
     }
 
-    println!("{table}");
+    print_table(&mut table);
 }
 
 // RBAC Roles
@@ -1806,7 +1847,7 @@ pub fn print_rbac_roles_table(roles: &[seren::RbacRole]) {
         ]);
     }
 
-    println!("{table}");
+    print_table(&mut table);
 }
 
 pub fn print_permissions_table(permissions: &[seren::Permission]) {
@@ -1836,7 +1877,7 @@ pub fn print_permissions_table(permissions: &[seren::Permission]) {
         ]);
     }
 
-    println!("{table}");
+    print_table(&mut table);
 }
 
 // Branch Protection
@@ -1877,7 +1918,7 @@ pub fn print_branch_protection_table(rules: &[seren::BranchProtection]) {
         ]);
     }
 
-    println!("{table}");
+    print_table(&mut table);
 }
 
 // Logical Replication - Publications
@@ -1913,7 +1954,7 @@ pub fn print_publications_table(publications: &[seren::PublicationInfo]) {
         ]);
     }
 
-    println!("{table}");
+    print_table(&mut table);
 }
 
 // Logical Replication - Slots
@@ -1948,7 +1989,7 @@ pub fn print_replication_slots_table(slots: &[seren::ReplicationSlotInfo]) {
         ]);
     }
 
-    println!("{table}");
+    print_table(&mut table);
 }
 
 // Schema Diff
@@ -2214,7 +2255,7 @@ pub fn print_agent_balance_summary(summary: &serde_json::Value) {
 
             println!();
             println!("{}", "Balances by Asset".bold());
-            println!("{table}");
+            print_table(&mut table);
         }
         _ => println!("No balances found"),
     }
@@ -2299,7 +2340,7 @@ pub fn print_agent_publisher_balances(balances: &serde_json::Value) {
 
     println!();
     println!("{}", "Balances".bold());
-    println!("{table}");
+    print_table(&mut table);
 }
 
 pub fn print_invoice(invoice: &seren::Invoice) {
@@ -2382,4 +2423,67 @@ pub fn print_balance(result: &serde_json::Value) {
     let rows = [("Balance", balance)];
 
     print_key_value_table(Some("Balance"), &rows);
+}
+
+#[cfg(test)]
+mod id_column_tests {
+    use super::*;
+
+    const ID: &str = "4d5c2f1e-9b8a-4c3d-8e7f-0a1b2c3d4e5f";
+
+    fn projects_like_table() -> Table {
+        let mut table = Table::new();
+        table
+            .load_style(UTF8_FULL)
+            .set_content_arrangement(ContentArrangement::Dynamic)
+            .set_width(100);
+        table.set_header(vec![
+            "ID", "Name", "Region", "Status", "Branches", "Created", "Updated", "Notes",
+        ]);
+        table.add_row(vec![
+            ID,
+            "my-project-with-a-long-name",
+            "us-east-1",
+            "active",
+            "3",
+            "2026-11-03T22:30:31Z",
+            "2026-11-03T22:30:31Z",
+            "some long free text that should wrap instead of the identifier",
+        ]);
+        table
+    }
+
+    #[test]
+    fn id_columns_stay_whole_at_100_columns() {
+        let mut table = projects_like_table();
+        keep_id_columns_whole(&mut table);
+        let rendered = table.to_string();
+        assert!(
+            rendered.lines().all(|line| line.chars().count() <= 100),
+            "{rendered}"
+        );
+        assert!(rendered.contains(ID), "{ID} was split:\n{rendered}");
+    }
+
+    #[test]
+    fn without_the_helper_the_id_wraps() {
+        // Guards the test above: the fixture is narrow enough to split an ID.
+        assert!(!projects_like_table().to_string().contains(ID));
+    }
+
+    #[test]
+    fn uuid_cells_mark_a_column_without_an_id_header() {
+        let mut table = Table::new();
+        table.set_header(vec!["Project", "Name"]);
+        table.add_row(vec![ID, "x"]);
+        keep_id_columns_whole(&mut table);
+        let constraints: Vec<_> = table
+            .column_iter()
+            .map(|c| c.constraint().cloned())
+            .collect();
+        assert_eq!(
+            constraints,
+            vec![Some(ColumnConstraint::ContentWidth), None]
+        );
+    }
 }
