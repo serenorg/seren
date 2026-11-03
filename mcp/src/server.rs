@@ -1472,6 +1472,9 @@ pub struct EndpointDefinitionParam {
     /// examples. Used by grants and tool_refs to name one row. Omit it otherwise.
     #[serde(default)]
     pub operation_id: Option<String>,
+    /// Optional absolute upstream URL template. Path parameters use the caller path's names.
+    #[serde(default)]
+    pub upstream_url: Option<String>,
     /// Request body schema (JSON Schema or simplified description)
     #[serde(default)]
     pub request_body: Option<serde_json::Value>,
@@ -1661,6 +1664,10 @@ fn endpoint_param_to_definition(
     // that share a method and path name distinct operations.
     if let Some(operation_id) = param.operation_id {
         endpoint["operation_id"] = serde_json::Value::String(operation_id);
+    }
+    // Sent only when declared and exactly as given; Core validates the template.
+    if let Some(upstream_url) = param.upstream_url {
+        endpoint["upstream_url"] = serde_json::Value::String(upstream_url);
     }
 
     serde_json::from_value(endpoint).map_err(|e| {
@@ -27161,6 +27168,7 @@ pub(crate) mod tests {
             access: None,
             operation_kind: None,
             operation_id: None,
+            upstream_url: None,
             request_body: None,
             response: None,
             example_request: None,
@@ -31235,6 +31243,68 @@ pub(crate) mod tests {
             assert_eq!(
                 body["endpoints"][0]["operation_kind"], kind,
                 "declared {kind}, sent {body}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn publisher_tools_send_an_upstream_url_only_when_declared() {
+        let organization_id = Uuid::from_u128(0x7631);
+        let publisher_id = Uuid::from_u128(0x7632);
+        let upstream_url = "https://places.example.com/v1/{place_id}";
+        for declared in [Some(upstream_url), None] {
+            let mut endpoint = search_endpoint(None);
+            if let Some(url) = declared {
+                endpoint["upstream_url"] = url.into();
+            }
+            let proxy = publisher_write_server(
+                "POST",
+                &format!("/organizations/{organization_id}/publishers"),
+                wiremock::ResponseTemplate::new(201)
+                    .set_body_json(caller_identity_publisher_response(publisher_id, None)),
+            )
+            .await;
+            let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+            let params = create_params_with_endpoint(organization_id, endpoint.clone());
+            server
+                .create_publisher(
+                    Parameters(serde_json::from_value(params).expect("create_publisher params")),
+                    extensions_with_headers(&[]),
+                )
+                .await
+                .expect("the publisher is created");
+            let body = only_request_body(&proxy).await;
+            assert_eq!(
+                body["endpoints"][0]
+                    .get("upstream_url")
+                    .and_then(Value::as_str),
+                declared,
+                "sent {body}"
+            );
+
+            let proxy = publisher_write_server(
+                "PUT",
+                &format!("/organizations/{organization_id}/publishers/{publisher_id}"),
+                wiremock::ResponseTemplate::new(200)
+                    .set_body_json(caller_identity_publisher_response(publisher_id, None)),
+            )
+            .await;
+            let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+            let params = update_params_with_endpoint(organization_id, publisher_id, endpoint);
+            server
+                .update_publisher(
+                    Parameters(serde_json::from_value(params).expect("update_publisher params")),
+                    extensions_with_headers(&[]),
+                )
+                .await
+                .expect("the publisher is updated");
+            let body = only_request_body(&proxy).await;
+            assert_eq!(
+                body["endpoints"][0]
+                    .get("upstream_url")
+                    .and_then(Value::as_str),
+                declared,
+                "sent {body}"
             );
         }
     }
@@ -38209,7 +38279,8 @@ pub(crate) mod tests {
     }
 
     /// Two real listings from Core's public Employee catalog
-    /// (`GET https://api.serendb.com/publishers/seren-agent/templates`, read on 2026-11-01).
+    /// (`GET https://api.serendb.com/publishers/seren-agent/templates`, read on 2026-11-01),
+    /// with the `intro_videos` list Core has sent alongside `intro_video` since.
     fn public_employee_catalog() -> Value {
         serde_json::json!({
             "data": [
@@ -38231,6 +38302,16 @@ pub(crate) mod tests {
                         "height": 716,
                         "duration_ms": 24107
                     },
+                    "intro_videos": [
+                        {
+                            "url": "/publishers/seren-agent/templates/camilla/intro-video?object_id=45df1fc4-aecb-4298-8994-b0515aa8adf1",
+                            "poster_url": "/publishers/seren-agent/templates/camilla/intro-video/poster?object_id=45df1fc4-aecb-4298-8994-b0515aa8adf1",
+                            "captions_url": "/publishers/seren-agent/templates/camilla/intro-video/captions?object_id=45df1fc4-aecb-4298-8994-b0515aa8adf1",
+                            "width": 480,
+                            "height": 716,
+                            "duration_ms": 24107
+                        }
+                    ],
                     "slug": "camilla",
                     "display_name": "Camilla Vale",
                     "publisher": {
@@ -38328,6 +38409,16 @@ pub(crate) mod tests {
                         "height": 1080,
                         "duration_ms": 23450
                     },
+                    "intro_videos": [
+                        {
+                            "url": "/publishers/seren-agent/templates/vera-hale/intro-video?object_id=8939df55-6922-4f02-b5e0-2bffa4899eae",
+                            "poster_url": "/publishers/seren-agent/templates/vera-hale/intro-video/poster?object_id=8939df55-6922-4f02-b5e0-2bffa4899eae",
+                            "captions_url": "/publishers/seren-agent/templates/vera-hale/intro-video/captions?object_id=8939df55-6922-4f02-b5e0-2bffa4899eae",
+                            "width": 720,
+                            "height": 1080,
+                            "duration_ms": 23450
+                        }
+                    ],
                     "slug": "vera-hale",
                     "display_name": "Vera Hale",
                     "publisher": {
