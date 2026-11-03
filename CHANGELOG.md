@@ -35,7 +35,7 @@ Seren Storage commands read real replies correctly again, plus Employee profile 
 ### Fixed
 
 - Seren Storage CLI commands and MCP tools no longer report failure on a healthy reply, because they now read the publisher gateway's reply.
-- Typed SDK Skills and Notes methods and MCP Seren Memory tools read replies inside the publisher gateway's envelope.
+- Typed SDK Notes methods and MCP Seren Memory tools read replies inside the publisher gateway's envelope. Typed SDK Skills methods read the envelope too, but still refuse production replies because of their timestamps.
 - Publisher refusals keep their status, code, and guidance in MCP, and prepaid refusals explain balances restricted to certain publishers.
 - MCP tolerates transient OAuth token-store failures and serves non-null OAuth route IDs. OAuth provider updates preserve which fields were sent.
 - The CLI reserves enough startup stack on Windows, honors JSON output for agent commands, names the right command in deployment status hints, and rejects incomplete eval gate settings.
@@ -48,6 +48,10 @@ Seren Storage commands read real replies correctly again, plus Employee profile 
 - Hosted Passwords setup verifies grant access before reporting it, and revokes the replaced agent and key.
 - Publisher dispatch is bound to one request's transport, and a caller's headers can't supply it.
 - MCP OAuth rejects unknown fields and keeps internal database errors out of client responses.
+
+### Known Issues
+
+- `seren agent managed-get` fails for a hired Employee with measured run costs, because Core's reply has fields the SDK doesn't accept yet. The same fault affects the MCP `list_seren_agent_deployments` and `get_seren_agent_deployment` tools.
 
 ## [0.10.0] - 2026-10-04
 
