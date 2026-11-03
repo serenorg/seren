@@ -18,7 +18,7 @@ pub struct StoragePublisherError {
 }
 
 impl StoragePublisherError {
-    fn new(kind: &'static str, status: Option<u16>) -> Self {
+    pub(crate) fn new(kind: &'static str, status: Option<u16>) -> Self {
         Self {
             kind,
             status,
@@ -50,7 +50,7 @@ fn safe_diagnostic(value: &Value) -> Option<String> {
     Some(result.chars().take(500).collect())
 }
 
-fn publisher_error(status: u16, body: Option<&Value>) -> StoragePublisherError {
+pub(crate) fn publisher_error(status: u16, body: Option<&Value>) -> StoragePublisherError {
     let mut error = StoragePublisherError::new("publisher_error", Some(status));
     if let Some(body) = body {
         error.error = body.get("error").and_then(safe_diagnostic);
