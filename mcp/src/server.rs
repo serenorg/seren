@@ -15130,6 +15130,7 @@ API endpoint: {endpoint}",
             token_exchange_mode: None,
             token_exchange_url: None,
             token_response_field: None,
+            usage_pricing: None,
         };
 
         let result = match api_client

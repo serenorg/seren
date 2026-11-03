@@ -2860,6 +2860,104 @@
         ]
       }
     },
+    "/deployments/{id}/email-recipients": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "List confirmed email destinations for an owned managed agent.",
+        "operationId": "seren_agent_list_managed_agent_email_recipients",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed destinations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_ConfirmedEmailRecipient"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/email-recipients/{recipient_id}": {
+      "delete": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Revoke a confirmed email destination for an owned managed agent.",
+        "operationId": "seren_agent_revoke_managed_agent_email_recipient",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "recipient_id",
+            "in": "path",
+            "description": "Recipient identifier",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revoked destination",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_RecipientRevocation"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Destination not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/feedback": {
       "post": {
         "tags": [
@@ -4857,6 +4955,104 @@
           },
           "409": {
             "description": "`managed_agent_proposal_not_applied`, `managed_agent_proposal_not_latest_applied`, or `managed_agent_proposal_revision_moved`"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/publisher-confirmations": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "List publisher confirmations for an owned managed agent.",
+        "operationId": "seren_agent_list_managed_agent_publisher_confirmations",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Publisher confirmations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_PublisherConfirmation"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/publisher-confirmations/{confirmation_id}": {
+      "delete": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Revoke a publisher confirmation for an owned managed agent.",
+        "operationId": "seren_agent_revoke_managed_agent_publisher_confirmation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "confirmation_id",
+            "in": "path",
+            "description": "Confirmation identifier",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revoked confirmation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_RecipientRevocation"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Confirmation not found"
           }
         },
         "security": [
@@ -11223,6 +11419,39 @@
         },
         "additionalProperties": false
       },
+      "ConfirmedEmailRecipient": {
+        "type": "object",
+        "required": [
+          "id",
+          "address",
+          "confirmed_by",
+          "confirmed_at"
+        ],
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "confirmed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "confirmed_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
       "ContinueBudgetRequest": {
         "type": "object",
         "required": [
@@ -12375,6 +12604,10 @@
               },
               "reconciliation": {
                 "$ref": "#/components/schemas/ManagedRuntimeReconciliationSummary"
+              },
+              "workspace_notice": {
+                "type": "string",
+                "description": "Information about workspace snapshots for this managed agent."
               }
             }
           },
@@ -13918,7 +14151,8 @@
               },
               "hours_of_work": {
                 "type": "integer",
-                "format": "int64"
+                "format": "int64",
+                "description": "Seed hours plus lifetime recorded work, rounded up, excluding always-on uptime."
               },
               "run_kinds": {
                 "type": "array",
@@ -14625,6 +14859,7 @@
               "operation_id",
               "binding_sha256",
               "created_by",
+              "granted_by",
               "created_at",
               "use_count",
               "status"
@@ -14651,6 +14886,9 @@
                   "null"
                 ],
                 "format": "date-time"
+              },
+              "granted_by": {
+                "$ref": "#/components/schemas/PublisherAllowanceGrantor"
               },
               "id": {
                 "type": "string",
@@ -15148,6 +15386,42 @@
               "id": {
                 "type": "string",
                 "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_RecipientRevocation": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "revoked"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "revoked": {
+                "type": "boolean"
               }
             }
           },
@@ -15884,6 +16158,62 @@
           }
         }
       },
+      "DataResponse_Vec_ConfirmedEmailRecipient": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "address",
+                "confirmed_by",
+                "confirmed_at"
+              ],
+              "properties": {
+                "address": {
+                  "type": "string"
+                },
+                "confirmed_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "confirmed_by": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "revoked_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_Vec_ManagedAgentDeploymentRevisionSummary": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -16374,6 +16704,7 @@
                 "example_tasks",
                 "works_in",
                 "pronouns",
+                "intro_videos",
                 "slug",
                 "display_name",
                 "publisher",
@@ -16447,6 +16778,13 @@
                       "description": "The intro video; null when unset or while the profile is suspended."
                     }
                   ]
+                },
+                "intro_videos": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateIntroVideoListing"
+                  },
+                  "description": "Every live intro video in the selected order, at most five."
                 },
                 "job_title": {
                   "oneOf": [
@@ -16658,6 +16996,7 @@
                 "operation_id",
                 "binding_sha256",
                 "created_by",
+                "granted_by",
                 "created_at",
                 "use_count",
                 "status"
@@ -16684,6 +17023,9 @@
                     "null"
                   ],
                   "format": "date-time"
+                },
+                "granted_by": {
+                  "$ref": "#/components/schemas/PublisherAllowanceGrantor"
                 },
                 "id": {
                   "type": "string",
@@ -16788,6 +17130,71 @@
                 },
                 "state": {
                   "$ref": "#/components/schemas/OrganizationInstructionState"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_PublisherConfirmation": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "publisher_id",
+                "publisher_slug",
+                "confirmed_by",
+                "confirmed_at",
+                "granted_by"
+              ],
+              "properties": {
+                "confirmed_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "confirmed_by": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "granted_by": {
+                  "$ref": "#/components/schemas/PublisherConfirmationGrantor"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "publisher_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "publisher_slug": {
+                  "type": "string"
+                },
+                "revoked_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
                 }
               }
             }
@@ -17389,6 +17796,7 @@
       "ManagedAgentActivitySummary": {
         "type": "object",
         "required": [
+          "hours_of_work",
           "total_run_count",
           "completed_run_count",
           "failed_run_count",
@@ -17429,6 +17837,11 @@
           "failed_run_count": {
             "type": "integer",
             "format": "int64"
+          },
+          "hours_of_work": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Lifetime recorded work, rounded up to whole hours, excluding always-on uptime."
           },
           "inference_cost_usd": {
             "type": "string"
@@ -18362,6 +18775,10 @@
           },
           "reconciliation": {
             "$ref": "#/components/schemas/ManagedRuntimeReconciliationSummary"
+          },
+          "workspace_notice": {
+            "type": "string",
+            "description": "Information about workspace snapshots for this managed agent."
           }
         }
       },
@@ -20785,6 +21202,22 @@
             "format": "int64",
             "description": "Current task service fee plus average completed-run running cost,\nor the average alone for a cost kind. Not a measured full-task total."
           },
+          "average_task_atomic": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Average billable running cost of a finished task; null below ten tasks."
+          },
+          "average_task_price_atomic": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Current service fee once plus average finished-task running cost, or the\naverage alone for a cost kind; null below ten tasks."
+          },
           "computed_at": {
             "type": "string",
             "format": "date-time"
@@ -20815,6 +21248,14 @@
             "type": "integer",
             "format": "int32",
             "description": "Runs measured in the window."
+          },
+          "tasks": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Finished tasks measured; null below ten tasks."
           },
           "window_days": {
             "type": "integer",
@@ -22114,6 +22555,7 @@
           "example_tasks",
           "works_in",
           "pronouns",
+          "intro_videos",
           "slug",
           "display_name",
           "publisher",
@@ -22187,6 +22629,13 @@
                 "description": "The intro video; null when unset or while the profile is suspended."
               }
             ]
+          },
+          "intro_videos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentTemplateIntroVideoListing"
+            },
+            "description": "Every live intro video in the selected order, at most five."
           },
           "job_title": {
             "oneOf": [
@@ -22629,7 +23078,8 @@
           },
           "hours_of_work": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "description": "Seed hours plus lifetime recorded work, rounded up, excluding always-on uptime."
           },
           "run_kinds": {
             "type": "array",
@@ -23998,6 +24448,7 @@
           "operation_id",
           "binding_sha256",
           "created_by",
+          "granted_by",
           "created_at",
           "use_count",
           "status"
@@ -24024,6 +24475,9 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "granted_by": {
+            "$ref": "#/components/schemas/PublisherAllowanceGrantor"
           },
           "id": {
             "type": "string",
@@ -24081,7 +24535,7 @@
         ],
         "properties": {
           "arguments": {
-            "description": "Exact tool arguments for standing authorization or an approved email batch.\nShares and outside sends require every grantee or recipient to belong\nto the deployment owner's organization."
+            "description": "Exact tool arguments for standing authorization or an approved email batch.\nShares and outside sends require every grantee or recipient to belong\nto the deployment owner's organization. Email sends also accept addresses\nthe owner previously confirmed for this deployment."
           },
           "execution_id": {
             "type": [
@@ -24095,6 +24549,10 @@
           },
           "publisher_slug": {
             "type": "string"
+          },
+          "read_only": {
+            "type": "boolean",
+            "description": "Classify the exact request as read-only without consulting standing authority."
           },
           "request": {
             "oneOf": [
@@ -25063,6 +25521,13 @@
           "invalidated"
         ]
       },
+      "PublisherAllowanceGrantor": {
+        "type": "string",
+        "enum": [
+          "owner",
+          "seren"
+        ]
+      },
       "PublisherAllowanceStatus": {
         "type": "string",
         "description": "`active` while the allowance can authorize an action; otherwise the first\nreason it cannot, in the order listed.",
@@ -25131,6 +25596,54 @@
           }
         ],
         "description": "The reviewed catalog definition of a held operation, in the form the owner\nreads. Core derives it from the definition that `binding_sha256`\nfingerprints when it serves the hold; the runtime never authors it."
+      },
+      "PublisherConfirmation": {
+        "type": "object",
+        "required": [
+          "id",
+          "publisher_id",
+          "publisher_slug",
+          "confirmed_by",
+          "confirmed_at",
+          "granted_by"
+        ],
+        "properties": {
+          "confirmed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "confirmed_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "granted_by": {
+            "$ref": "#/components/schemas/PublisherConfirmationGrantor"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "publisher_slug": {
+            "type": "string"
+          },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "PublisherConfirmationGrantor": {
+        "type": "string",
+        "enum": [
+          "owner"
+        ]
       },
       "PublisherConnectionConsentSetup": {
         "type": "object",
@@ -25377,6 +25890,22 @@
           }
         },
         "additionalProperties": false
+      },
+      "RecipientRevocation": {
+        "type": "object",
+        "required": [
+          "id",
+          "revoked"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revoked": {
+            "type": "boolean"
+          }
+        }
       },
       "RecordFeedbackRequest": {
         "type": "object",
