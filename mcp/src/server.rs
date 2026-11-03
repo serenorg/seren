@@ -6479,6 +6479,26 @@ where
         .map_err(|e| format!("invalid typed response in data.body: {e}"))
 }
 
+/// Decode Storage replies without exposing signed addresses in failures.
+async fn storage_publisher_result<T, E>(
+    operation: &'static str,
+    result: Result<seren::ResponseValue<T>, seren::Error<E>>,
+) -> Result<T, McpError>
+where
+    T: DeserializeOwned,
+    E: std::fmt::Debug,
+{
+    seren::storage_publisher_result(result)
+        .await
+        .map_err(|error| {
+            let mut data =
+                serde_json::to_value(&error).expect("Storage diagnostic is serializable");
+            data["publisher"] = serde_json::json!("seren-storage");
+            data["operation"] = serde_json::json!(operation);
+            McpError::internal_error(format!("{operation}: {error}"), Some(data))
+        })
+}
+
 /// Decode Memory's typed reply inside the publisher gateway without exposing payloads.
 async fn memory_publisher_result<T, E>(
     operation: &'static str,
@@ -7177,16 +7197,11 @@ async fn put_presigned_object_storage_object(
     let response = request
         .send()
         .await
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        .map_err(|e| McpError::internal_error(e.without_url().to_string(), None))?;
     if !response.status().is_success() {
         let status = response.status();
-        let body = response.text().await.unwrap_or_default();
         return Err(McpError::internal_error(
-            format!(
-                "Failed to upload object storage object: HTTP {} {}",
-                status,
-                truncate_for_client(&body, 1200)
-            ),
+            format!("Failed to upload object storage object: HTTP {status}"),
             None,
         ));
     }
@@ -11811,10 +11826,8 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client.seren_storage_health().await {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response =
+            storage_publisher_result("health", api_client.seren_storage_health().await).await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11827,10 +11840,11 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client.seren_storage_list_buckets().await {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = storage_publisher_result(
+            "list_buckets",
+            api_client.seren_storage_list_buckets().await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11844,20 +11858,20 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client
-            .seren_storage_list_objects(
-                &params.path.bucket_slug,
-                params.cursor.as_deref(),
-                None,
-                params.limit,
-                params.prefix.as_deref(),
-                None,
-            )
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = storage_publisher_result(
+            "list_objects",
+            api_client
+                .seren_storage_list_objects(
+                    &params.path.bucket_slug,
+                    params.cursor.as_deref(),
+                    None,
+                    params.limit,
+                    params.prefix.as_deref(),
+                    None,
+                )
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11876,13 +11890,13 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client
-            .seren_storage_create_upload(&params.path.bucket_slug, &params.body)
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = storage_publisher_result(
+            "create_upload",
+            api_client
+                .seren_storage_create_upload(&params.path.bucket_slug, &params.body)
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11916,25 +11930,26 @@ impl SerenMcpServer {
             .unwrap_or_else(|| "application/octet-stream".to_string());
 
         let api_client = self.api_client(&extensions)?;
-        let upload = match api_client
-            .seren_storage_create_upload(
-                &params.path.bucket_slug,
-                &seren::SerenStorageCreateObjectStorageUploadRequest {
-                    byte_length,
-                    checksum: seren::SerenStorageObjectStorageChecksum {
-                        algorithm: seren::SerenStorageObjectStorageChecksumAlgorithm::Sha256,
-                        value: sha256,
+        let upload = storage_publisher_result(
+            "create_upload",
+            api_client
+                .seren_storage_create_upload(
+                    &params.path.bucket_slug,
+                    &seren::SerenStorageCreateObjectStorageUploadRequest {
+                        byte_length,
+                        checksum: seren::SerenStorageObjectStorageChecksum {
+                            algorithm: seren::SerenStorageObjectStorageChecksumAlgorithm::Sha256,
+                            value: sha256,
+                        },
+                        content_type: Some(content_type),
+                        metadata,
+                        object_key: params.object_key,
                     },
-                    content_type: Some(content_type),
-                    metadata,
-                    object_key: params.object_key,
-                },
-            )
-            .await
-        {
-            Ok(response) => response.into_inner().data,
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+                )
+                .await,
+        )
+        .await?
+        .data;
 
         let etag = put_presigned_object_storage_object(
             &upload.upload_url,
@@ -11943,17 +11958,17 @@ impl SerenMcpServer {
         )
         .await?;
 
-        let response = match api_client
-            .seren_storage_confirm_upload(
-                &params.path.bucket_slug,
-                &upload.object.id,
-                &seren::SerenStorageConfirmObjectStorageUploadRequest { etag },
-            )
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = storage_publisher_result(
+            "confirm_upload",
+            api_client
+                .seren_storage_confirm_upload(
+                    &params.path.bucket_slug,
+                    &upload.object.id,
+                    &seren::SerenStorageConfirmObjectStorageUploadRequest { etag },
+                )
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11972,17 +11987,17 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client
-            .seren_storage_confirm_upload(
-                &params.path.bucket_slug,
-                &params.path.object_id,
-                &params.body,
-            )
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = storage_publisher_result(
+            "confirm_upload",
+            api_client
+                .seren_storage_confirm_upload(
+                    &params.path.bucket_slug,
+                    &params.path.object_id,
+                    &params.body,
+                )
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -11996,13 +12011,13 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client
-            .seren_storage_download_object(&params.path.bucket_slug, &params.object_key)
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = storage_publisher_result(
+            "download_object",
+            api_client
+                .seren_storage_download_object(&params.path.bucket_slug, &params.object_key)
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -12016,13 +12031,13 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client
-            .seren_storage_download_object_by_id(&params.bucket_slug, &params.object_id)
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = storage_publisher_result(
+            "download_object_by_id",
+            api_client
+                .seren_storage_download_object_by_id(&params.bucket_slug, &params.object_id)
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -12041,13 +12056,13 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client
-            .seren_storage_delete_object(&params.bucket_slug, &params.object_id)
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = storage_publisher_result(
+            "delete_object",
+            api_client
+                .seren_storage_delete_object(&params.bucket_slug, &params.object_id)
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -12061,13 +12076,13 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client
-            .seren_storage_list_bucket_agent_grants(&params.bucket_slug)
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = storage_publisher_result(
+            "list_bucket_agent_grants",
+            api_client
+                .seren_storage_list_bucket_agent_grants(&params.bucket_slug)
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -12086,19 +12101,19 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
         let api_client = self.api_client(&extensions)?;
-        let response = match api_client
-            .seren_storage_put_bucket_agent_grant(
-                &params.path.bucket_slug,
-                &params.agent_identity_id,
-                &seren::SerenStoragePutObjectStorageBucketAgentGrantRequest {
-                    permission: params.permission,
-                },
-            )
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(error) => return Err(seren_error_to_mcp_error(error).await),
-        };
+        let response = storage_publisher_result(
+            "put_bucket_agent_grant",
+            api_client
+                .seren_storage_put_bucket_agent_grant(
+                    &params.path.bucket_slug,
+                    &params.agent_identity_id,
+                    &seren::SerenStoragePutObjectStorageBucketAgentGrantRequest {
+                        permission: params.permission,
+                    },
+                )
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -12117,15 +12132,16 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
         let api_client = self.api_client(&extensions)?;
-        if let Err(error) = api_client
-            .seren_storage_delete_bucket_agent_grant(
-                &params.path.bucket_slug,
-                &params.agent_identity_id,
-            )
-            .await
-        {
-            return Err(seren_error_to_mcp_error(error).await);
-        }
+        storage_publisher_result(
+            "delete_bucket_agent_grant",
+            api_client
+                .seren_storage_delete_bucket_agent_grant(
+                    &params.path.bucket_slug,
+                    &params.agent_identity_id,
+                )
+                .await,
+        )
+        .await?;
         Ok(CallToolResult::success(vec![json_content(
             &serde_json::json!({
                 "revoked": params.agent_identity_id,
@@ -21406,6 +21422,8 @@ When Seren MCP is connected, follow these priorities:
 
 #[cfg(test)]
 pub(crate) mod tests {
+    include!("storage_gateway_tests.rs");
+
     use super::*;
 
     use anyhow::{Context, ensure};

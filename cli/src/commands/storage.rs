@@ -30,13 +30,11 @@ struct DownloadedObjectOutput {
 }
 
 pub async fn health(ctx: &CommandContext) -> Result<()> {
-    let response = ctx
-        .client()
-        .await?
-        .seren_storage_health()
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to get Seren Storage health: {error}"))?
-        .into_inner();
+    let response = storage_gateway_data(
+        ctx.client().await?.seren_storage_health().await,
+        "Failed to get Seren Storage health",
+    )
+    .await?;
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&response)?,
@@ -51,13 +49,11 @@ pub async fn health(ctx: &CommandContext) -> Result<()> {
 }
 
 pub async fn list_buckets(ctx: &CommandContext) -> Result<()> {
-    let response = ctx
-        .client()
-        .await?
-        .seren_storage_list_buckets()
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to list Seren Storage buckets: {error}"))?
-        .into_inner();
+    let response = storage_gateway_data(
+        ctx.client().await?.seren_storage_list_buckets().await,
+        "Failed to list Seren Storage buckets",
+    )
+    .await?;
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&response)?,
@@ -74,20 +70,21 @@ pub async fn list_objects(
     cursor: Option<String>,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let response = ctx
-        .client()
-        .await?
-        .seren_storage_list_objects(
-            bucket_slug,
-            cursor.as_deref(),
-            None,
-            limit,
-            prefix.as_deref(),
-            None,
-        )
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to list Seren Storage objects: {error}"))?
-        .into_inner();
+    let response = storage_gateway_data(
+        ctx.client()
+            .await?
+            .seren_storage_list_objects(
+                bucket_slug,
+                cursor.as_deref(),
+                None,
+                limit,
+                prefix.as_deref(),
+                None,
+            )
+            .await,
+        "Failed to list Seren Storage objects",
+    )
+    .await?;
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&response)?,
@@ -122,27 +119,30 @@ pub async fn upload_object(
     let content_type = content_type.unwrap_or_else(|| "application/octet-stream".to_string());
 
     let client = ctx.client().await?;
-    let upload = client
-        .seren_storage_create_upload(
-            bucket_slug,
-            &seren::SerenStorageCreateObjectStorageUploadRequest {
-                byte_length,
-                checksum: seren::SerenStorageObjectStorageChecksum {
-                    algorithm: seren::SerenStorageObjectStorageChecksumAlgorithm::Sha256,
-                    value: sha256,
+    let upload = storage_gateway_data(
+        client
+            .seren_storage_create_upload(
+                bucket_slug,
+                &seren::SerenStorageCreateObjectStorageUploadRequest {
+                    byte_length,
+                    checksum: seren::SerenStorageObjectStorageChecksum {
+                        algorithm: seren::SerenStorageObjectStorageChecksumAlgorithm::Sha256,
+                        value: sha256,
+                    },
+                    content_type: Some(content_type),
+                    metadata,
+                    object_key,
                 },
-                content_type: Some(content_type),
-                metadata,
-                object_key,
-            },
-        )
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to create Seren Storage upload: {error}"))?
-        .into_inner()
-        .data;
+            )
+            .await,
+        "Failed to create Seren Storage upload",
+    )
+    .await?
+    .data;
 
-    let put_response =
-        put_presigned_object(&upload.upload_url, &upload.upload_headers, bytes).await?;
+    let put_response = put_presigned_object(&upload.upload_url, &upload.upload_headers, bytes)
+        .await
+        .map_err(|_| anyhow::anyhow!("Failed to upload Seren Storage object"))?;
     let etag = put_response
         .headers()
         .get(ETAG)
@@ -150,15 +150,17 @@ pub async fn upload_object(
         .map(|value| value.trim().trim_matches('"').to_string())
         .filter(|value| !value.is_empty());
 
-    let confirmed = client
-        .seren_storage_confirm_upload(
-            bucket_slug,
-            &upload.object.id,
-            &seren::SerenStorageConfirmObjectStorageUploadRequest { etag },
-        )
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to confirm Seren Storage upload: {error}"))?
-        .into_inner();
+    let confirmed = storage_gateway_data(
+        client
+            .seren_storage_confirm_upload(
+                bucket_slug,
+                &upload.object.id,
+                &seren::SerenStorageConfirmObjectStorageUploadRequest { etag },
+            )
+            .await,
+        "Failed to confirm Seren Storage upload",
+    )
+    .await?;
 
     let result = UploadedObjectOutput {
         object: confirmed.data,
@@ -182,16 +184,19 @@ pub async fn download_object(
     output_path: PathBuf,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let download = ctx
-        .client()
-        .await?
-        .seren_storage_download_object(bucket_slug, object_key)
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to create Seren Storage download: {error}"))?
-        .into_inner()
-        .data;
+    let download = storage_gateway_data(
+        ctx.client()
+            .await?
+            .seren_storage_download_object(bucket_slug, object_key)
+            .await,
+        "Failed to create Seren Storage download",
+    )
+    .await?
+    .data;
 
-    let bytes = get_presigned_object(&download.download_url, &download.download_headers).await?;
+    let bytes = get_presigned_object(&download.download_url, &download.download_headers)
+        .await
+        .map_err(|_| anyhow::anyhow!("Failed to download Seren Storage object"))?;
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -222,17 +227,18 @@ pub async fn confirm_object(
     etag: Option<String>,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let response = ctx
-        .client()
-        .await?
-        .seren_storage_confirm_upload(
-            bucket_slug,
-            &object_id,
-            &seren::SerenStorageConfirmObjectStorageUploadRequest { etag },
-        )
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to confirm Seren Storage upload: {error}"))?
-        .into_inner();
+    let response = storage_gateway_data(
+        ctx.client()
+            .await?
+            .seren_storage_confirm_upload(
+                bucket_slug,
+                &object_id,
+                &seren::SerenStorageConfirmObjectStorageUploadRequest { etag },
+            )
+            .await,
+        "Failed to confirm Seren Storage upload",
+    )
+    .await?;
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&response)?,
@@ -245,13 +251,14 @@ pub async fn confirm_object(
 }
 
 pub async fn delete_object(bucket_slug: &str, object_id: Uuid, ctx: &CommandContext) -> Result<()> {
-    let response = ctx
-        .client()
-        .await?
-        .seren_storage_delete_object(bucket_slug, &object_id)
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to delete Seren Storage object: {error}"))?
-        .into_inner();
+    let response = storage_gateway_data(
+        ctx.client()
+            .await?
+            .seren_storage_delete_object(bucket_slug, &object_id)
+            .await,
+        "Failed to delete Seren Storage object",
+    )
+    .await?;
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&response)?,
@@ -272,19 +279,21 @@ pub async fn delete_object_by_key(
     let limit = 100;
     let mut cursor: Option<String> = None;
     let object = loop {
-        let page = client
-            .seren_storage_list_objects(
-                bucket_slug,
-                cursor.as_deref(),
-                None,
-                Some(limit),
-                Some(object_key),
-                None,
-            )
-            .await
-            .map_err(|error| anyhow::anyhow!("Failed to list Seren Storage objects: {error}"))?
-            .into_inner()
-            .data;
+        let page = storage_gateway_data(
+            client
+                .seren_storage_list_objects(
+                    bucket_slug,
+                    cursor.as_deref(),
+                    None,
+                    Some(limit),
+                    Some(object_key),
+                    None,
+                )
+                .await,
+            "Failed to list Seren Storage objects",
+        )
+        .await?
+        .data;
 
         if let Some(object) = page
             .objects
@@ -311,13 +320,14 @@ pub async fn delete_object_by_key(
 }
 
 pub async fn list_grants(bucket_slug: &str, ctx: &CommandContext) -> Result<()> {
-    let response = ctx
-        .client()
-        .await?
-        .seren_storage_list_bucket_agent_grants(bucket_slug)
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to list Seren Storage agent grants: {error}"))?
-        .into_inner();
+    let response = storage_gateway_data(
+        ctx.client()
+            .await?
+            .seren_storage_list_bucket_agent_grants(bucket_slug)
+            .await,
+        "Failed to list Seren Storage agent grants",
+    )
+    .await?;
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&response)?,
@@ -333,17 +343,18 @@ pub async fn set_grant(
     permission: seren::SerenStorageObjectStorageAgentPermission,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let response = ctx
-        .client()
-        .await?
-        .seren_storage_put_bucket_agent_grant(
-            bucket_slug,
-            &agent_identity_id,
-            &seren::SerenStoragePutObjectStorageBucketAgentGrantRequest { permission },
-        )
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to set Seren Storage agent grant: {error}"))?
-        .into_inner();
+    let response = storage_gateway_data(
+        ctx.client()
+            .await?
+            .seren_storage_put_bucket_agent_grant(
+                bucket_slug,
+                &agent_identity_id,
+                &seren::SerenStoragePutObjectStorageBucketAgentGrantRequest { permission },
+            )
+            .await,
+        "Failed to set Seren Storage agent grant",
+    )
+    .await?;
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&response)?,
@@ -358,11 +369,14 @@ pub async fn revoke_grant(
     agent_identity_id: Uuid,
     ctx: &CommandContext,
 ) -> Result<()> {
-    ctx.client()
-        .await?
-        .seren_storage_delete_bucket_agent_grant(bucket_slug, &agent_identity_id)
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to revoke Seren Storage agent grant: {error}"))?;
+    storage_gateway_data(
+        ctx.client()
+            .await?
+            .seren_storage_delete_bucket_agent_grant(bucket_slug, &agent_identity_id)
+            .await,
+        "Failed to revoke Seren Storage agent grant",
+    )
+    .await?;
 
     match ctx.format {
         OutputFormat::Json => {
@@ -482,3 +496,16 @@ fn print_object_detail(
     }
     println!("{table}");
 }
+
+async fn storage_gateway_data<T: serde::de::DeserializeOwned, E: std::fmt::Debug>(
+    result: Result<seren::ResponseValue<T>, seren::Error<E>>,
+    context: &'static str,
+) -> Result<T> {
+    seren::storage_publisher_result(result)
+        .await
+        .context(context)
+}
+
+#[cfg(test)]
+#[path = "storage_gateway_tests.rs"]
+mod tests;
