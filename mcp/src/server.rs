@@ -2873,6 +2873,8 @@ pub struct UploadSerenAgentTemplateAvatarParams {
     pub slug: String,
     /// File name of the PNG, JPEG or WebP picture.
     pub file_name: String,
+    /// MIME type declared on the multipart file: image/png, image/jpeg or image/webp.
+    pub content_type: String,
     /// Raw base64 image bytes, without a data URL prefix. Compress large pictures first.
     pub image_base64: String,
 }
@@ -17099,6 +17101,7 @@ API endpoint: {endpoint}",
                 &params.organization_id,
                 &params.slug,
                 file_name,
+                &params.content_type,
                 image,
             )
             .into_mcp_result()

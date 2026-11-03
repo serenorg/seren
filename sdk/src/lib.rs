@@ -122,6 +122,8 @@ impl Client {
     }
 
     /// Upload and normalize a managed agent template's profile picture.
+    /// `content_type` declares the multipart file MIME type (PNG, JPEG or WebP);
+    /// Core validates the declaration and the actual image.
     ///
     /// This method is implemented manually because Progenitor does not
     /// currently generate multipart request bodies.
@@ -131,13 +133,16 @@ impl Client {
         organization_id: &uuid::Uuid,
         slug: &str,
         file_name: &str,
+        content_type: &str,
         file: Vec<u8>,
     ) -> Result<ResponseValue<DataResponseManagedAgentTemplateProfile>, Error<()>> {
         use progenitor_client::{ClientHooks, ClientInfo, OperationInfo};
 
         let form = reqwest::multipart::Form::new().part(
             "file",
-            reqwest::multipart::Part::bytes(file).file_name(file_name.to_string()),
+            reqwest::multipart::Part::bytes(file)
+                .file_name(file_name.to_string())
+                .mime_str(content_type)?,
         );
         let url = format!(
             "{}/organizations/{organization_id}/templates/{}/avatar",
@@ -2558,6 +2563,7 @@ mod tests {
                 .and(body_string_contains(
                     "name=\"file\"; filename=\"avatar.png\"",
                 ))
+                .and(body_string_contains("Content-Type: image/png"))
                 .and(body_string_contains("image bytes"))
                 .respond_with(ResponseTemplate::new(status).set_body_json(&payload))
                 .expect(1)
@@ -2574,6 +2580,7 @@ mod tests {
                     &organization_id,
                     "research",
                     "avatar.png",
+                    "image/png",
                     b"image bytes".to_vec(),
                 )
                 .await;
@@ -2609,6 +2616,7 @@ mod tests {
                 &organization_id,
                 "team/research?#",
                 "avatar.png",
+                "image/png",
                 b"image bytes".to_vec(),
             )
             .await
