@@ -7806,6 +7806,16 @@
           },
           "500": {
             "description": "Internal server error"
+          },
+          "503": {
+            "description": "Policy read did not finish in time; retry after the Retry-After interval (private_models_policy_unavailable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -9811,7 +9821,7 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Read the live intro video and the draft, including processing progress and refusals.",
+        "summary": "Read the ordered live intro videos and the draft, including progress and refusals.",
         "operationId": "get_managed_agent_template_intro_video",
         "parameters": [
           {
@@ -9862,7 +9872,7 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Remove the live intro video. Repeated removal succeeds.",
+        "summary": "Remove the first live intro video. Repeated removal succeeds.",
         "operationId": "delete_managed_agent_template_intro_video",
         "parameters": [
           {
@@ -10233,7 +10243,7 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Publish the processed draft with its captions and still. It replaces the live\nintro video.",
+        "summary": "Publish the processed draft with its captions and still. It replaces the live\nintro video at the selected placement.",
         "operationId": "publish_managed_agent_template_intro_video_draft",
         "parameters": [
           {
@@ -10434,8 +10444,77 @@
           "403": {
             "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, the organization does not publish the template, or the template or its profile is suspended"
           },
+          "409": {
+            "description": "The live video limit is reached: intro_video_limit_reached"
+          },
           "503": {
             "description": "Video storage is unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/intro-video/uploads/{upload_id}": {
+      "delete": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Cancel only the identified upload while it is still the unfinished draft.\nRepeating cancellation is safe. Replaced uploads and uploads already processing,\nready, refused or live are unchanged. This does not discard a processed draft.",
+        "operationId": "cancel_managed_agent_template_intro_video_upload",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "upload_id",
+            "in": "path",
+            "description": "Upload identifier returned when declaring the upload",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancelled, no longer current, or no longer uploading",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_IntroVideoUploadCancellation"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Publishing built-in Owner with direct unrestricted credentials required; template and profile must not be suspended"
+          },
+          "404": {
+            "description": "Upload not found for this template"
           }
         },
         "security": [
@@ -10511,6 +10590,133 @@
           },
           "503": {
             "description": "Video storage is unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/intro-videos/order": {
+      "put": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Set the order by listing every live intro video exactly once.",
+        "operationId": "put_managed_agent_template_intro_video_order",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutIntroVideoOrder"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The ordered state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateIntroVideo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Publishing Owner with unrestricted credentials required"
+          },
+          "409": {
+            "description": "List every live intro video exactly once: intro_video_order_mismatch"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/intro-videos/{video_id}": {
+      "delete": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Remove a selected live intro video. Repeated removal succeeds.",
+        "operationId": "delete_managed_agent_template_intro_video_by_id",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "video_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The remaining state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateIntroVideo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Publishing Owner with unrestricted credentials required"
+          },
+          "404": {
+            "description": "Intro video not found"
           }
         },
         "security": [
@@ -17621,6 +17827,17 @@
             "maxLength": 255,
             "minLength": 1
           },
+          "placement": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/IntroVideoPlacement",
+                "description": "Add a video or replace a named live video. Omitted replaces the first, or adds if empty."
+              }
+            ]
+          },
           "size_bytes": {
             "type": "integer",
             "format": "int64",
@@ -20812,6 +21029,43 @@
               },
               "upload_url": {
                 "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_IntroVideoUploadCancellation": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "The result of cancelling one unfinished upload. Read the intro-video state to refresh the draft.",
+            "required": [
+              "upload_id",
+              "outcome"
+            ],
+            "properties": {
+              "outcome": {
+                "$ref": "#/components/schemas/IntroVideoUploadCancellationOutcome"
+              },
+              "upload_id": {
+                "type": "string",
+                "format": "uuid"
               }
             }
           },
@@ -24550,6 +24804,13 @@
                   "string",
                   "null"
                 ]
+              },
+              "usage_pricing": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/UsagePricing"
+                },
+                "description": "Model-specific metering prices for pay-per-use calls."
               }
             }
           },
@@ -31006,6 +31267,13 @@
           },
           "response": {
             "description": "Response schema (JSON Schema or simplified description)"
+          },
+          "upstream_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional absolute upstream URL template. Path parameters use the caller path's names."
           }
         }
       },
@@ -31781,6 +32049,28 @@
         "type": "string",
         "format": "binary"
       },
+      "IntroVideoPlacement": {
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": [
+              "add"
+            ]
+          },
+          {
+            "type": "object",
+            "required": [
+              "replace"
+            ],
+            "properties": {
+              "replace": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          }
+        ]
+      },
       "IntroVideoRefusalNotice": {
         "type": "object",
         "description": "Why an uploaded file cannot be used, with the measured value and the rule.",
@@ -31835,6 +32125,31 @@
             "type": "string"
           }
         }
+      },
+      "IntroVideoUploadCancellation": {
+        "type": "object",
+        "description": "The result of cancelling one unfinished upload. Read the intro-video state to refresh the draft.",
+        "required": [
+          "upload_id",
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "$ref": "#/components/schemas/IntroVideoUploadCancellationOutcome"
+          },
+          "upload_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "IntroVideoUploadCancellationOutcome": {
+        "type": "string",
+        "enum": [
+          "cancelled",
+          "not_current",
+          "not_uploading"
+        ]
       },
       "InvocationCostBreakdown": {
         "type": "object",
@@ -33164,6 +33479,22 @@
             "format": "int64",
             "description": "Current task service fee plus average completed-run running cost,\nor the average alone for a cost kind. Not a measured full-task total."
           },
+          "average_task_atomic": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Average billable running cost of a finished task; null below ten tasks."
+          },
+          "average_task_price_atomic": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Current service fee once plus average finished-task running cost, or the\naverage alone for a cost kind; null below ten tasks."
+          },
           "computed_at": {
             "type": "string",
             "format": "date-time"
@@ -33194,6 +33525,14 @@
             "type": "integer",
             "format": "int32",
             "description": "Runs measured in the window."
+          },
+          "tasks": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Finished tasks measured; null below ten tasks."
           },
           "window_days": {
             "type": "integer",
@@ -35064,6 +35403,26 @@
             "description": "On-chain transaction hash"
           }
         }
+      },
+      "OrderedIntroVideo": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ActiveIntroVideo"
+          },
+          {
+            "type": "object",
+            "required": [
+              "position"
+            ],
+            "properties": {
+              "position": {
+                "type": "integer",
+                "format": "int32"
+              }
+            }
+          }
+        ],
+        "description": "A live video in the selected order."
       },
       "Organization": {
         "type": "object",
@@ -37911,6 +38270,13 @@
               "string",
               "null"
             ]
+          },
+          "usage_pricing": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UsagePricing"
+            },
+            "description": "Model-specific metering prices for pay-per-use calls."
           }
         }
       },
@@ -39476,26 +39842,6 @@
           }
         }
       },
-      "OrderedIntroVideo": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/ActiveIntroVideo"
-          },
-          {
-            "type": "object",
-            "required": [
-              "position"
-            ],
-            "properties": {
-              "position": {
-                "type": "integer",
-                "format": "int32"
-              }
-            }
-          }
-        ],
-        "description": "A live video in the selected order."
-      },
       "PutIntroVideoCaptions": {
         "type": "object",
         "description": "Replaces the draft's captions.",
@@ -39506,6 +39852,23 @@
           "vtt": {
             "type": "string",
             "description": "WebVTT with plain cue text, at most 100 KB."
+          }
+        },
+        "additionalProperties": false
+      },
+      "PutIntroVideoOrder": {
+        "type": "object",
+        "required": [
+          "video_ids"
+        ],
+        "properties": {
+          "video_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Every live video, exactly once, in the desired order."
           }
         },
         "additionalProperties": false
@@ -41938,6 +42301,16 @@
               "string",
               "null"
             ]
+          },
+          "usage_pricing": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/UsagePricing"
+            },
+            "description": "Replace model-specific usage prices; an empty list removes them."
           }
         }
       },
@@ -42782,6 +43155,35 @@
           }
         }
       },
+      "UsagePricing": {
+        "type": "object",
+        "description": "Model-specific usage prices, expressed in the pricing asset.",
+        "required": [
+          "model",
+          "unit",
+          "upstream_price_per_unit",
+          "minimum_charge",
+          "reserve_max_charge"
+        ],
+        "properties": {
+          "minimum_charge": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "reserve_max_charge": {
+            "type": "string"
+          },
+          "unit": {
+            "$ref": "#/components/schemas/UsageUnit"
+          },
+          "upstream_price_per_unit": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "UsageSummary": {
         "type": "object",
         "description": "Usage summary for billing period",
@@ -42859,6 +43261,13 @@
             "type": "string"
           }
         }
+      },
+      "UsageUnit": {
+        "type": "string",
+        "description": "Supported metering units for pay-per-use publisher prices.",
+        "enum": [
+          "audio_seconds"
+        ]
       },
       "UserInfo": {
         "type": "object",
