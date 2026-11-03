@@ -501,9 +501,7 @@ async fn storage_gateway_data<T: serde::de::DeserializeOwned, E: std::fmt::Debug
     result: Result<seren::ResponseValue<T>, seren::Error<E>>,
     context: &'static str,
 ) -> Result<T> {
-    seren::storage_publisher_result(result)
-        .await
-        .context(context)
+    seren::publisher_result(result).await.context(context)
 }
 
 #[cfg(test)]
