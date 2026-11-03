@@ -27,9 +27,9 @@ mod generated {
 mod config;
 mod examples;
 mod models;
+mod publisher_gateway;
 mod query_error;
 mod shared;
-mod storage_gateway;
 
 #[cfg(test)]
 #[allow(dead_code)]
@@ -52,9 +52,11 @@ pub use examples::*;
 
 // Re-export additional model types
 pub use models::*;
+pub use publisher_gateway::{
+    PublisherError, PublisherErrorKind, publisher_bytes_result, publisher_result,
+};
 pub use query_error::*;
 pub use shared::*;
-pub use storage_gateway::{StoragePublisherError, storage_publisher_result};
 
 /// Create a new authenticated client
 impl Client {

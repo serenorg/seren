@@ -176,6 +176,7 @@ pub const SEREN_PRODUCT_EXAMPLES: &[SerenProductExample] = &[
         description: "Publisher-backed skill bundles, versions, files, and downloads that package instructions and resources for agents.",
         highlights: &[
             "List public or owned skills through the Seren Skills publisher.",
+            "Wrap generated JSON calls with seren::publisher_result to recover gateway replies.",
             "Create versions with updated instructions or files.",
             "Download skill bundles for local or hosted agent runtimes.",
         ],
@@ -223,6 +224,7 @@ pub const SEREN_PRODUCT_EXAMPLES: &[SerenProductExample] = &[
         description: "Hosted notes, searchable memory, shares, and attachments for workspace and agent context.",
         highlights: &[
             "List and create notes through the Seren Notes publisher.",
+            "Use seren::publisher_result for JSON calls and publisher_bytes_result for raw downloads.",
             "Search notes by text or semantic similarity.",
             "Create shares and attach files to notes.",
         ],

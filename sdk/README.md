@@ -179,3 +179,32 @@ match client.seren_db_list_projects().await {
 ## License
 
 MIT License - see [LICENSE](./LICENSE) for details.
+
+### Storage, Skills, and Notes publisher replies
+
+Wrap each generated JSON or empty-response call in `publisher_result` to accept both direct publisher replies and Core's gateway envelope. This uses the inner publisher status, including 201 creation and empty 204 deletion. It never retries requests; a transport failure after a write requires inspecting state before retrying.
+
+```rust,no_run
+use seren::publisher_result;
+
+let request = seren::CreateNoteRequest {
+    title: "Reviewed notes".into(),
+    content: "Save the reviewed result.".into(),
+    format: None, idempotency_key: None, parent_id: None, tags: None,
+};
+let created = publisher_result(client.create_note(&request).await).await?;
+let note = publisher_result(client.get_note(&created.data.id, None).await).await?;
+publisher_result(client.delete_note(&note.data.id).await).await?;
+```
+
+Use the same wrapper for `seren_storage_health`, other Storage methods, `list_skills`, `get_skill`, `list_notes`, and other typed Skills and Notes JSON methods. `PublisherError` exposes `kind`, `status`, `error`, and `message`. Its typed `PublisherErrorKind` distinguishes `PublisherError`, `ClientContractMismatch`, and `CommunicationError`; their serialized diagnostic values are `publisher_error`, `client_contract_mismatch`, and `communication_error`. Diagnostics are bounded and signed URLs are redacted. Do not print raw response bodies.
+
+Wrap generated binary/text downloads with `publisher_bytes_result`:
+
+```rust,no_run
+let bytes = seren::publisher_bytes_result(client.download_attachment(&attachment_id).await).await?;
+let thumbnail = seren::publisher_bytes_result(client.download_thumbnail(&attachment_id, None, None).await).await?;
+let markdown = seren::publisher_bytes_result(client.skill_md().await).await?;
+```
+
+This decodes Core's `body_base64` into exact bytes, or its textual `body` into UTF-8. Direct non-JSON binary/text responses also work. JSON HTTP replies must contain a valid gateway envelope; an invalid envelope returns a safe error instead of becoming a file. Notes' download methods now preserve their body as a `ByteStream`; callers that previously expected `()` should use this helper. Storage calls use the same `publisher_result` helper and `PublisherError` contract.

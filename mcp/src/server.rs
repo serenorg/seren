@@ -6488,15 +6488,12 @@ where
     T: DeserializeOwned,
     E: std::fmt::Debug,
 {
-    seren::storage_publisher_result(result)
-        .await
-        .map_err(|error| {
-            let mut data =
-                serde_json::to_value(&error).expect("Storage diagnostic is serializable");
-            data["publisher"] = serde_json::json!("seren-storage");
-            data["operation"] = serde_json::json!(operation);
-            McpError::internal_error(format!("{operation}: {error}"), Some(data))
-        })
+    seren::publisher_result(result).await.map_err(|error| {
+        let mut data = serde_json::to_value(&error).expect("Storage diagnostic is serializable");
+        data["publisher"] = serde_json::json!("seren-storage");
+        data["operation"] = serde_json::json!(operation);
+        McpError::internal_error(format!("{operation}: {error}"), Some(data))
+    })
 }
 
 /// Decode Memory's typed reply inside the publisher gateway without exposing payloads.
