@@ -2,6 +2,53 @@
 
 Changes to Seren are documented in this file.
 
+## [0.11.0] - 2026-11-03
+
+Seren Storage commands read real replies correctly again, plus Employee profile and intro video management, exact tool selection, per-kind run prices, and stricter publisher and Passwords handling.
+
+### Added
+
+- Employee catalog lookup in MCP through `list_seren_agent_templates`, `get_seren_agent_template`, and `list_organization_seren_agent_templates`. Code template tools now state that they don't cover Employees and name these tools.
+- Employee profile, listing, picture, and intro video management in MCP, including video upload, captions, poster, publication, draft discard, and template review requests.
+- Template service fee management in MCP through `get_seren_agent_template_run_fee`, `set_seren_agent_template_run_fee`, and `list_seren_agent_template_run_fee_changes`.
+- Exact Employee tool selection on `seren agent deploy-prompt`, `managed-preview`, and `managed-update` with `--no-tool-presets`, `--tool-allowlist`, and `--no-tools`. `--clear-tool-allowlist` restores the full tool set on updates.
+- `seren orgs update` and the MCP `update_organization` tool change an organization's public name and store address.
+- `--forward-caller-identity` on `seren agent create-publisher` sends a publisher stable, opaque organization and user identifiers.
+- `seren agent managed-files --path <dir> --dry-run` lists the packaged files, sizes, and SHA-256 digests without uploading anything. `seren agent managed-deployment-health` shows the active revision and any health findings.
+- Template release rollouts through the CLI, MCP, and SDK, and sign-in-only template hires that don't need an existing connected account.
+- Publisher endpoints in MCP can declare their operation kind and name their operation ID, and publisher updates keep every endpoint field.
+- `body_text` on the MCP `call_publisher` tool forwards plain-text, Markdown, HTML, and multipart publisher bodies unchanged.
+- SDK support for public template listings, template sign-in providers, managed recovery and template outcomes, deployment workspace snapshots, recoverable object allocations, organization funding, Cloud files, and template tool output limits.
+
+### Changed
+
+- **Breaking:** Update generated SDK callers for the current managed agent pricing, workload, template catalog, authentication, recovery, OAuth provider, organization funding, and Cloud file types.
+- Employee template prices are read per run kind.
+- Passwords attachments can be empty. Omit `--content-type` when the type is unknown; an explicitly empty value is rejected.
+- MCP uses `jiff` instead of `time`, and `rmcp`, `argon2`, `aes-gcm`, `comfy-table`, `testcontainers`, and other crates are updated. Existing encrypted OAuth tokens remain readable.
+- Updated guides cover publisher names and store addresses, publisher caller identity, Employee tool limits, and how managed skill scripts reach publishers.
+
+### Removed
+
+- **Breaking:** The `seren storage snapshots` commands and the `seren_storage_list_workspace_snapshots`, `seren_storage_latest_workspace_snapshot`, and `seren_storage_create_workspace_snapshot` MCP tools. The SDK reads workspace snapshots through the deployment instead.
+
+### Fixed
+
+- Seren Storage CLI commands and MCP tools no longer report failure on a healthy reply, because they now read the publisher gateway's reply.
+- Typed SDK Skills and Notes methods and MCP Seren Memory tools read replies inside the publisher gateway's envelope.
+- Publisher refusals keep their status, code, and guidance in MCP, and prepaid refusals explain balances restricted to certain publishers.
+- MCP tolerates transient OAuth token-store failures and serves non-null OAuth route IDs. OAuth provider updates preserve which fields were sent.
+- The CLI reserves enough startup stack on Windows, honors JSON output for agent commands, names the right command in deployment status hints, and rejects incomplete eval gate settings.
+- Passwords commands use the active credential for vault access, report inaccessible vaults, and preserve optional metadata.
+- `call_publisher` rejects ambiguous text body content types.
+- Run events preserve scalar event kinds, managed memory contracts match Core, and MCP declares picture MIME types and preserves intro video status.
+
+### Security
+
+- Hosted Passwords setup verifies grant access before reporting it, and revokes the replaced agent and key.
+- Publisher dispatch is bound to one request's transport, and a caller's headers can't supply it.
+- MCP OAuth rejects unknown fields and keeps internal database errors out of client responses.
+
 ## [0.10.0] - 2026-10-04
 
 Managed agent onboarding, credential setup, and bundle delivery, plus automatic memory capture and broader organization workflows.
