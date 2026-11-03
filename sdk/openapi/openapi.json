@@ -30624,8 +30624,23 @@
               }
             ]
           },
+          "replaces_video_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "state": {
             "$ref": "#/components/schemas/IntroVideoDraftState"
+          },
+          "upload_expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "The upload URL's deadline while uploading, including after it expires; null in other states.\nMatches `IntroVideoUpload.expires_at`. Expiry does not rule out a transfer already in progress."
           },
           "upload_id": {
             "type": "string",
@@ -33943,7 +33958,11 @@
       },
       "ManagedAgentTemplateIntroVideo": {
         "type": "object",
-        "description": "A template's live intro video and its draft.",
+        "description": "A template's ordered live intro videos and its draft.",
+        "required": [
+          "videos",
+          "max_videos"
+        ],
         "properties": {
           "active": {
             "oneOf": [
@@ -33964,6 +33983,16 @@
                 "$ref": "#/components/schemas/DraftIntroVideo"
               }
             ]
+          },
+          "max_videos": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "videos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderedIntroVideo"
+            }
           }
         }
       },
@@ -39432,6 +39461,26 @@
             "description": "For MCP publishers"
           }
         }
+      },
+      "OrderedIntroVideo": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ActiveIntroVideo"
+          },
+          {
+            "type": "object",
+            "required": [
+              "position"
+            ],
+            "properties": {
+              "position": {
+                "type": "integer",
+                "format": "int32"
+              }
+            }
+          }
+        ],
+        "description": "A live video in the selected order."
       },
       "PutIntroVideoCaptions": {
         "type": "object",
