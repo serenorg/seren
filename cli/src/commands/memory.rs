@@ -118,7 +118,7 @@ pub async fn health(detailed: bool, ctx: &CommandContext) -> Result<()> {
         OutputFormat::Table => {
             let mut table = table_with_header(["Server", "Status"]);
             table.add_row([response.data.server, response.data.status]);
-            println!("{table}");
+            output::print_table(&mut table);
         }
     }
     Ok(())
@@ -180,7 +180,7 @@ pub async fn recall(options: RecallOptions, ctx: &CommandContext) -> Result<()> 
                     memory.lifecycle_status.to_string(),
                 ]);
             }
-            println!("{table}");
+            output::print_table(&mut table);
         }
     }
     Ok(())
@@ -341,7 +341,7 @@ pub async fn list(options: ListOptions, ctx: &CommandContext) -> Result<()> {
                     memory.importance.to_string(),
                 ]);
             }
-            println!("{table}");
+            output::print_table(&mut table);
         }
     }
     Ok(())
