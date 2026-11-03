@@ -41,7 +41,7 @@ pub async fn health(ctx: &CommandContext) -> Result<()> {
         OutputFormat::Table => {
             let mut table = table_with_header(["Service", "Status"]);
             table.add_row(["Seren Storage", response.data.status.as_str()]);
-            println!("{table}");
+            output::print_table(&mut table);
         }
     }
 
@@ -427,7 +427,7 @@ fn print_buckets_table(buckets: &[seren::SerenStorageObjectStorageBucket]) {
             &bucket.created_at.to_string(),
         ]);
     }
-    println!("{table}");
+    output::print_table(&mut table);
 }
 
 fn print_objects_table(objects: &[seren::SerenStorageObjectStorageObject]) {
@@ -446,7 +446,7 @@ fn print_objects_table(objects: &[seren::SerenStorageObjectStorageObject]) {
             object.content_type.clone(),
         ]);
     }
-    println!("{table}");
+    output::print_table(&mut table);
 }
 
 fn print_grants_table(grants: &[seren::SerenStorageObjectStorageBucketAgentGrant]) {
@@ -463,7 +463,7 @@ fn print_grants_table(grants: &[seren::SerenStorageObjectStorageBucketAgentGrant
             grant.updated_at.to_string(),
         ]);
     }
-    println!("{table}");
+    output::print_table(&mut table);
 }
 
 fn print_grant_detail(title: &str, grant: &seren::SerenStorageObjectStorageBucketAgentGrant) {
@@ -475,7 +475,7 @@ fn print_grant_detail(title: &str, grant: &seren::SerenStorageObjectStorageBucke
         grant.agent_identity_id.to_string(),
     ]);
     table.add_row(["Permission".to_string(), grant.permission.to_string()]);
-    println!("{table}");
+    output::print_table(&mut table);
 }
 
 fn print_object_detail(
@@ -494,7 +494,7 @@ fn print_object_detail(
     if let Some(path) = path {
         table.add_row(["Local Path".to_string(), path.to_string()]);
     }
-    println!("{table}");
+    output::print_table(&mut table);
 }
 
 async fn storage_gateway_data<T: serde::de::DeserializeOwned, E: std::fmt::Debug>(

@@ -350,7 +350,7 @@ fn print_skills_table(skills: &[OrganizationCustomSkill]) {
             ),
         ]);
     }
-    println!("{table}");
+    output::print_table(&mut table);
 }
 
 fn print_skill_detail(skill: &OrganizationCustomSkill) {
@@ -391,7 +391,7 @@ fn print_revisions_table(revisions: &[OrganizationCustomSkillRevisionSummary]) {
             Cell::new(revision.created_at),
         ]);
     }
-    println!("{table}");
+    output::print_table(&mut table);
 }
 
 fn print_revision_detail(revision: &OrganizationCustomSkillRevision) {
