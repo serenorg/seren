@@ -72,7 +72,7 @@ pub async fn list_members(organization_id: &str, ctx: &CommandContext) -> Result
                 ]);
             }
 
-            println!("{table}");
+            output::print_table(&mut table);
         }
     }
 
@@ -128,7 +128,7 @@ pub async fn list_invites(organization_id: &str, ctx: &CommandContext) -> Result
                 ]);
             }
 
-            println!("{table}");
+            output::print_table(&mut table);
         }
     }
 

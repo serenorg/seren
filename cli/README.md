@@ -42,7 +42,7 @@ cargo install --path cli
 ### From Git (No Clone)
 
 ```bash
-cargo install --git https://github.com/serenorg/seren.git --package seren-cli
+cargo install --git https://github.com/serenorg/seren.git seren-cli
 ```
 
 ### Pre-built Binaries
@@ -81,8 +81,8 @@ seren agent deploy-prompt \
   --prompt "Triage requests, use Seren publishers first, and ask for approval before mutations."
 
 # Create a vault and provision an agent identity with read access
-seren passwords vaults create --name "Production APIs" --requires-approval sensitive-only
-seren passwords agent provision --vault <vault-id> --access read --name "Claude ops agent" --expires-in-days 30
+VAULT_ID=$(seren -o json passwords vaults create --name "Production APIs" --requires-approval sensitive-only | jq -r '.vault_id // .id')
+seren passwords agent provision --vault "$VAULT_ID" --access read --name "Claude ops agent" --expires-in-days 30
 
 # Search reusable skills and model services
 seren skills search browser
@@ -92,12 +92,16 @@ seren agent private-models list
 seren agent cloud overview
 seren agent cloud approvals list --limit 20
 
-# Create an isolated branch for development
-seren branches --project-id <project-id> create --name feature-auth
+# Create an isolated branch for development (save your project's ID first)
+PROJECT_ID=$(seren -o json projects list | jq -r '.data[0].id')
+seren branches --project-id "$PROJECT_ID" create --name feature-auth
 
 # Initialize an env file with a database URL
-seren env init --project-id <project-id> --branch-id <branch-id> --key DATABASE_URL --pooled
+BRANCH_ID=$(seren -o json branches --project-id "$PROJECT_ID" list | jq -r '.data[] | select(.name == "feature-auth") | .id')
+seren env init --project-id "$PROJECT_ID" --branch-id "$BRANCH_ID" --key DATABASE_URL --pooled
 ```
+
+These examples use [`jq`](https://jqlang.org/) to save IDs in shell variables. In the command reference below, replace each `<...>` placeholder, such as `<project-id>`, with your own value before you run the command.
 
 ## Authentication
 
@@ -153,8 +157,8 @@ Recovery-email set and remove commands prompt for the current password without p
 ```bash
 seren projects list
 seren projects get <project-id>
-seren projects create --name my-project --region aws-us-east-1
-seren projects create --name my-project --region aws-us-east-1 --psql  # connect via psql after creation
+seren projects create --name my-project --region us-east-1
+seren projects create --name my-project --region us-east-1 --psql  # connect via psql after creation
 seren projects update <project-id> --name new-name
 seren projects connection-uri <project-id>
 seren projects connection-uri <project-id> --pooled --branch-id <id>
@@ -329,7 +333,7 @@ The API accepts `PATCH /organizations/{organization_id}` with `{"public_handle":
 
 ### Skills
 
-Seren skills are installable capability packs that drop into the skills directory of whatever coding agent you use (Claude Code, Codex, Cursor, Gemini, GitHub Copilot, Windsurf, and more), pulled from the public [seren-skills](https://github.com/serenorg/seren-skills) registry.
+Seren skills are installable capability packs that drop into the skills directory of whatever coding agent you use (Claude Code, Codex, Cursor, Gemini, GitHub Copilot, Windsurf, and more), read from the public Seren skills catalog (the `seren-skills` publisher). Browsing and installing skills needs no login and no GitHub token.
 
 ```bash
 seren skills list                        # browse the registry
@@ -380,7 +384,7 @@ seren agent publisher-skill-doc seren-agent
 
 # Private models
 seren agent private-models list
-seren agent private-models catalog --region aws-us-east-1
+seren agent private-models catalog --region us-east-1
 seren agent private-models chat --model <model-id> --message "Summarize this incident."
 ```
 

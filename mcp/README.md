@@ -82,7 +82,7 @@ cd seren
 cargo install --path cli
 
 # Or install directly from Git (no clone)
-cargo install --git https://github.com/serenorg/seren.git --package seren-cli
+cargo install --git https://github.com/serenorg/seren.git seren-cli
 ```
 
 #### Docker

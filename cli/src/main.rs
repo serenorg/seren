@@ -4000,7 +4000,7 @@ enum ProjectAction {
         #[arg(long)]
         name: String,
 
-        /// Region identifier (e.g. aws-us-east-1)
+        /// Region identifier (e.g. us-east-1)
         #[arg(long)]
         region: String,
 
@@ -8707,12 +8707,12 @@ async fn main() -> anyhow::Result<()> {
             SkillsAction::Search { query } => commands::skills::search(&query, &ctx).await?,
             SkillsAction::Show { slug } => commands::skills::show(&slug, &ctx).await?,
             SkillsAction::Add { slug, all, yes } => {
-                commands::skills::add(slug.as_deref(), all, yes).await?
+                commands::skills::add(slug.as_deref(), all, yes, &ctx).await?
             }
             SkillsAction::Installed => commands::skills::installed(&ctx).await?,
             SkillsAction::Remove { slug } => commands::skills::remove(&slug).await?,
             SkillsAction::Update { slug, yes } => {
-                commands::skills::update(slug.as_deref(), yes).await?
+                commands::skills::update(slug.as_deref(), yes, &ctx).await?
             }
             SkillsAction::Init { name, path } => {
                 commands::skills::init(name.as_deref(), path.as_deref())?
