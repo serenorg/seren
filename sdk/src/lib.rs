@@ -29,7 +29,11 @@ mod examples;
 mod models;
 mod query_error;
 mod shared;
+mod storage_gateway;
 
+#[cfg(test)]
+#[allow(dead_code)]
+mod storage_gateway_fixtures;
 #[cfg(test)]
 mod storage_tests;
 
@@ -50,6 +54,7 @@ pub use examples::*;
 pub use models::*;
 pub use query_error::*;
 pub use shared::*;
+pub use storage_gateway::{StoragePublisherError, storage_publisher_result};
 
 /// Create a new authenticated client
 impl Client {
