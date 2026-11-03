@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 pub const ID: &str = "00000000-0000-4000-8000-000000000001";
 pub const KEY: &str = "reports/result.json";
 pub const CONTENT: &[u8] = b"storage fixture";
+pub const CONTENT_SHA256: &str = "1d538cf26509e3f8d434997c88dd05b453121cfac4bc843e60a5a24fc25fabe9";
 pub const SIGNED: &str = "https://objects.invalid/file?X-Amz-Signature=do-not-disclose";
 pub fn gateway(status: u16, body: Value) -> String {
     format!(
@@ -18,8 +19,8 @@ pub fn object(status: &str) -> Value {
         "organization_id": "00000000-0000-4000-8000-000000000002",
         "bucket_id": "00000000-0000-4000-8000-000000000003",
         "bucket_slug": "files", "object_key": "reports/result.json",
-        "content_type": "application/json", "byte_length": 17,
-        "checksum": {"algorithm": "sha256", "value": "a".repeat(64)},
+        "content_type": "application/json", "byte_length": CONTENT.len(),
+        "checksum": {"algorithm": "sha256", "value": CONTENT_SHA256},
         "upload_mode": "single", "multipart_part_size": null,
         "multipart_part_count": null, "etag": null, "status": status,
         "uri": "seren-storage://files/reports/result.json",
@@ -48,7 +49,7 @@ pub fn grant() -> Value {
 }
 pub fn request() -> Value {
     json!({"object_key": KEY, "byte_length": CONTENT.len(), "content_type": "application/json",
-        "checksum": {"algorithm": "sha256", "value": "a".repeat(64)}})
+        "checksum": {"algorithm": "sha256", "value": CONTENT_SHA256}})
 }
 pub fn page() -> Value {
     json!({"data": {"objects": [object("uploaded")], "common_prefixes": [], "next_cursor": null}})
