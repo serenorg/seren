@@ -91,7 +91,9 @@ struct SkillBundle {
 struct BundleFile {
     path: String,
     content_b64: String,
+    /// Unix permission bits. Windows has none, so only Unix builds read this.
     #[serde(default)]
+    #[cfg_attr(not(unix), allow(dead_code))]
     mode: Option<u32>,
 }
 
