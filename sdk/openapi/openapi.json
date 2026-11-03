@@ -21985,7 +21985,11 @@
         "properties": {
           "data": {
             "type": "object",
-            "description": "A template's live intro video and its draft.",
+            "description": "A template's ordered live intro videos and its draft.",
+            "required": [
+              "videos",
+              "max_videos"
+            ],
             "properties": {
               "active": {
                 "oneOf": [
@@ -22006,6 +22010,16 @@
                     "$ref": "#/components/schemas/DraftIntroVideo"
                   }
                 ]
+              },
+              "max_videos": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "videos": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/OrderedIntroVideo"
+                }
               }
             }
           },
