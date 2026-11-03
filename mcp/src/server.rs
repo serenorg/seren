@@ -21601,7 +21601,7 @@ pub(crate) mod tests {
                     .mount(&proxy)
                     .await;
                 let result = if base64 {
-                    success(invoke(&proxy, "put_object_base64", json!({"bucket_slug":"files", "object_key":KEY, "content_base64": BASE64.encode(CONTENT)})).await)
+                    success(invoke(&proxy, "put_object_base64", json!({"bucket_slug":"files", "object_key":KEY, "content_base64": BASE64.encode(CONTENT), "content_type":"application/json"})).await)
                 } else {
                     let case = cases(&proxy.uri())
                         .into_iter()
@@ -21669,9 +21669,8 @@ pub(crate) mod tests {
                 );
                 let create: Value = serde_json::from_slice(&requests[create].body).unwrap();
                 assert_eq!(create["byte_length"], CONTENT.len());
-                if base64 {
-                    assert_eq!(create["checksum"]["value"], sha256_hex(CONTENT));
-                }
+                assert_eq!(create["checksum"]["value"], sha256_hex(CONTENT));
+                assert_eq!(result["data"]["byte_length"], CONTENT.len());
                 proxy.verify().await;
             }
         }
