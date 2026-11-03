@@ -195,7 +195,7 @@ fn resolve_installed_slug(base: &Path, slug: &str) -> Result<(String, String)> {
 ///
 /// The name is the skill's `skill_folder_name` and the org is the rest of the
 /// slug. A user-owned skill's slug can equal its folder name
-/// (`prophet-arb-bot`); it then splits at its first dash (`prophet/arb-bot`).
+/// (`solo-arb-bot`); it then splits at its first dash (`solo/arb-bot`).
 fn install_layout(slug: &str, folder: Option<&str>) -> Result<(String, String)> {
     validate_slug(slug)?;
     if let Some(folder) = folder.filter(|folder| !folder.is_empty()) {
@@ -1444,7 +1444,7 @@ mod tests {
             .and(path("/publishers/seren-skills/skills"))
             .and(query_param("offset", "0"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "data": [skill_json("linear-issue-tracking", "issue-tracking")],
+                "data": [skill_json("acme-issue-tracking", "issue-tracking")],
                 "pagination": { "has_more": true }
             })))
             .mount(&server)
@@ -1453,7 +1453,7 @@ mod tests {
             .and(path("/publishers/seren-skills/skills"))
             .and(query_param("offset", "1"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "data": [skill_json("prophet-arb-bot", "prophet-arb-bot")],
+                "data": [skill_json("solo-arb-bot", "solo-arb-bot")],
                 "pagination": { "has_more": false }
             })))
             .mount(&server)
@@ -1474,8 +1474,8 @@ mod tests {
         assert_eq!(
             layout,
             vec![
-                ("linear-issue-tracking", "linear", "issue-tracking"),
-                ("prophet-arb-bot", "prophet", "arb-bot"),
+                ("acme-issue-tracking", "acme", "issue-tracking"),
+                ("solo-arb-bot", "solo", "arb-bot"),
             ]
         );
         for request in server.received_requests().await.unwrap() {
@@ -1488,32 +1488,32 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path(
-                "/publishers/seren-skills/skills/linear-issue-tracking/download",
+                "/publishers/seren-skills/skills/acme-issue-tracking/download",
             ))
             .respond_with(
                 ResponseTemplate::new(200)
-                    .set_body_json(bundle_json("linear-issue-tracking", "issue-tracking")),
+                    .set_body_json(bundle_json("acme-issue-tracking", "issue-tracking")),
             )
             .mount(&server)
             .await;
         Mock::given(method("GET"))
             .and(path(
-                "/publishers/seren-skills/skills/prophet-arb-bot/download",
+                "/publishers/seren-skills/skills/solo-arb-bot/download",
             ))
             .respond_with(
                 ResponseTemplate::new(200)
-                    .set_body_json(bundle_json("prophet-arb-bot", "prophet-arb-bot")),
+                    .set_body_json(bundle_json("solo-arb-bot", "solo-arb-bot")),
             )
             .mount(&server)
             .await;
         let catalog = SkillsCatalog::new(&server.uri()).unwrap();
         let dir = tempfile::tempdir().unwrap();
 
-        let (org, name) = install_single_skill(&catalog, "linear-issue-tracking", dir.path())
+        let (org, name) = install_single_skill(&catalog, "acme-issue-tracking", dir.path())
             .await
             .unwrap();
         let skill = dir.path().join(&org).join(&name);
-        assert_eq!((org.as_str(), name.as_str()), ("linear", "issue-tracking"));
+        assert_eq!((org.as_str(), name.as_str()), ("acme", "issue-tracking"));
         assert!(
             std::fs::read_to_string(skill.join("SKILL.md"))
                 .unwrap()
@@ -1528,15 +1528,15 @@ mod tests {
             "print('hi')\n"
         );
         let installed = scan_installed_skills(dir.path()).unwrap();
-        assert_eq!(installed[0].slug, "linear-issue-tracking");
+        assert_eq!(installed[0].slug, "acme-issue-tracking");
         assert_eq!(installed[0].description, "Unquoted: manage issues");
 
-        install_single_skill(&catalog, "prophet-arb-bot", dir.path())
+        install_single_skill(&catalog, "solo-arb-bot", dir.path())
             .await
             .unwrap();
         assert_eq!(
-            resolve_installed_slug(dir.path(), "prophet-arb-bot").unwrap(),
-            ("prophet".to_string(), "arb-bot".to_string())
+            resolve_installed_slug(dir.path(), "solo-arb-bot").unwrap(),
+            ("solo".to_string(), "arb-bot".to_string())
         );
     }
 
@@ -1571,7 +1571,7 @@ mod tests {
             "{err}"
         );
         let err = catalog
-            .bundle("linear-issue-tracking")
+            .bundle("acme-issue-tracking")
             .await
             .unwrap_err()
             .to_string();
@@ -1594,7 +1594,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/publishers/seren-skills/skills"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "data": [skill_json("linear-issue-tracking", "issue-tracking")],
+                "data": [skill_json("acme-issue-tracking", "issue-tracking")],
                 "pagination": { "has_more": false }
             })))
             .mount(&server)
