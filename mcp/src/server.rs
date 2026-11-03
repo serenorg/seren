@@ -21539,7 +21539,7 @@ pub(crate) mod tests {
                     .unwrap();
                 for body in [
                     json!({"signed":SIGNED}),
-                    json!({"data":{"status":200,"body":{"data":{"status":SIGNED}}}}),
+                    json!({"data":{"status":200,"body":{"data":{"status":[SIGNED]}}}}),
                     json!({"data":{"status":"200","body":SIGNED}}),
                     json!({"data":{"status":200,"body":SIGNED}}),
                 ] {
