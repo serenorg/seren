@@ -1751,7 +1751,7 @@ mod tests {
                 "works_in": ["1password", "google-drive", "slack"], "pronouns": "they/them",
                 "job_title": "Researcher", "tagline": "Research made clear",
                 "description": "Find primary sources.", "activity_url": "https://example.com/activity",
-                "avatar_url": "https://example.com/avatar.png",
+                "avatar_url": "https://example.com/avatar.png", "intro_videos": [],
                 "run_kinds": [{
                     "key": "run", "name": "Run", "charge": "fee",
                     "triggers": ["hire_cron", "schedule", "chat", "webhook", "api"],
