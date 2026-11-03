@@ -315,3 +315,31 @@ async fn storage_existing_actions_http_preserve_recorded_states_and_downloads() 
     }
     server.verify().await;
 }
+
+#[test]
+fn storage_gateway_response_types_require_unwrapping() {
+    let envelope: Value = serde_json::from_str(&crate::storage_gateway_fixtures::gateway(
+        409,
+        json!({"error":"conflict", "message":"Object storage key already exists."}),
+    ))
+    .unwrap();
+    macro_rules! rejects {
+        ($($ty:ty),+ $(,)?) => { $(assert!(serde_json::from_value::<$ty>(envelope.clone()).is_err(), stringify!($ty));)+ };
+    }
+    rejects!(
+        crate::SerenStorageDataResponseHealthStatus,
+        crate::SerenStorageDataResponseObjectStorageAllocation,
+        crate::SerenStorageDataResponseObjectStorageBucket,
+        crate::SerenStorageDataResponseObjectStorageBucketAgentGrant,
+        crate::SerenStorageDataResponseObjectStorageDownload,
+        crate::SerenStorageDataResponseObjectStorageMultipartPartUpload,
+        crate::SerenStorageDataResponseObjectStorageMultipartUpload,
+        crate::SerenStorageDataResponseObjectStorageObject,
+        crate::SerenStorageDataResponseObjectStorageObjectPage,
+        crate::SerenStorageDataResponseObjectStorageUpload,
+        crate::SerenStorageDataResponseObjectStorageUsage,
+        crate::SerenStorageDataResponseServiceInfo,
+        crate::SerenStorageDataResponseVecObjectStorageBucket,
+        crate::SerenStorageDataResponseVecObjectStorageBucketAgentGrant,
+    );
+}
