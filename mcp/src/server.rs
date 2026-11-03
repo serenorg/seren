@@ -2873,6 +2873,8 @@ pub struct UploadSerenAgentTemplateAvatarParams {
     pub slug: String,
     /// File name of the PNG, JPEG or WebP picture.
     pub file_name: String,
+    /// MIME type declared on the multipart file: image/png, image/jpeg or image/webp.
+    pub content_type: String,
     /// Raw base64 image bytes, without a data URL prefix. Compress large pictures first.
     pub image_base64: String,
 }
@@ -17099,6 +17101,7 @@ API endpoint: {endpoint}",
                 &params.organization_id,
                 &params.slug,
                 file_name,
+                &params.content_type,
                 image,
             )
             .into_mcp_result()
@@ -38456,6 +38459,7 @@ mod template_media_tests {
         let mut params = json!({"organization_id": Uuid::from_u128(42), "slug": "anya"});
         if name.contains("avatar") && name.starts_with("upload_") {
             params["file_name"] = json!("picture.png");
+            params["content_type"] = json!("image/png");
             params["image_base64"] = json!(BASE64.encode(b"image bytes"));
         } else if name.starts_with("create_") {
             params["request"] =
@@ -38617,6 +38621,10 @@ mod template_media_tests {
                         .body
                         .windows(b"name=\"file\"; filename=\"picture.png\"".len())
                         .any(|window| window == b"name=\"file\"; filename=\"picture.png\"")
+                    && request
+                        .body
+                        .windows(b"Content-Type: image/png".len())
+                        .any(|window| window == b"Content-Type: image/png")
             })
             .respond_with(ResponseTemplate::new(200).set_body_json(profile_fixture(true)))
             .expect(2)
@@ -38895,5 +38903,37 @@ mod template_media_tests {
             );
         }
         assert!(proxy.received_requests().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn template_media_picture_declares_each_supported_mime_type_without_guessing_from_name() {
+        let proxy = MockServer::start().await;
+        let server = SerenMcpServer::new("owner-key", &proxy.uri()).unwrap();
+        let name = MEDIA_TOOLS[0].0;
+        for content_type in ["image/png", "image/jpeg", "image/webp"] {
+            let (verb, endpoint) = media_endpoint(name);
+            let part_header = format!("Content-Type: {content_type}\r\n");
+            Mock::given(method(verb))
+                .and(path(endpoint))
+                .and(move |request: &wiremock::Request| {
+                    request
+                        .body
+                        .windows(part_header.len())
+                        .any(|window| window == part_header.as_bytes())
+                })
+                .respond_with(ResponseTemplate::new(200).set_body_json(profile_fixture(true)))
+                .expect(1)
+                .mount(&proxy)
+                .await;
+            let mut params = params_for(name);
+            params["file_name"] = json!("picture-without-an-extension");
+            params["content_type"] = json!(content_type);
+            let result = call_media(&server, name, params, Extensions::default())
+                .await
+                .unwrap();
+            assert!(response_json(result)["data"]["avatar_url"].is_string());
+            proxy.verify().await;
+            proxy.reset().await;
+        }
     }
 }
