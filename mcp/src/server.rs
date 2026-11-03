@@ -2868,6 +2868,49 @@ pub struct OwnedSerenAgentTemplateParams {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct UploadSerenAgentTemplateAvatarParams {
+    pub organization_id: Uuid,
+    pub slug: String,
+    /// File name of the PNG, JPEG or WebP picture.
+    pub file_name: String,
+    /// Raw base64 image bytes, without a data URL prefix. Compress large pictures first.
+    pub image_base64: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CreateSerenAgentTemplateIntroVideoUploadParams {
+    pub organization_id: Uuid,
+    pub slug: String,
+    pub request: seren::CreateIntroVideoUpload,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CompleteSerenAgentTemplateIntroVideoUploadParams {
+    pub organization_id: Uuid,
+    pub slug: String,
+    pub upload_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetSerenAgentTemplateIntroVideoCaptionsParams {
+    pub organization_id: Uuid,
+    pub slug: String,
+    pub request: seren::PutIntroVideoCaptions,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetSerenAgentTemplateIntroVideoPosterParams {
+    pub organization_id: Uuid,
+    pub slug: String,
+    pub request: seren::PutIntroVideoPoster,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateSerenAgentTemplateProfileParams {
     pub organization_id: Uuid,
     pub slug: String,
@@ -7335,6 +7378,14 @@ fn ensure_managed_agent_owner_credential(extensions: &Extensions) -> Result<(), 
             None,
         )),
     }
+}
+
+fn ensure_template_media_owner_credential(extensions: &Extensions) -> Result<(), McpError> {
+    ensure_managed_agent_owner_credential(extensions).map_err(|mut error| {
+        error.message = format!("managed_agent_profile_owner_required: {}", error.message).into();
+        error.data = Some(serde_json::json!({"error": "managed_agent_profile_owner_required"}));
+        error
+    })
 }
 
 fn template_publication_timeout(rollout: Option<bool>) -> Option<std::time::Duration> {
@@ -17015,7 +17066,280 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Change only supplied Employee catalog profile fields. Omission preserves a field, null clears text, and an empty list clears that list. Requires a nonempty request and a built-in Owner with an unrestricted credential of the publishing organization. The picture is managed separately.",
+        description = "Upload or replace an Employee's full-length picture from base64 PNG, JPEG or WebP through Core's multipart file route. Maximum 5 MiB; at least 800 pixels wide, width/height 0.64 to 0.70. Large pictures may not fit in an AI client's tool call; compress them first. Requires the publishing organization's built-in Owner using an unrestricted direct credential.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn upload_seren_agent_template_avatar(
+        &self,
+        Parameters(params): Parameters<UploadSerenAgentTemplateAvatarParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_template_media_owner_credential(&extensions)?;
+        let file_name = params.file_name.trim();
+        if file_name.is_empty() {
+            return Err(McpError::invalid_params("file_name is required", None));
+        }
+        let image = BASE64
+            .decode(params.image_base64.trim())
+            .map_err(|_| McpError::invalid_params("image_base64 is invalid", None))?;
+        if image.is_empty() {
+            return Err(McpError::invalid_params(
+                "image_base64 must decode to a non-empty image",
+                None,
+            ));
+        }
+        let response = self
+            .api_client(&extensions)?
+            .upload_managed_agent_template_avatar(
+                &params.organization_id,
+                &params.slug,
+                file_name,
+                image,
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Remove an Employee's full-length picture. Requires the publishing organization's built-in Owner using an unrestricted direct credential.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn delete_seren_agent_template_avatar(
+        &self,
+        Parameters(params): Parameters<OwnedSerenAgentTemplateParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_template_media_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .delete_managed_agent_template_avatar(&params.organization_id, &params.slug)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Start an Employee intro video upload. Returns upload_id, signed upload_url, method, exact headers and expires_at. Send exactly size_bytes to that URL using the returned method and headers, then call complete_seren_agent_template_intro_video_upload. Do not send video bytes in MCP. MP4/MOV (H.264 or HEVC) or WebM (VP9), with sound, portrait 2:3, 480-2160 pixels wide, 10-60 seconds, at most 250 MB. Replaces the draft and, on publication, the first live video (or adds if empty). Owner-admitted caption drafting may incur charges. Requires the publishing organization's built-in Owner with an unrestricted direct credential.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn create_seren_agent_template_intro_video_upload(
+        &self,
+        Parameters(params): Parameters<CreateSerenAgentTemplateIntroVideoUploadParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_template_media_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .create_managed_agent_template_intro_video_upload(
+                &params.organization_id,
+                &params.slug,
+                &params.request,
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Complete the signed intro video upload after sending the file. Returns processing state; poll get_seren_agent_template_intro_video for progress, refusals and captions. Repeating completion returns the current state. Requires the publishing organization's built-in Owner with an unrestricted direct credential.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn complete_seren_agent_template_intro_video_upload(
+        &self,
+        Parameters(params): Parameters<CompleteSerenAgentTemplateIntroVideoUploadParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_template_media_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .complete_managed_agent_template_intro_video_upload(
+                &params.organization_id,
+                &params.slug,
+                &params.upload_id,
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Read an Employee's live intro video and draft, including processing progress, upload deadline, refusal codes and drafted or Owner-supplied WebVTT captions. Requires the publishing organization's built-in Owner with an unrestricted direct credential.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn get_seren_agent_template_intro_video(
+        &self,
+        Parameters(params): Parameters<OwnedSerenAgentTemplateParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_template_media_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .get_managed_agent_template_intro_video(&params.organization_id, &params.slug)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Replace a processed Employee intro video draft's captions with plain-text WebVTT, at most 100 KiB. Supply captions if automatic drafting failed; review the returned text before publishing. Requires the publishing organization's built-in Owner with an unrestricted direct credential.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn set_seren_agent_template_intro_video_captions(
+        &self,
+        Parameters(params): Parameters<SetSerenAgentTemplateIntroVideoCaptionsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_template_media_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .put_managed_agent_template_intro_video_draft_captions(
+                &params.organization_id,
+                &params.slug,
+                &params.request,
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Choose the intro video's still frame using at_ms (milliseconds). The processed draft returns to background processing; poll get_seren_agent_template_intro_video until ready before publishing. Requires the publishing organization's built-in Owner with an unrestricted direct credential.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn set_seren_agent_template_intro_video_poster(
+        &self,
+        Parameters(params): Parameters<SetSerenAgentTemplateIntroVideoPosterParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_template_media_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .put_managed_agent_template_intro_video_draft_poster(
+                &params.organization_id,
+                &params.slug,
+                &params.request,
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Publish the processed Employee intro video draft with its captions and still. Core requires ready media and captions; publication replaces the live video selected when starting the upload. Requires the publishing organization's built-in Owner with an unrestricted direct credential.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn publish_seren_agent_template_intro_video(
+        &self,
+        Parameters(params): Parameters<OwnedSerenAgentTemplateParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_template_media_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .publish_managed_agent_template_intro_video_draft(&params.organization_id, &params.slug)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Discard the Employee's current intro video draft without removing the live video. Repeated discarding succeeds. This targets the current draft, so refresh status before discarding; it is not cancellation scoped to an older upload. Requires the publishing organization's built-in Owner with an unrestricted direct credential.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn discard_seren_agent_template_intro_video_draft(
+        &self,
+        Parameters(params): Parameters<OwnedSerenAgentTemplateParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_template_media_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .delete_managed_agent_template_intro_video_draft(&params.organization_id, &params.slug)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Remove the Employee's first live intro video without discarding its draft. Repeated removal succeeds when no live videos remain. Requires the publishing organization's built-in Owner with an unrestricted direct credential.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn delete_seren_agent_template_intro_video(
+        &self,
+        Parameters(params): Parameters<OwnedSerenAgentTemplateParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_template_media_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .delete_managed_agent_template_intro_video(&params.organization_id, &params.slug)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Change only supplied Employee catalog profile fields. Omission preserves a field, null clears text, and an empty list clears that list. Requires a nonempty request and a built-in Owner with an unrestricted credential of the publishing organization. Use upload_seren_agent_template_avatar to upload or replace the picture and delete_seren_agent_template_avatar to remove it.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -38086,3 +38410,7 @@ pub(crate) mod tests {
         assert!(core.received_requests().await.unwrap().is_empty());
     }
 }
+
+#[cfg(test)]
+#[path = "template_media_tests.rs"]
+mod template_media_tests;
