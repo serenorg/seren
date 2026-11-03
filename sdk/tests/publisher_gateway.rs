@@ -400,7 +400,7 @@ async fn skills_details_and_unconstrained_responses_recover_gateway_data() {
         serve(
             &server,
             "GET",
-            "/publishers/seren-skills/",
+            "/publishers/seren-skills",
             200,
             if wrapped {
                 gateway(200, metadata.clone())
