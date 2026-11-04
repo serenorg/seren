@@ -85,7 +85,7 @@ async fn managed_pricing_success_bodies_preserve_fee_and_cost_contracts() {
                 "works_in": ["slack"], "pronouns": "they/them", "intro_videos": [],
                 "run_kinds": run_kinds.clone(),
                 "spend_limit_defaults": {"per_task_atomic": 2000000, "per_day_atomic": 10000000},
-                "catalog": {"hires_30d": 0, "hours_of_work": 0, "active_hires": 0,
+                "catalog": {"hires_30d": 0, "tasks_done": 0, "hours_of_work": 0, "active_hires": 0,
                     "best_sellers_rank": null, "seren_choice": false, "also_hired": [],
                     "rating": null, "updated_at": null},
                 "similar": []
