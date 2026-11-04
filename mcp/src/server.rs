@@ -1373,6 +1373,12 @@ pub struct CallPublisherParams {
     /// Optional idempotency key (UUID)
     #[serde(default)]
     pub request_id: Option<Uuid>,
+    /// Optional deadline in milliseconds for the whole publisher call, retries included.
+    /// Default: 120000 (2 minutes) for API and database publishers, 60000 (1 minute) for MCP
+    /// publishers. Values above 600000 (10 minutes) are capped at 600000. A call that runs out
+    /// of time returns the error `publisher_call_timed_out`.
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
     /// Set to true to confirm a payment that exceeded the auto-approve limit
     #[serde(default)]
     pub confirm: bool,
@@ -1401,6 +1407,7 @@ impl std::fmt::Debug for CallPublisherParams {
             .field("connection_id", &self.connection_id)
             .field("response_format", &self.response_format)
             .field("request_id", &self.request_id)
+            .field("timeout_ms", &self.timeout_ms)
             .field("confirm", &self.confirm)
             .field("x402_payment", &self.x402_payment)
             .finish()
@@ -6640,6 +6647,74 @@ const QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 /// Marketplace and publisher endpoints can be slower than basic project operations.
 const API_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// Longest deadline a `call_publisher` caller may ask for (10 minutes). Larger
+/// `timeout_ms` values are capped here so a stuck publisher can't hold a call forever.
+const MAX_PUBLISHER_CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// Error code a `call_publisher` caller receives when its deadline passes.
+const PUBLISHER_CALL_TIMED_OUT: &str = "publisher_call_timed_out";
+
+/// The deadline for one `call_publisher` call: the caller's `timeout_ms`, capped at
+/// [`MAX_PUBLISHER_CALL_TIMEOUT`], or `default` when the caller names none.
+fn publisher_call_timeout(
+    timeout_ms: Option<u64>,
+    default: std::time::Duration,
+) -> Result<std::time::Duration, McpError> {
+    match timeout_ms {
+        None => Ok(default),
+        Some(0) => Err(McpError::invalid_params(
+            "call_publisher: 'timeout_ms' must be at least 1".to_string(),
+            None,
+        )),
+        Some(ms) => Ok(std::time::Duration::from_millis(ms).min(MAX_PUBLISHER_CALL_TIMEOUT)),
+    }
+}
+
+/// The typed result for a publisher call that ran out of time, so a script can tell a
+/// slow publisher from an outage and decide whether to retry with a longer deadline.
+fn publisher_call_timed_out_result(
+    publisher: &str,
+    timeout: std::time::Duration,
+) -> Result<CallToolResult, McpError> {
+    let timeout_ms = u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX);
+    let message = format!(
+        concat!(
+            "Publisher '{}' did not answer within {} ms. Seren stopped waiting, ",
+            "but the publisher may still finish this request; a request it completes is billed ",
+            "as a normal call. Retry with a larger timeout_ms (at most {} ms) if the publisher ",
+            "needs longer."
+        ),
+        publisher,
+        timeout_ms,
+        MAX_PUBLISHER_CALL_TIMEOUT.as_millis()
+    );
+    let mut details = serde_json::Map::new();
+    details.insert(
+        "status".to_string(),
+        reqwest::StatusCode::GATEWAY_TIMEOUT.as_u16().into(),
+    );
+    details.insert("error".to_string(), PUBLISHER_CALL_TIMED_OUT.into());
+    details.insert("message".to_string(), message.clone().into());
+    details.insert("timeout_ms".to_string(), timeout_ms.into());
+    publisher_refusal_result(
+        format!("Publisher request timed out ({PUBLISHER_CALL_TIMED_OUT}): {message}"),
+        details,
+    )
+}
+
+/// Map a failure reading a successful publisher response body: a timeout is the typed
+/// timeout result, anything else stays an internal error.
+fn publisher_body_read_error(
+    error: reqwest::Error,
+    publisher: &str,
+    timeout: std::time::Duration,
+) -> Result<CallToolResult, McpError> {
+    if error.is_timeout() {
+        return publisher_call_timed_out_result(publisher, timeout);
+    }
+    Err(McpError::internal_error(error.to_string(), None))
+}
+
 /// Small extra window for logo uploads to return their normal timeout error
 /// before the handler falls back to a generic timeout response.
 const OUTER_TIMEOUT_SLACK: std::time::Duration = std::time::Duration::from_secs(5);
@@ -7674,6 +7749,7 @@ struct CallPublisherErrorContext<'a, T: Serialize> {
     dispatch: Option<&'a PublisherDispatchTarget>,
     agent_metadata: &'a AgentMetadata,
     return_text: bool,
+    timeout: std::time::Duration,
 }
 
 fn normalize_api_request_body(
@@ -13261,6 +13337,7 @@ Examples:
             )
         })?;
 
+        let timeout = publisher_call_timeout(params.timeout_ms, QUERY_TIMEOUT)?;
         let body = seren::DatabaseQueryRequest {
             query: query.clone(),
             database: params.database.clone(),
@@ -13321,7 +13398,7 @@ Examples:
                 .execute_publisher_proxy_raw(
                     extensions,
                     agent_metadata,
-                    QUERY_TIMEOUT,
+                    timeout,
                     &reqwest::Method::POST,
                     &publisher_path,
                     Some(&body),
@@ -13335,10 +13412,12 @@ Examples:
             {
                 Ok(resp) if resp.status().is_success() => {
                     let response_headers = resp.headers().clone();
-                    let text = resp
-                        .text()
-                        .await
-                        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                    let text = match resp.text().await {
+                        Ok(text) => text,
+                        Err(error) => {
+                            return publisher_body_read_error(error, &params.publisher, timeout);
+                        }
+                    };
                     return Ok(call_result_with_response_meta(
                         vec![ContentBlock::text(text)],
                         &response_headers,
@@ -13348,11 +13427,7 @@ Examples:
                 Err(error) => error,
             }
         } else {
-            match self.api_client_with_timeout_request_id(
-                extensions,
-                QUERY_TIMEOUT,
-                params.request_id,
-            ) {
+            match self.api_client_with_timeout_request_id(extensions, timeout, params.request_id) {
                 Ok(api_client) => match api_client
                     .publisher_root_handler(&params.publisher, &root_body)
                     .await
@@ -13387,6 +13462,7 @@ Examples:
                 dispatch: None,
                 agent_metadata,
                 return_text,
+                timeout,
             },
         )
         .await
@@ -13452,6 +13528,7 @@ Examples:
         };
         let headers =
             publisher_headers_with_oauth_connection(params.headers.as_ref(), params.connection_id)?;
+        let timeout = publisher_call_timeout(params.timeout_ms, QUERY_TIMEOUT)?;
 
         let dispatch =
             self.publisher_dispatch_target(extensions, &params.publisher, &publisher_path, None)?;
@@ -13503,18 +13580,24 @@ Examples:
 
         // A failed mutation can already have taken effect upstream.
         let max_retries = publisher_retry_count(&method);
+        // Every attempt, and the waits between them, share the caller's one deadline.
+        let deadline = tokio::time::Instant::now() + timeout;
         let mut last_error = None;
         for attempt in 0..=max_retries {
             if attempt > 0 {
                 let delay = RETRY_BASE_DELAY * 2u32.pow(attempt - 1);
                 tokio::time::sleep(delay).await;
             }
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                return publisher_call_timed_out_result(&params.publisher, timeout);
+            }
 
             let api_response = self
                 .execute_publisher_proxy_raw(
                     extensions,
                     agent_metadata,
-                    QUERY_TIMEOUT,
+                    remaining,
                     &method,
                     &publisher_path,
                     body,
@@ -13538,6 +13621,12 @@ Examples:
                         while let Some(chunk) = stream.next().await {
                             match chunk {
                                 Ok(bytes) => collected.extend_from_slice(&bytes),
+                                Err(e) if e.is_timeout() => {
+                                    return publisher_call_timed_out_result(
+                                        &params.publisher,
+                                        timeout,
+                                    );
+                                }
                                 Err(e) => {
                                     return Err(McpError::internal_error(
                                         format!("Stream error: {}", e),
@@ -13552,10 +13641,16 @@ Examples:
                             &response_headers,
                         ));
                     } else {
-                        let result: serde_json::Value = resp
-                            .json()
-                            .await
-                            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                        let result: serde_json::Value = match resp.json().await {
+                            Ok(result) => result,
+                            Err(error) => {
+                                return publisher_body_read_error(
+                                    error,
+                                    &params.publisher,
+                                    timeout,
+                                );
+                            }
+                        };
                         return Ok(call_result_with_response_meta(
                             vec![json_content(&result)?],
                             &response_headers,
@@ -13569,7 +13664,9 @@ Examples:
             match api_result {
                 Ok(_) => unreachable!(),
                 Err(e) => {
-                    if is_retryable_error(&e) && attempt < max_retries {
+                    let next_delay = RETRY_BASE_DELAY * 2u32.pow(attempt);
+                    let time_left = deadline.saturating_duration_since(tokio::time::Instant::now());
+                    if is_retryable_error(&e) && attempt < max_retries && time_left > next_delay {
                         last_error = Some(e);
                         continue;
                     }
@@ -13590,6 +13687,7 @@ Examples:
                                 dispatch: dispatch.as_ref(),
                                 agent_metadata,
                                 return_text,
+                                timeout,
                             },
                         )
                         .await;
@@ -13615,6 +13713,7 @@ Examples:
         agent_metadata: &AgentMetadata,
         return_text: bool,
     ) -> Result<CallToolResult, McpError> {
+        let timeout = publisher_call_timeout(params.timeout_ms, API_TIMEOUT)?;
         reject_publisher_dispatch_header(params.headers.as_ref())?;
         let tool_name = params.tool.as_ref().ok_or_else(|| {
             McpError::invalid_params("tool is required for MCP tool operations".to_string(), None)
@@ -13708,7 +13807,7 @@ Examples:
             .execute_publisher_proxy_raw(
                 extensions,
                 agent_metadata,
-                API_TIMEOUT,
+                timeout,
                 &reqwest::Method::POST,
                 &publisher_path,
                 Some(&body),
@@ -13723,19 +13822,23 @@ Examples:
             Ok(resp) if resp.status().is_success() => {
                 let response_headers = resp.headers().clone();
                 if return_text {
-                    let text = resp
-                        .text()
-                        .await
-                        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                    let text = match resp.text().await {
+                        Ok(value) => value,
+                        Err(error) => {
+                            return publisher_body_read_error(error, &params.publisher, timeout);
+                        }
+                    };
                     return Ok(call_result_with_response_meta(
                         vec![ContentBlock::text(text)],
                         &response_headers,
                     ));
                 }
-                let result: serde_json::Value = resp
-                    .json()
-                    .await
-                    .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                let result: serde_json::Value = match resp.json().await {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return publisher_body_read_error(error, &params.publisher, timeout);
+                    }
+                };
                 return Ok(call_result_with_response_meta(
                     vec![json_content(&result)?],
                     &response_headers,
@@ -13792,6 +13895,7 @@ Examples:
                         dispatch: dispatch.as_ref(),
                         agent_metadata,
                         return_text,
+                        timeout,
                     },
                 )
                 .await
@@ -13807,6 +13911,7 @@ Examples:
         agent_metadata: &AgentMetadata,
         return_text: bool,
     ) -> Result<CallToolResult, McpError> {
+        let timeout = publisher_call_timeout(params.timeout_ms, API_TIMEOUT)?;
         reject_publisher_dispatch_header(params.headers.as_ref())?;
         let uri = params.resource_uri.as_ref().ok_or_else(|| {
             McpError::invalid_params(
@@ -13895,7 +14000,7 @@ Examples:
                 .execute_publisher_proxy_raw::<serde_json::Value>(
                     extensions,
                     agent_metadata,
-                    API_TIMEOUT,
+                    timeout,
                     &method,
                     &publisher_path,
                     None,
@@ -13911,19 +14016,31 @@ Examples:
                 Ok(resp) if resp.status().is_success() => {
                     let response_headers = resp.headers().clone();
                     if return_text {
-                        let text = resp
-                            .text()
-                            .await
-                            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                        let text = match resp.text().await {
+                            Ok(value) => value,
+                            Err(error) => {
+                                return publisher_body_read_error(
+                                    error,
+                                    &params.publisher,
+                                    timeout,
+                                );
+                            }
+                        };
                         return Ok(call_result_with_response_meta(
                             vec![ContentBlock::text(text)],
                             &response_headers,
                         ));
                     } else {
-                        let result: serde_json::Value = resp
-                            .json()
-                            .await
-                            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                        let result: serde_json::Value = match resp.json().await {
+                            Ok(value) => value,
+                            Err(error) => {
+                                return publisher_body_read_error(
+                                    error,
+                                    &params.publisher,
+                                    timeout,
+                                );
+                            }
+                        };
                         return Ok(call_result_with_response_meta(
                             vec![json_content(&result)?],
                             &response_headers,
@@ -13993,6 +14110,7 @@ Examples:
                                         dispatch: dispatch.as_ref(),
                                         agent_metadata,
                                         return_text,
+                                        timeout,
                                     },
                                 )
                                 .await;
@@ -14056,6 +14174,9 @@ Examples:
                     summary,
                     publisher_refusal_details(status, request_id.as_deref(), ""),
                 );
+            }
+            seren::Error::CommunicationError(error) if error.is_timeout() => {
+                return publisher_call_timed_out_result(ctx.publisher, ctx.timeout);
             }
             error => {
                 if let Some(status) = error.status()
@@ -24060,6 +24181,7 @@ pub(crate) mod tests {
             connection_id: None,
             response_format: None,
             request_id: None,
+            timeout_ms: None,
             confirm: false,
             x402_payment: None,
         };
@@ -26614,6 +26736,7 @@ pub(crate) mod tests {
             connection_id: None,
             response_format: None,
             request_id: None,
+            timeout_ms: None,
             confirm: false,
             x402_payment: None,
         };
@@ -26765,6 +26888,7 @@ pub(crate) mod tests {
             connection_id: None,
             response_format: None,
             request_id: None,
+            timeout_ms: None,
             confirm: false,
             x402_payment: None,
         };
@@ -26808,6 +26932,7 @@ pub(crate) mod tests {
             connection_id: None,
             response_format: None,
             request_id: None,
+            timeout_ms: None,
             confirm: false,
             x402_payment: None,
         };
@@ -26847,6 +26972,7 @@ pub(crate) mod tests {
             connection_id: None,
             response_format: None,
             request_id: None,
+            timeout_ms: None,
             confirm: false,
             x402_payment: None,
         };
@@ -28531,6 +28657,160 @@ pub(crate) mod tests {
         assert_eq!(attempts.load(Ordering::SeqCst), 2);
     }
 
+    async fn slow_publisher(delay: std::time::Duration) -> wiremock::MockServer {
+        use wiremock::matchers::any;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let proxy = MockServer::start().await;
+        Mock::given(any())
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"data":{"page":"done"}}))
+                    .set_delay(delay),
+            )
+            .mount(&proxy)
+            .await;
+        proxy
+    }
+
+    fn assert_publisher_call_timed_out(result: &CallToolResult, timeout_ms: u64) {
+        assert_eq!(result.is_error, Some(true), "a timeout is a tool error");
+        let details = result
+            .structured_content
+            .as_ref()
+            .expect("a timeout carries structured details");
+        assert_eq!(details["error"], "publisher_call_timed_out");
+        assert_eq!(details["status"], 504);
+        assert_eq!(details["timeout_ms"], timeout_ms);
+        let message = details["message"].as_str().unwrap();
+        assert!(message.contains("billed"), "{message}");
+        assert!(!message.contains("Communication Error"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn call_publisher_api_waits_as_long_as_the_caller_asks() {
+        // Stands in for a 150-second publisher read called with a 180-second deadline.
+        let proxy = slow_publisher(std::time::Duration::from_millis(600)).await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let params: CallPublisherParams = serde_json::from_value(serde_json::json!({
+            "publisher":"firecrawl", "method":"POST", "path":"/v2/scrape",
+            "body":{"url":"https://example.com"}, "timeout_ms": 5_000
+        }))
+        .unwrap();
+        let result = server
+            .call_publisher_api(
+                &params,
+                &extensions_with_headers(&[]),
+                &AgentMetadata::default(),
+                false,
+            )
+            .await
+            .unwrap();
+        assert!(!result.is_error.unwrap_or(false), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn call_publisher_api_reports_a_passed_deadline_as_a_typed_timeout() {
+        let proxy = slow_publisher(std::time::Duration::from_secs(5)).await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        for return_text in [false, true] {
+            let params: CallPublisherParams = serde_json::from_value(serde_json::json!({
+                "publisher":"firecrawl", "method":"POST", "path":"/v2/scrape",
+                "body":{}, "timeout_ms": 200
+            }))
+            .unwrap();
+            let started = std::time::Instant::now();
+            let result = server
+                .call_publisher_api(
+                    &params,
+                    &extensions_with_headers(&[]),
+                    &AgentMetadata::default(),
+                    return_text,
+                )
+                .await
+                .expect("a timeout is a tool result, not a protocol error");
+            assert!(started.elapsed() < std::time::Duration::from_secs(4));
+            assert_publisher_call_timed_out(&result, 200);
+        }
+    }
+
+    #[tokio::test]
+    async fn call_publisher_api_read_retries_stay_inside_the_callers_deadline() {
+        let proxy = slow_publisher(std::time::Duration::from_secs(5)).await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let params: CallPublisherParams = serde_json::from_value(serde_json::json!({
+            "publisher":"firecrawl", "method":"GET", "path":"/v2/status", "timeout_ms": 300
+        }))
+        .unwrap();
+        let started = std::time::Instant::now();
+        let result = server
+            .call_publisher_api(
+                &params,
+                &extensions_with_headers(&[]),
+                &AgentMetadata::default(),
+                false,
+            )
+            .await
+            .unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        assert_publisher_call_timed_out(&result, 300);
+        assert_eq!(proxy.received_requests().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn call_publisher_mcp_tool_honors_the_callers_deadline() {
+        let proxy = slow_publisher(std::time::Duration::from_secs(5)).await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let params: CallPublisherParams = serde_json::from_value(serde_json::json!({
+            "publisher":"slow-mcp", "tool":"read", "tool_args":{}, "timeout_ms": 200
+        }))
+        .unwrap();
+        let result = server
+            .call_publisher_mcp_tool(
+                &params,
+                &extensions_with_headers(&[]),
+                &AgentMetadata::default(),
+                false,
+            )
+            .await
+            .unwrap();
+        assert_publisher_call_timed_out(&result, 200);
+    }
+
+    #[test]
+    fn publisher_call_timeout_keeps_defaults_and_caps_long_deadlines() {
+        assert_eq!(
+            publisher_call_timeout(None, QUERY_TIMEOUT).unwrap(),
+            std::time::Duration::from_secs(120)
+        );
+        assert_eq!(
+            publisher_call_timeout(None, API_TIMEOUT).unwrap(),
+            std::time::Duration::from_secs(60)
+        );
+        assert_eq!(
+            publisher_call_timeout(Some(180_000), QUERY_TIMEOUT).unwrap(),
+            std::time::Duration::from_secs(180)
+        );
+        assert_eq!(
+            publisher_call_timeout(Some(86_400_000), QUERY_TIMEOUT).unwrap(),
+            MAX_PUBLISHER_CALL_TIMEOUT
+        );
+        assert_eq!(
+            publisher_call_timeout(Some(u64::MAX), QUERY_TIMEOUT).unwrap(),
+            MAX_PUBLISHER_CALL_TIMEOUT
+        );
+        let error = publisher_call_timeout(Some(0), QUERY_TIMEOUT).unwrap_err();
+        assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_PARAMS);
+    }
+
+    #[test]
+    fn call_publisher_schema_offers_timeout_ms() {
+        let schema = serde_json::to_value(schemars::schema_for!(CallPublisherParams)).unwrap();
+        let description = schema["properties"]["timeout_ms"]["description"]
+            .as_str()
+            .expect("timeout_ms is described");
+        assert!(description.contains("600000"), "{description}");
+    }
+
     #[tokio::test]
     async fn call_publisher_api_forwards_body_base64_as_raw_bytes() {
         use wiremock::matchers::{body_string_contains, header, method, path};
@@ -28572,6 +28852,7 @@ pub(crate) mod tests {
             connection_id: Some(Uuid::from_u128(1)),
             response_format: None,
             request_id: None,
+            timeout_ms: None,
             confirm: false,
             x402_payment: None,
         };
@@ -29097,6 +29378,7 @@ pub(crate) mod tests {
             connection_id: None,
             response_format: None,
             request_id: None,
+            timeout_ms: None,
             confirm: false,
             x402_payment: None,
         };
@@ -29165,6 +29447,7 @@ pub(crate) mod tests {
                     dispatch: None,
                     agent_metadata: &agent_metadata,
                     return_text: false,
+                    timeout: QUERY_TIMEOUT,
                 },
             )
             .await
@@ -30299,6 +30582,7 @@ pub(crate) mod tests {
             connection_id: None,
             response_format: None,
             request_id: None,
+            timeout_ms: None,
             confirm: false,
             x402_payment: None,
         };
