@@ -6,7 +6,7 @@ Rust SDK for the [Seren](https://serendb.com) API. The client is generated from 
 
 ```toml
 [dependencies]
-seren = { package = "seren-sdk", git = "https://github.com/serenorg/seren.git", tag = "v0.11.0" }
+seren = { package = "seren-sdk", git = "https://github.com/serenorg/seren.git", tag = "v0.12.0" }
 ```
 
 ## Quick Start
