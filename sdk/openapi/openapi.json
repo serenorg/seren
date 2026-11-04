@@ -10243,7 +10243,7 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Publish the processed draft with its captions and still. It replaces the live\nintro video at the selected placement.",
+        "summary": "Publish the processed draft with its still, and its captions if it has any.\nCaptions are optional. It replaces the live intro video at the selected placement.",
         "operationId": "publish_managed_agent_template_intro_video_draft",
         "parameters": [
           {
@@ -10284,7 +10284,7 @@
             "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, the organization does not publish the template, or the template or its profile is suspended"
           },
           "409": {
-            "description": "There is no processed draft (`intro_video_draft_not_ready`) or it has no captions (`intro_video_captions_required`)"
+            "description": "There is no processed draft (`intro_video_draft_not_ready`), or the limit is reached (`intro_video_limit_reached`)"
           },
           "503": {
             "description": "Video storage is unavailable"
@@ -10391,7 +10391,7 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Start an upload of one file: MP4 or MOV (H.264 or HEVC) or WebM (VP9) with a sound\ntrack, portrait 2:3, 480 to 2160 pixels wide, 10 to 60 seconds, at most 250 MB.\nSend the file to the returned address, then complete the upload. A new upload\nreplaces the draft.",
+        "summary": "Start an upload of one file: MP4 or MOV (H.264 or HEVC) or WebM (VP9), with or\nwithout a sound track, portrait from 9:16 to 2:3 (width divided by height from 0.54\nto 0.70), 480 to 2160 pixels wide, 5 to 60 seconds, at most 250 MB. Send the file\nto the returned address, then complete the upload. A new upload replaces the draft.",
         "operationId": "create_managed_agent_template_intro_video_upload",
         "parameters": [
           {
@@ -10851,7 +10851,7 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Change the job title, tagline, plain-text description, ordered\ncapabilities, example tasks, tools and pronouns. A field left out keeps its\nvalue; null removes text and an empty list removes every item. The picture\nis managed separately. Suspended templates or profiles refuse edits.",
+        "summary": "Change the name, job title, tagline, plain-text description, ordered\ncapabilities, example tasks, tools and pronouns. A field left out keeps its\nvalue; null removes text and an empty list removes every item. The picture\nis managed separately. Suspended templates or profiles refuse edits. A\nrename costs $1.00 in SerenBucks and the response's `rename` names the\ncharge; the request changes nothing when the rename is refused.",
         "operationId": "put_managed_agent_template_profile",
         "parameters": [
           {
@@ -10886,11 +10886,11 @@
         },
         "responses": {
           "200": {
-            "description": "The updated profile",
+            "description": "The updated profile, with `rename` when the name changed",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateProfile"
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateProfileEdit"
                 }
               }
             }
@@ -10910,6 +10910,16 @@
           },
           "403": {
             "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, the organization does not publish the template, or the template or its profile is suspended"
+          },
+          "409": {
+            "description": "The name was used before (`managed_agent_template_name_retired`), or the Owner's SerenBucks can't cover the $1.00 rename (`InsufficientPaymentBalance`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -11069,7 +11079,7 @@
           "managed-agent-templates"
         ],
         "summary": "Publish an uploaded release of a managed agent template.",
-        "description": "Creates the template when it does not exist, and otherwise adds the\nrelease as its next revision. New templates from outside the platform source\norganization await review before listing or hiring. Later releases preserve\nthe Owner's listing preference. Publication cannot create a template at a reserved slug, and a\nsuspended template accepts no release. Publishing the current revision\nagain changes nothing. Existing hires receive a release by their\nEmployers' update settings: a content change applies by itself between\ntasks under `automatic`, an access change or any change under `ask_first`\nwaits for the Employer's approval, and `stay` changes nothing. With\n`rollout`, the template's current revision is offered to each existing hire\nnow and the response reports each hire's outcome; otherwise the update job\noffers it on its next pass. `rollout` never applies anything past an\nEmployer's setting or approval. One hire's failure neither fails the\nrelease nor undoes the others. Repeating the current release retries a\npartly applied rollout. The rollout names its offered revision separately\nif another release advanced the template. A hire whose mode differs from\nthe release's is held, and incomplete hires are offered the release once\nthey complete. An optional `release_note` is shown to Employers as the\nOwner's words.\nA release is refused unless a hire can use it with at least one provider,\nand the response lists the providers a hire can select.\nRequires a user API key with `managed-agent-template:publish`, granted by\na built-in owner of the publishing organization. Any organization can\npublish, and only the organization that published a template can release\nit again. An issued key remains valid if its creator later loses\nownership, until it expires or is revoked.",
+        "description": "Creates the template when it does not exist, and otherwise adds the\nrelease as its next revision. New templates from outside the platform source\norganization await review before listing or hiring. Later releases preserve\nthe Owner's listing preference. Publication cannot create a template at a reserved slug, and a\nsuspended template accepts no release. Publishing the current revision\nagain changes nothing. Existing hires receive a release by their\nEmployers' update settings: a content change applies by itself between\ntasks under `automatic`, an access change or any change under `ask_first`\nwaits for the Employer's approval, and `stay` changes nothing. With\n`rollout`, the template's current revision is offered to each existing hire\nnow and the response reports each hire's outcome; otherwise the update job\noffers it on its next pass. `rollout` never applies anything past an\nEmployer's setting or approval. One hire's failure neither fails the\nrelease nor undoes the others. Repeating the current release retries a\npartly applied rollout. The rollout names its offered revision separately\nif another release advanced the template. A hire whose mode differs from\nthe release's is held, and incomplete hires are offered the release once\nthey complete. An optional `release_note` is shown to Employers as the\nOwner's words.\nA release is refused unless a hire can use it with at least one provider,\nand the response lists the providers a hire can select.\nEach publisher in `deploy_defaults.script_publisher_grants` must be\ndeclared as a `seren_publisher` connector in a bundle skill spec, an asset\nwhose path ends in `skill.spec.yaml`, such as `skill.spec.yaml` at the\nbundle root:\n\n```yaml\nskill: template\nconnectors:\n  daytona:\n    kind: seren_publisher\n    publisher: daytona\n```\n\n`skill` is a slug of 2-64 lowercase letters, digits or interior hyphens.\nA root `skill.spec.yaml` also requires the bundle's root `SKILL.md`, if it\nhas one, to start with YAML frontmatter that sets `name` and `description`\nand to include a top-level `# ` heading. An undeclared publisher refuses the\nrelease with `400`, naming every undeclared publisher and the connector\nentries to add.\nA skill spec may also declare the steps and error codes its Employees name\nin support reports, which reach Seren support as is only for this\ntemplate:\n\n```yaml\nsupport_report:\n  steps: [repo_read]\n  error_codes: [repo_not_found]\n```\n\nEach value is snake_case and at most 40 characters, with at most 30 steps\nand 30 error codes across the bundle's specs. Any other value or field\nrefuses the release with `400`, naming it.\nRequires a user API key with `managed-agent-template:publish`, granted by\na built-in owner of the publishing organization. Any organization can\npublish, and only the organization that published a template can release\nit again. An issued key remains valid if its creator later loses\nownership, until it expires or is revoked.",
         "operationId": "publish_managed_agent_template_release",
         "parameters": [
           {
@@ -11126,7 +11136,7 @@
             "description": "The release asks for a sandbox runtime class Seren doesn't offer (`runtime_class_not_found`)"
           },
           "409": {
-            "description": "The slug is reserved, or is kept for Seren's own organization, and no template exists there (`managed_agent_template_slug_reserved`), a new template's publisher has no public name (`publisher_name_required`) or store address (`publisher_handle_required`), the display name differs from the template's, the release conflicts with the template or its bundle, the rollout of a published release could not start because the current revision is unavailable or the template is suspended, or one of the template's run kinds is priced below its minimum (`run_fee_below_minimum`)"
+            "description": "The slug is reserved, or is kept for Seren's own organization, and no template exists there (`managed_agent_template_slug_reserved`), a new template's publisher has no public name (`publisher_name_required`) or store address (`publisher_handle_required`), the display name differs from the template's current name, which the message names (`managed_agent_template_display_name_mismatch`), a new template's name was used before (`managed_agent_template_name_retired`), the release conflicts with the template or its bundle, the rollout of a published release could not start because the current revision is unavailable or the template is suspended, or one of the template's run kinds is priced below its minimum (`run_fee_below_minimum`)"
           }
         },
         "security": [
@@ -12839,6 +12849,20 @@
             }
           },
           {
+            "name": "x-seren-publisher-timeout-ms",
+            "in": "header",
+            "description": "Optional deadline for the publisher call in milliseconds, at least 1. Values above 600000 are treated as 600000; without it the call may take up to 600000 ms. A call that runs out of time returns 504 with error `publisher_call_timed_out`.",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
             "name": "connection_id",
             "in": "query",
             "description": "Optional OAuth connection UUID for MCP publisher routes",
@@ -12926,7 +12950,7 @@
             }
           },
           "504": {
-            "description": "Dependency request timed out",
+            "description": "Dependency request timed out, or the publisher did not answer within the call deadline (`publisher_call_timed_out`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -12975,6 +12999,20 @@
             }
           },
           {
+            "name": "x-seren-publisher-timeout-ms",
+            "in": "header",
+            "description": "Optional deadline for the publisher call in milliseconds, at least 1. Values above 600000 are treated as 600000; without it the call may take up to 600000 ms. A call that runs out of time returns 504 with error `publisher_call_timed_out`.",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
             "name": "connection_id",
             "in": "query",
             "description": "Optional OAuth connection UUID for MCP publisher routes",
@@ -13062,11 +13100,144 @@
             }
           },
           "504": {
-            "description": "Dependency request timed out",
+            "description": "Dependency request timed out, or the publisher did not answer within the call deadline (`publisher_call_timed_out`)",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/receipts/resubscribe": {
+      "post": {
+        "tags": [
+          "receipts"
+        ],
+        "summary": "Resubscribe to daily receipts from an unsubscribe link; repeating it succeeds.",
+        "operationId": "receipt_resubscribe",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "description": "Token from the receipt's unsubscribe link.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resubscribed",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown or expired link",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/receipts/unsubscribe": {
+      "get": {
+        "tags": [
+          "receipts"
+        ],
+        "summary": "Confirm an unsubscribe from daily receipts. This page changes nothing; its\nbutton sends the unsubscribe.",
+        "operationId": "confirm_receipt_unsubscribe",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "description": "Token from the receipt's unsubscribe link.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmation page",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown or expired link",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "receipts"
+        ],
+        "summary": "Unsubscribe from daily receipts. A mail client's one-click request and the\nconfirmation page both post here; repeating it succeeds.",
+        "operationId": "receipt_unsubscribe",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "description": "Token from the receipt's unsubscribe link.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Unsubscribed",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown or expired link",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -15860,13 +16031,19 @@
           "object_id",
           "width",
           "height",
+          "shape",
           "duration_ms",
+          "has_captions",
           "published_at"
         ],
         "properties": {
           "duration_ms": {
             "type": "integer",
             "format": "int32"
+          },
+          "has_captions": {
+            "type": "boolean",
+            "description": "Whether the video was published with captions."
           },
           "height": {
             "type": "integer",
@@ -15879,6 +16056,9 @@
           "published_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "shape": {
+            "$ref": "#/components/schemas/IntroVideoShape"
           },
           "width": {
             "type": "integer",
@@ -22382,6 +22562,50 @@
           }
         }
       },
+      "DataResponse_ManagedAgentTemplateProfileEdit": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplateProfile"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "rename": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/ManagedAgentTemplateRename",
+                        "description": "Present only when this request changed the Employee's name."
+                      }
+                    ]
+                  }
+                }
+              }
+            ],
+            "description": "The profile after an edit, and the rename it made, if any."
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedAgentTemplateRelease": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -22430,7 +22654,7 @@
                 "items": {
                   "$ref": "#/components/schemas/ManagedAgentHireProvider"
                 },
-                "description": "Providers whose connected accounts can hire the current revision."
+                "description": "Providers a hire of the current revision may name. A `mail_and_files`\nhire names one and connects its account. A `sign_in_only` hire may omit\nit, so this list does not limit who can hire."
               },
               "review_reason": {
                 "type": [
@@ -30906,6 +31130,17 @@
             ],
             "format": "uuid"
           },
+          "shape": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/IntroVideoShape",
+                "description": "Present once the draft is measured."
+              }
+            ]
+          },
           "state": {
             "$ref": "#/components/schemas/IntroVideoDraftState"
           },
@@ -32022,7 +32257,7 @@
               "string",
               "null"
             ],
-            "description": "Why the caption draft failed. Supply WebVTT captions to continue."
+            "description": "Why the caption draft failed. Captions are optional: supply WebVTT captions or publish without them."
           },
           "state": {
             "$ref": "#/components/schemas/IntroVideoCaptionsState"
@@ -32085,9 +32320,17 @@
           },
           "message": {
             "type": "string",
-            "example": "This video is 1080 × 1920 (9:16). Employee videos are 2:3, for example 1080 × 1620."
+            "example": "This video is 1080 × 1080 (1:1). Employee videos are portrait, from 9:16 (for example 1080 × 1920) to 2:3 (for example 1080 × 1620)."
           }
         }
+      },
+      "IntroVideoShape": {
+        "type": "string",
+        "description": "The portrait shape nearest to a video's width and height.",
+        "enum": [
+          "9:16",
+          "2:3"
+        ]
       },
       "IntroVideoUpload": {
         "type": "object",
@@ -34278,7 +34521,8 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ManagedAgentTemplateScriptPublisherGrant"
-            }
+            },
+            "description": "Publisher operations the hired copy's skill scripts may call. Each\ngrant's publisher must be declared as a `seren_publisher` connector in\na bundle skill spec, an asset whose path ends in `skill.spec.yaml`, for\nexample at the bundle root:\n`skill: template` followed by `connectors:` with an entry\n`daytona: {kind: seren_publisher, publisher: daytona}` per publisher.\nA root `skill.spec.yaml` also requires the root `SKILL.md`, if present,\nto have YAML frontmatter with `name` and `description` and a top-level\n`# ` heading."
           },
           "workload_egress": {
             "type": "boolean",
@@ -34546,6 +34790,30 @@
           }
         }
       },
+      "ManagedAgentTemplateProfileEdit": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ManagedAgentTemplateProfile"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "rename": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateRename",
+                    "description": "Present only when this request changed the Employee's name."
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "description": "The profile after an edit, and the rename it made, if any."
+      },
       "ManagedAgentTemplatePublicationChange": {
         "oneOf": [
           {
@@ -34663,7 +34931,7 @@
             "items": {
               "$ref": "#/components/schemas/ManagedAgentHireProvider"
             },
-            "description": "Providers whose connected accounts can hire the current revision."
+            "description": "Providers a hire of the current revision may name. A `mail_and_files`\nhire names one and connects its account. A `sign_in_only` hire may omit\nit, so this list does not limit who can hire."
           },
           "review_reason": {
             "type": [
@@ -34698,6 +34966,56 @@
           },
           "slug": {
             "type": "string"
+          }
+        }
+      },
+      "ManagedAgentTemplateRename": {
+        "type": "object",
+        "description": "A change of an Employee's name.",
+        "required": [
+          "previous_display_name",
+          "display_name"
+        ],
+        "properties": {
+          "charge": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplateRenameCharge",
+                "description": "What the Owner paid; null when a Seren administrator renamed it."
+              }
+            ]
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "previous_display_name": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentTemplateRenameCharge": {
+        "type": "object",
+        "description": "SerenBucks paid for a rename.",
+        "required": [
+          "amount_atomic",
+          "transaction_ids"
+        ],
+        "properties": {
+          "amount_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Atomic units; 1,000,000 is $1.00."
+          },
+          "transaction_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The wallet transactions that recorded the charge, normally one."
           }
         }
       },
@@ -39942,6 +40260,12 @@
               }
             ]
           },
+          "display_name": {
+            "type": "string",
+            "description": "The Employee's new name, 1-255 characters without surrounding\nwhitespace. The address never changes. Renaming costs the publishing\nOwner $1.00 (1,000,000 atomic units) of SerenBucks from their own\nwallet, which bonus SerenBucks can pay; an unchanged name is free. A\nname an Employee had before is retired: Owners can't choose it\nagain, for any Employee, in any variant of letter case, spacing or\nUnicode compatibility form. Seren's administrators rename for free.",
+            "maxLength": 255,
+            "minLength": 1
+          },
           "example_tasks": {
             "type": "array",
             "items": {
@@ -43888,7 +44212,7 @@
               "string",
               "null"
             ],
-            "description": "Prompt/query text associated with this transaction (when available)"
+            "description": "Operation associated with this transaction, when available: the method,\npath and model of a publisher call, or the charge's description"
           },
           "publisher_id": {
             "type": [
@@ -44536,6 +44860,10 @@
     {
       "name": "checkins",
       "description": "Unsubscribe links in weekly Employee check-in emails"
+    },
+    {
+      "name": "receipts",
+      "description": "Unsubscribe links in daily SerenBucks receipt emails"
     },
     {
       "name": "managed-agent-templates",

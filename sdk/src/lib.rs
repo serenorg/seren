@@ -299,11 +299,11 @@ mod tests {
                 .await
                 .map(|_| ()),
             client
-                .proxy_to_publisher_get("example", "deadline", None, None, Vec::<u8>::new())
+                .proxy_to_publisher_get("example", "deadline", None, None, None, Vec::<u8>::new())
                 .await
                 .map(|_| ()),
             client
-                .proxy_to_publisher_post("example", "deadline", None, None, Vec::<u8>::new())
+                .proxy_to_publisher_post("example", "deadline", None, None, None, Vec::<u8>::new())
                 .await
                 .map(|_| ()),
             client.get_wallet_balance().await.map(|_| ()),
@@ -1758,7 +1758,7 @@ mod tests {
                     "amount": {"atomic": 500000, "usd": "$0.50"}, "changed_at": null,
                     "expected_cost_atomic": 300000
                 }],
-                "catalog": {"hires_30d": 3, "hours_of_work": 802, "active_hires": 3,
+                "catalog": {"hires_30d": 3, "tasks_done": 155, "hours_of_work": 802, "active_hires": 3,
                     "best_sellers_rank": 1, "seren_choice": false, "also_hired": ["iris"],
                     "rating": {"average": 5.0, "count": 1, "histogram": [100, 0, 0, 0, 0]},
                     "updated_at": "2026-11-01T04:00:03.759627Z"},
@@ -1814,7 +1814,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/publishers/seren-agent/templates/vera-hale/stats"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
-                "run_kinds": [], "hours_of_work": 0, "skills_count": 0, "active_hires": 0,
+                "run_kinds": [], "tasks_done": 0, "hours_of_work": 0, "skills_count": 0, "active_hires": 0,
                 "threads_30d": 0, "top_skills": [], "updated_at": null
             }})))
             .expect(1)

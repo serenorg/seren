@@ -1031,6 +1031,27 @@ fn merge_publisher_spec(
     )
 }
 
+/// Core requires `has_captions` and `shape` on live intro videos, but a Core that
+/// hasn't deployed them yet omits them. The generated types treat them as optional
+/// so the catalog and intro video tools decode both replies; a schema or field
+/// that disappears fails the build instead of silently decoding differently.
+fn keep_intro_video_rollout_fields_optional(spec: &mut serde_json::Value) -> anyhow::Result<()> {
+    for schema in ["ActiveIntroVideo", "ManagedAgentTemplateIntroVideoListing"] {
+        let required = spec
+            .pointer_mut(&format!("/components/schemas/{schema}/required"))
+            .and_then(serde_json::Value::as_array_mut)
+            .with_context(|| format!("missing required fields of {schema}"))?;
+        for field in ["has_captions", "shape"] {
+            let position = required
+                .iter()
+                .position(|name| name.as_str() == Some(field))
+                .with_context(|| format!("{schema} no longer requires {field}"))?;
+            required.remove(position);
+        }
+    }
+    Ok(())
+}
+
 /// Checks the SerenDB query-cell contract before code generation.
 ///
 /// The generated client decodes every cell shape the server can emit only while
@@ -1235,6 +1256,7 @@ fn main() -> anyhow::Result<()> {
     // Replace inline schemas in DataResponse_* wrappers with $ref to named equivalents.
     // This must run after merging publisher specs so all schemas are present.
     dedup_data_response_schemas(&mut raw_json);
+    keep_intro_video_rollout_fields_optional(&mut raw_json)?;
 
     // Normalize OpenAPI 3.1 nullable syntax before deserializing with openapiv3.
     normalize_nullable_parameters(&mut raw_json);
