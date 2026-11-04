@@ -3123,7 +3123,7 @@
             "description": "Resource not found"
           },
           "409": {
-            "description": "Conflicting update, account connection required, or publisher_provided_by_template when the publisher is already provided by the managed agent's template. A sign-in grant may still serve a template publisher whose template operations are all reads with no fixed connection."
+            "description": "Conflicting update, account connection required, or publisher_provided_by_template when the publisher is already provided by the managed agent's template. A sign-in grant may still serve a template publisher whose template operations have no fixed connection; the consent setup lists the template's declared writes on that publisher."
           }
         },
         "security": [
@@ -5067,7 +5067,7 @@
         "tags": [
           "seren-agent"
         ],
-        "summary": "File a support report for a problem the deployment could not resolve, for\nthe deployment's runtime only. The summary stays in the organization's\nprotected store; support receives identifiers and listed codes. At most\nfive reports per hour per deployment.",
+        "summary": "File a support report for a problem the deployment could not resolve, for\nthe deployment's runtime only. The summary stays in the organization's\nprotected store; support receives identifiers and listed codes. A report\nnaming a run in which Seren refused a publisher call or access request also\ntells support the publisher and Seren's error code. At most five reports\nper hour per deployment.",
         "operationId": "seren_agent_report_managed_agent_issue",
         "parameters": [
           {
@@ -7368,6 +7368,12 @@
                   "type": "string"
                 },
                 "description": "no-cache"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Changes whenever the public catalog changes"
               }
             },
             "content": {
@@ -7375,6 +7381,17 @@
                 "schema": {
                   "$ref": "#/components/schemas/DataResponse_Vec_ManagedAgentTemplateListing"
                 }
+              }
+            }
+          },
+          "304": {
+            "description": "The catalog has not changed since the `If-None-Match` validator",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "The current validator"
               }
             }
           }
@@ -7566,7 +7583,7 @@
         "tags": [
           "seren-agent"
         ],
-        "summary": "Return the captions of the template's intro video as WebVTT.",
+        "summary": "Return the captions of the template's intro video as WebVTT. A video without\ncaptions (`has_captions` false in the template list) returns an empty WebVTT file.",
         "operationId": "get_managed_agent_template_intro_video_captions",
         "parameters": [
           {
@@ -7591,7 +7608,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The intro video's captions",
+            "description": "The intro video's captions, or an empty WebVTT file when it has none",
             "headers": {
               "Cache-Control": {
                 "schema": {
@@ -7707,7 +7724,13 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "public, max-age=60"
+                "description": "no-cache"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Changes whenever the public catalog changes"
               }
             },
             "content": {
@@ -7715,6 +7738,17 @@
                 "schema": {
                   "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateHireBonus"
                 }
+              }
+            }
+          },
+          "304": {
+            "description": "The catalog has not changed since the `If-None-Match` validator",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "The current validator"
               }
             }
           },
@@ -7772,6 +7806,7 @@
           "seren-agent"
         ],
         "summary": "Hire an Employee from an available template.",
+        "description": "Any account with a confirmed email address can hire, whichever way it\nsigned up.",
         "operationId": "seren_agent_create_managed_agent_template_deployment",
         "parameters": [
           {
@@ -7816,7 +7851,7 @@
             }
           },
           "400": {
-            "description": "Invalid request, the template cannot be hired with the selected provider (`managed_agent_template_provider_unsupported`), a `mail_and_files` template was hired without `oauth_connection_id`, or a `sign_in_only` template was hired with one (`connection_not_accepted`)",
+            "description": "Invalid request, the template cannot be hired with the selected provider (`managed_agent_template_provider_unsupported`), a `mail_and_files` template was hired without `provider` or `oauth_connection_id`, or a `sign_in_only` template was hired with one (`connection_not_accepted`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7836,7 +7871,7 @@
             }
           },
           "403": {
-            "description": "Forbidden, including a caller without a Google or Microsoft sign-in identity (`managed_agent_hire_signup_required`)",
+            "description": "Forbidden: the caller cannot create deployments in the organization",
             "content": {
               "application/json": {
                 "schema": {
@@ -8161,6 +8196,12 @@
                   "type": "string"
                 },
                 "description": "no-cache"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Changes whenever the public catalog changes"
               }
             },
             "content": {
@@ -8168,6 +8209,17 @@
                 "schema": {
                   "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateStats"
                 }
+              }
+            }
+          },
+          "304": {
+            "description": "The catalog has not changed since the `If-None-Match` validator",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "The current validator"
               }
             }
           },
@@ -11510,7 +11562,6 @@
       "CreateManagedAgentTemplateDeploymentRequest": {
         "type": "object",
         "required": [
-          "provider",
           "timezone"
         ],
         "properties": {
@@ -11523,7 +11574,15 @@
             "description": "Required for mail_and_files templates; omit for sign_in_only templates."
           },
           "provider": {
-            "$ref": "#/components/schemas/ManagedAgentHireProvider"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentHireProvider",
+                "description": "Required for mail_and_files templates; optional for sign_in_only templates."
+              }
+            ]
           },
           "timezone": {
             "type": "string"
@@ -14137,6 +14196,7 @@
             "type": "object",
             "required": [
               "run_kinds",
+              "tasks_done",
               "hours_of_work",
               "skills_count",
               "active_hires",
@@ -14147,7 +14207,7 @@
               "active_hires": {
                 "type": "integer",
                 "format": "int64",
-                "description": "Current hires by users outside the publisher."
+                "description": "Current hires by every user."
               },
               "hours_of_work": {
                 "type": "integer",
@@ -14164,6 +14224,11 @@
               "skills_count": {
                 "type": "integer",
                 "format": "int32"
+              },
+              "tasks_done": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Tasks this template finished over its whole life, for every user."
               },
               "threads_30d": {
                 "type": "integer",
@@ -17723,6 +17788,14 @@
         "type": "string",
         "format": "binary"
       },
+      "IntroVideoShape": {
+        "type": "string",
+        "description": "The portrait shape nearest to a video's width and height.",
+        "enum": [
+          "9:16",
+          "2:3"
+        ]
+      },
       "InviteSkipReason": {
         "type": "string",
         "enum": [
@@ -20863,7 +20936,7 @@
         "properties": {
           "error_code": {
             "type": "string",
-            "description": "Error code; listed values reach support as is.",
+            "description": "Error code. A code Seren or the managed agent's template lists reaches\nsupport as is; any other code reaches support as `unlisted`.",
             "maxLength": 80,
             "minLength": 1
           },
@@ -20884,7 +20957,7 @@
           },
           "step": {
             "type": "string",
-            "description": "Short name of the step that failed; listed values reach support as is.",
+            "description": "Short name of the step that failed. A step Seren or the managed agent's\ntemplate lists reaches support as is; any other step reaches support\nas `unlisted`.",
             "maxLength": 80,
             "minLength": 1
           },
@@ -22380,6 +22453,7 @@
         "description": "Facts Core computes about a listed template for the catalog. The counts,\nrank, choice and related templates are recomputed hourly; until the first\ncomputation the counts are zero, the rank is null and `updated_at` is null.",
         "required": [
           "hires_30d",
+          "tasks_done",
           "hours_of_work",
           "active_hires",
           "seren_choice",
@@ -22389,7 +22463,7 @@
           "active_hires": {
             "type": "integer",
             "format": "int64",
-            "description": "Current hires by users outside the publisher."
+            "description": "Current hires by every user."
           },
           "also_hired": {
             "type": "array",
@@ -22404,12 +22478,12 @@
               "null"
             ],
             "format": "int64",
-            "description": "Position among templates hired in the past 30 days, 1 first; null when\nnot hired then."
+            "description": "Best Sellers position, 1 first, among templates that finished at least 10\ntasks in the past 30 days, ordered by those tasks and what was paid per\ntask; null otherwise."
           },
           "hires_30d": {
             "type": "integer",
             "format": "int64",
-            "description": "Organizations outside the publisher that hired this template in the past\n30 days, not counting hires ended within a day."
+            "description": "Organizations that hired this template in the past 30 days, not counting\nhires ended within a day. Every user's hires count."
           },
           "hours_of_work": {
             "type": "integer",
@@ -22429,6 +22503,11 @@
           "seren_choice": {
             "type": "boolean",
             "description": "Whether this is the one template Seren currently recommends."
+          },
+          "tasks_done": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Tasks this template finished over its whole life, for every user."
           },
           "updated_at": {
             "type": [
@@ -22518,17 +22597,24 @@
           "url",
           "poster_url",
           "captions_url",
+          "has_captions",
           "width",
           "height",
+          "shape",
           "duration_ms"
         ],
         "properties": {
           "captions_url": {
-            "type": "string"
+            "type": "string",
+            "description": "WebVTT captions. A video without captions returns an empty WebVTT file."
           },
           "duration_ms": {
             "type": "integer",
             "format": "int32"
+          },
+          "has_captions": {
+            "type": "boolean",
+            "description": "Whether the video has captions; when false, leave out the captions track."
           },
           "height": {
             "type": "integer",
@@ -22536,6 +22622,9 @@
           },
           "poster_url": {
             "type": "string"
+          },
+          "shape": {
+            "$ref": "#/components/schemas/IntroVideoShape"
           },
           "url": {
             "type": "string"
@@ -23064,6 +23153,7 @@
         "type": "object",
         "required": [
           "run_kinds",
+          "tasks_done",
           "hours_of_work",
           "skills_count",
           "active_hires",
@@ -23074,7 +23164,7 @@
           "active_hires": {
             "type": "integer",
             "format": "int64",
-            "description": "Current hires by users outside the publisher."
+            "description": "Current hires by every user."
           },
           "hours_of_work": {
             "type": "integer",
@@ -23091,6 +23181,11 @@
           "skills_count": {
             "type": "integer",
             "format": "int32"
+          },
+          "tasks_done": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Tasks this template finished over its whole life, for every user."
           },
           "threads_30d": {
             "type": "integer",
@@ -25650,7 +25745,8 @@
         "required": [
           "setup_id",
           "launch_url",
-          "expires_at"
+          "expires_at",
+          "template_write_operations"
         ],
         "properties": {
           "expires_at": {
@@ -25663,6 +25759,13 @@
           "setup_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "template_write_operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateWriteOperation"
+            },
+            "description": "Writes the managed agent's template declares on this publisher in the consented\nrevision, which the approved account will serve."
           }
         }
       },
@@ -27717,6 +27820,30 @@
           "held",
           "applying"
         ]
+      },
+      "TemplateWriteOperation": {
+        "type": "object",
+        "description": "A template write that an owner's sign-in grant lends the owner's account to.",
+        "required": [
+          "operation_id",
+          "method",
+          "path",
+          "require_approval"
+        ],
+        "properties": {
+          "method": {
+            "$ref": "#/components/schemas/HttpMethod"
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "require_approval": {
+            "type": "boolean"
+          }
+        }
       },
       "TestSerenAgentDraftRunRequest": {
         "type": "object",

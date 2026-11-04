@@ -169,8 +169,8 @@ fn video_fixture(state: &str, live: bool) -> Value {
             "upload_expires_at": if state == "uploading" { json!("2026-11-03T12:15:00Z") } else { Value::Null },
             "state": state, "progress_percent": 50, "poster_at_ms": 1000,
             "width": 1080, "height": 1620, "duration_ms": 20000,
-            "refusal": if state == "refused" { json!({"code": "intro_video_shape", "message": "Use portrait 2:3."}) } else { Value::Null },
-            "captions": {"state": "failed", "failure": "Supply WebVTT captions to continue.", "text": null}
+            "refusal": if state == "refused" { json!({"code": "intro_video_shape", "message": "This video is 1080 × 1080 (1:1). Employee videos are portrait, from 9:16 (for example 1080 × 1920) to 2:3 (for example 1080 × 1620)."}) } else { Value::Null },
+            "captions": {"state": "failed", "failure": "Captions are optional: supply WebVTT captions or publish without them.", "text": null}
         }) }
     }})
 }
@@ -243,6 +243,92 @@ async fn template_media_picture_upload_replace_and_remove_preserve_multipart_and
     );
     assert!(removed["data"]["avatar_url"].is_null());
     proxy.verify().await;
+}
+
+/// Core added `has_captions` and `shape` to live videos; a Core that hasn't deployed
+/// them yet still decodes, and they reach the caller untouched when it sends them.
+#[tokio::test]
+async fn template_media_live_video_decodes_with_and_without_captions_flag_and_shape() {
+    let without = video_fixture("none", true);
+    let mut with = without.clone();
+    for pointer in ["/data/active", "/data/videos/0"] {
+        let video = with.pointer_mut(pointer).unwrap();
+        video["has_captions"] = json!(false);
+        video["shape"] = json!("9:16");
+        video["width"] = json!(1080);
+        video["height"] = json!(1920);
+    }
+    with["data"]["draft"] = video_fixture("ready", false)["data"]["draft"].clone();
+    with["data"]["draft"]["shape"] = json!("2:3");
+    for response in [without, with] {
+        let proxy = MockServer::start().await;
+        let server = SerenMcpServer::new("owner-key", &proxy.uri()).unwrap();
+        let name = "get_seren_agent_template_intro_video";
+        let (verb, endpoint) = media_endpoint(name);
+        Mock::given(method(verb))
+            .and(path(endpoint))
+            .respond_with(ResponseTemplate::new(200).set_body_json(response.clone()))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let actual = response_json(
+            call_media(&server, name, params_for(name), Extensions::default())
+                .await
+                .unwrap(),
+        );
+        assert_response_fields(&actual, &response);
+        if response["data"]["active"].get("shape").is_none() {
+            assert!(actual["data"]["active"].get("shape").is_none());
+            assert!(actual["data"]["active"].get("has_captions").is_none());
+        }
+    }
+}
+
+#[test]
+fn template_media_video_descriptions_state_the_current_rules() {
+    let server = SerenMcpServer::new("owner-key", "http://localhost").unwrap();
+    let tools = server.tool_router.list_all();
+    let description = |name: &str| {
+        tools
+            .iter()
+            .find(|tool| tool.name == name)
+            .and_then(|tool| tool.description.clone())
+            .unwrap_or_else(|| panic!("{name} must be described"))
+            .to_string()
+    };
+
+    let upload = description("create_seren_agent_template_intro_video_upload");
+    for rule in [
+        "portrait from 9:16 to 2:3",
+        "width ÷ height 0.54 to 0.70",
+        "1080 × 1920",
+        "1080 × 1620",
+        "480-2160 pixels wide",
+        "5-60 seconds",
+        "Sound and captions are optional",
+        "Replaces the draft and, on publication, the first live video (or adds if empty)",
+    ] {
+        assert!(upload.contains(rule), "{rule}: {upload}");
+    }
+    assert!(!upload.contains("with sound"), "{upload}");
+    assert!(!upload.contains("10-60"), "{upload}");
+
+    let publish = description("publish_seren_agent_template_intro_video");
+    for rule in [
+        "its captions if any",
+        "Seren requires a ready draft",
+        "captions are optional",
+        "publication replaces the live video",
+    ] {
+        assert!(publish.contains(rule), "{rule}: {publish}");
+    }
+    assert!(
+        !publish.contains("requires ready media and captions"),
+        "{publish}"
+    );
+
+    let captions = description("set_seren_agent_template_intro_video_captions");
+    assert!(captions.starts_with("Optionally replace"), "{captions}");
 }
 
 #[tokio::test]
@@ -429,7 +515,7 @@ async fn template_media_tools_preserve_core_owner_shape_size_and_video_refusals(
         (MEDIA_TOOLS[5].0, 400, "intro_video_captions_invalid"),
         (MEDIA_TOOLS[5].0, 409, "intro_video_draft_not_ready"),
         (MEDIA_TOOLS[6].0, 400, "intro_video_poster_time_invalid"),
-        (MEDIA_TOOLS[7].0, 409, "intro_video_captions_required"),
+        (MEDIA_TOOLS[7].0, 409, "intro_video_draft_not_ready"),
     ]);
     for (name, status, code) in cases {
         let (verb, endpoint) = media_endpoint(name);

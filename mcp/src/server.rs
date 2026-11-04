@@ -15996,6 +15996,7 @@ API endpoint: {endpoint}",
                 "_mcp/tools",
                 params.connection_id.as_ref(),
                 None,
+                None,
                 Vec::<u8>::new(),
             )
             .await
@@ -16067,6 +16068,7 @@ API endpoint: {endpoint}",
                 &params.publisher,
                 "_mcp/resources",
                 params.connection_id.as_ref(),
+                None,
                 None,
                 Vec::<u8>::new(),
             )
@@ -17280,7 +17282,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Start an Employee intro video upload. Returns upload_id, signed upload_url, method, exact headers and expires_at. Send exactly size_bytes to that URL using the returned method and headers, then call complete_seren_agent_template_intro_video_upload. Do not send video bytes in MCP. MP4/MOV (H.264 or HEVC) or WebM (VP9), with sound, portrait 2:3, 480-2160 pixels wide, 10-60 seconds, at most 250 MB. Replaces the draft and, on publication, the first live video (or adds if empty). Owner-admitted caption drafting may incur charges. Requires the publishing organization's built-in Owner with an unrestricted direct credential.",
+        description = "Start an Employee intro video upload. Returns upload_id, signed upload_url, method, exact headers and expires_at. Send exactly size_bytes to that URL using the returned method and headers, then call complete_seren_agent_template_intro_video_upload. Do not send video bytes in MCP. MP4/MOV (H.264 or HEVC) or WebM (VP9), portrait from 9:16 to 2:3 (width ÷ height 0.54 to 0.70, for example 1080 × 1920 or 1080 × 1620), 480-2160 pixels wide, 5-60 seconds, at most 250 MB. Sound and captions are optional; captions are drafted automatically, at a charge, when the video has speech. Replaces the draft and, on publication, the first live video (or adds if empty). Owner-admitted caption drafting may incur charges. Requires the publishing organization's built-in Owner with an unrestricted direct credential.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -17359,7 +17361,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Replace a processed Employee intro video draft's captions with plain-text WebVTT, at most 100 KiB. Supply captions if automatic drafting failed; review the returned text before publishing. Requires the publishing organization's built-in Owner with an unrestricted direct credential.",
+        description = "Optionally replace a processed draft's captions with plain-text WebVTT, at most 100 KiB. Automatic drafting may fail or find no speech; supply captions then if you want them, and review the returned text before publishing. Requires the publishing organization's built-in Owner with an unrestricted direct credential.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -17415,7 +17417,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Publish the processed Employee intro video draft with its captions and still. Core requires ready media and captions; publication replaces the live video selected when starting the upload. Requires the publishing organization's built-in Owner with an unrestricted direct credential.",
+        description = "Publish the processed Employee intro video draft with its still, and its captions if any. Seren requires a ready draft; captions are optional; publication replaces the live video selected when starting the upload. Requires the publishing organization's built-in Owner with an unrestricted direct credential.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -38273,7 +38275,7 @@ pub(crate) mod tests {
 
     /// Two real listings from Core's public Employee catalog
     /// (`GET https://api.serendb.com/publishers/seren-agent/templates`, read on 2026-11-01),
-    /// with the `intro_videos` list Core has sent alongside `intro_video` since.
+    /// with the `intro_videos` list and `catalog.tasks_done` Core has sent since.
     fn public_employee_catalog() -> Value {
         serde_json::json!({
             "data": [
@@ -38359,6 +38361,7 @@ pub(crate) mod tests {
                     },
                     "catalog": {
                         "hires_30d": 3,
+                        "tasks_done": 0,
                         "hours_of_work": 802,
                         "active_hires": 3,
                         "best_sellers_rank": 1,
@@ -38475,6 +38478,7 @@ pub(crate) mod tests {
                     },
                     "catalog": {
                         "hires_30d": 1,
+                        "tasks_done": 0,
                         "hours_of_work": 0,
                         "active_hires": 1,
                         "best_sellers_rank": 3,
@@ -38627,6 +38631,45 @@ pub(crate) mod tests {
         assert_eq!(listings[1]["owner_connection"], "sign_in_only");
         assert_eq!(listings[1]["run_kinds"][1]["charge"], "cost");
         assert_eq!(core.received_requests().await.unwrap().len(), 1);
+    }
+
+    /// The snapshot above predates `has_captions` and `shape`, so the tests above cover
+    /// a reply without them; this one covers Core's reply with them, for both shapes.
+    #[tokio::test]
+    async fn the_employee_catalog_keeps_the_captions_flag_and_shape_core_sends() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, ResponseTemplate};
+
+        let mut catalog = public_employee_catalog();
+        for (listing, (has_captions, shape)) in catalog["data"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .zip([(false, "9:16"), (true, "2:3")])
+        {
+            listing["intro_video"]["has_captions"] = serde_json::json!(has_captions);
+            listing["intro_video"]["shape"] = serde_json::json!(shape);
+            for video in listing["intro_videos"].as_array_mut().unwrap() {
+                video["has_captions"] = serde_json::json!(has_captions);
+                video["shape"] = serde_json::json!(shape);
+            }
+        }
+        let core = wiremock::MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/templates"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&catalog))
+            .mount(&core)
+            .await;
+
+        let listings = employee_catalog_json(
+            call_employee_catalog_tool(&core, "list_seren_agent_templates", serde_json::json!({}))
+                .await,
+        );
+
+        assert_eq!(listings, listings_as_the_snapshot_describes_them(&catalog));
+        assert_eq!(listings[0]["intro_video"]["has_captions"], false);
+        assert_eq!(listings[0]["intro_videos"][0]["shape"], "9:16");
+        assert_eq!(listings[1]["intro_video"]["shape"], "2:3");
     }
 
     #[tokio::test]
