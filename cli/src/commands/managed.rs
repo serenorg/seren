@@ -166,11 +166,15 @@ pub enum TemplateProfileAction {
         organization_id: Uuid,
         template: String,
     },
-    /// Change only supplied fields; null clears text and an empty list clears that list
+    /// Change only supplied fields; null clears text and an empty list clears that list.
+    ///
+    /// Set `display_name` to rename the Employee. A rename costs $1.00 in
+    /// SerenBucks from your wallet, and the old name is retired: no Owner can
+    /// choose it again.
     Update {
         organization_id: Uuid,
         template: String,
-        /// PutManagedAgentTemplateProfile JSON file
+        /// PutManagedAgentTemplateProfile JSON file; `display_name` renames for $1.00
         #[arg(long)]
         request: PathBuf,
     },
