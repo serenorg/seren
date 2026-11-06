@@ -17489,7 +17489,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Change only supplied Employee catalog profile fields. Omission preserves a field, null clears text, and an empty list clears that list. Requires a nonempty request and a built-in Owner with an unrestricted credential of the publishing organization. Use upload_seren_agent_template_avatar to upload or replace the picture and delete_seren_agent_template_avatar to remove it.",
+        description = "Change only supplied Employee catalog profile fields. Omission preserves a field, null clears text, and an empty list clears that list. Requires a nonempty request and a built-in Owner with an unrestricted credential of the publishing organization. Set display_name (1-255 characters, never null) to rename the Employee; its address never changes. A rename costs $1.00 in SerenBucks from the caller's own wallet, which bonus SerenBucks can pay, and an unchanged name is free. The old name is retired: no Owner can choose it again for any Employee. Confirm the new name and the charge with your user before renaming. Seren refuses a retired name with managed_agent_template_name_retired and a wallet that can't cover the rename with InsufficientPaymentBalance; report those refusals as they are. A successful rename returns rename with the previous name and the charge. Use upload_seren_agent_template_avatar to upload or replace the picture and delete_seren_agent_template_avatar to remove it.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -28145,6 +28145,72 @@ pub(crate) mod tests {
         proxy.verify().await;
     }
 
+    #[tokio::test]
+    async fn template_profile_rename_sends_name_and_keeps_core_refusals() {
+        use wiremock::matchers::{body_json, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let id = Uuid::nil();
+        let route = format!("/organizations/{id}/templates/example/profile");
+        let params = || -> UpdateSerenAgentTemplateProfileParams {
+            serde_json::from_value(serde_json::json!({"organization_id": id, "slug": "example", "request": {"display_name": "Research Partner"}})).unwrap()
+        };
+        for (code, message) in [
+            (
+                "managed_agent_template_name_retired",
+                "That name was used before and can't be chosen again",
+            ),
+            (
+                "InsufficientPaymentBalance",
+                "Your SerenBucks can't cover the $1.00 rename",
+            ),
+        ] {
+            let proxy = MockServer::start().await;
+            Mock::given(method("PUT"))
+                .and(path(route.as_str()))
+                .and(body_json(
+                    serde_json::json!({"display_name": "Research Partner"}),
+                ))
+                .respond_with(
+                    ResponseTemplate::new(409)
+                        .set_body_json(serde_json::json!({"error": code, "message": message})),
+                )
+                .expect(1)
+                .mount(&proxy)
+                .await;
+            let server = SerenMcpServer::new("owner-key", &proxy.uri()).unwrap();
+            let error = server
+                .update_seren_agent_template_profile(Parameters(params()), Extensions::default())
+                .await
+                .expect_err("a refused rename must stay a refusal");
+            assert!(error.message.contains(code), "{error:?}");
+            assert!(error.message.contains(message), "{error:?}");
+            assert_eq!(error.data.as_ref().unwrap()["status"], 409);
+            proxy.verify().await;
+        }
+        let proxy = MockServer::start().await;
+        let transaction = Uuid::new_v4();
+        Mock::given(method("PUT"))
+            .and(path(route.as_str()))
+            .and(body_json(serde_json::json!({"display_name": "Research Partner"})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {
+                "avatar_url": null, "capabilities": [], "description": null, "example_tasks": [],
+                "job_title": null, "pronouns": "they/them", "tagline": null, "works_in": [],
+                "rename": {"previous_display_name": "Researcher", "display_name": "Research Partner",
+                    "charge": {"amount_atomic": 1000000, "transaction_ids": [transaction]}}
+            }})))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let server = SerenMcpServer::new("owner-key", &proxy.uri()).unwrap();
+        let result = server
+            .update_seren_agent_template_profile(Parameters(params()), Extensions::default())
+            .await
+            .unwrap();
+        assert!(result_contains(&result, "Research Partner"));
+        assert!(result_contains(&result, "1000000"));
+        proxy.verify().await;
+    }
+
     #[test]
     fn template_catalog_tools_require_owned_routes_and_typed_requests() {
         let server = SerenMcpServer::new("test-key", "http://localhost").unwrap();
@@ -28166,6 +28232,46 @@ pub(crate) mod tests {
                 );
             }
             assert!(schema["properties"]["request"].is_object());
+        }
+        let profile = tools
+            .iter()
+            .find(|tool| tool.name == "update_seren_agent_template_profile")
+            .unwrap();
+        let schema = Value::Object((*profile.input_schema).clone());
+        let request = &schema["properties"]["request"];
+        let request = request
+            .get("$ref")
+            .and_then(Value::as_str)
+            .map_or(request, |reference| {
+                schema
+                    .pointer(reference.strip_prefix('#').unwrap())
+                    .unwrap()
+            });
+        let display_name = &request["properties"]["display_name"];
+        assert_eq!(display_name["type"], "string", "{request}");
+        assert_eq!(display_name["minLength"], 1);
+        assert_eq!(display_name["maxLength"], 255);
+        let description = profile.description.as_deref().unwrap();
+        for text in [
+            "display_name",
+            "$1.00 in SerenBucks",
+            "retired",
+            "Confirm the new name and the charge with your user",
+            "managed_agent_template_name_retired",
+            "InsufficientPaymentBalance",
+        ] {
+            assert!(description.contains(text), "{text}");
+        }
+        for request in [
+            serde_json::json!({"display_name": null}),
+            serde_json::json!({"display_name": ""}),
+        ] {
+            assert!(
+                serde_json::from_value::<UpdateSerenAgentTemplateProfileParams>(
+                    serde_json::json!({"organization_id": Uuid::nil(), "slug": "example", "request": request})
+                )
+                .is_err()
+            );
         }
         let listing: UpdateSerenAgentTemplateListingParams = serde_json::from_value(serde_json::json!({"organization_id": Uuid::nil(), "slug": "example", "request": {"listed": false}})).unwrap();
         assert!(!listing.request.listed);
