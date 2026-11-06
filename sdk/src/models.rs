@@ -10,6 +10,7 @@ pub struct ManagedDeploymentReadResponse {
 
 /// Changes the named profile fields; omitted fields retain their stored value.
 /// Text can be cleared with null, and lists can be cleared with an empty list.
+/// `display_name` renames the managed agent template and can't be null.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PutManagedAgentTemplateProfile {
@@ -26,6 +27,18 @@ pub struct PutManagedAgentTemplateProfile {
         deserialize_with = "deserialize_double_option"
     )]
     pub description: Option<Option<crate::Description>>,
+    /// The managed agent template's new name, 1-255 characters without surrounding
+    /// whitespace; the address never changes. Renaming costs the publishing
+    /// Owner $1.00 of SerenBucks from their own wallet, which bonus SerenBucks
+    /// can pay; an unchanged name is free. A name a managed agent template had before is
+    /// retired, and Owners can't choose it again for any managed agent template.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_display_name"
+    )]
+    #[schemars(with = "String", length(min = 1, max = 255))]
+    pub display_name: Option<String>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -69,6 +82,21 @@ where
     D: serde::Deserializer<'de>,
 {
     T::deserialize(deserializer).map(Some)
+}
+
+/// A supplied name must be a string of 1-255 characters; null is refused.
+fn deserialize_optional_display_name<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let name = String::deserialize(deserializer)?;
+    let length = name.chars().count();
+    if !(1..=255).contains(&length) {
+        return Err(serde::de::Error::custom(format!(
+            "display_name must be 1-255 characters, got {length}"
+        )));
+    }
+    Ok(Some(name))
 }
 
 fn deserialize_optional_list<'de, T, D, const MAX: usize>(
@@ -435,6 +463,8 @@ mod template_profile_patch_tests {
                 "description": "Find and summarize primary sources.",
                 "capabilities": ["Research"], "example_tasks": ["Summarize the latest report"],
                 "works_in": ["1password", "google-drive", "slack"], "pronouns": "they/them"}),
+            json!({"display_name": "Research Partner"}),
+            json!({"display_name": "Research Partner", "tagline": null}),
         ] {
             let patch: PutManagedAgentTemplateProfile =
                 serde_json::from_value(wire.clone()).unwrap();
@@ -448,6 +478,15 @@ mod template_profile_patch_tests {
         assert!(omitted.example_tasks.is_none());
         assert!(omitted.works_in.is_none());
         assert!(omitted.pronouns.is_none());
+        assert!(omitted.display_name.is_none());
+        let renamed = PutManagedAgentTemplateProfile {
+            display_name: Some("Research Partner".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_value(renamed).unwrap(),
+            json!({"display_name": "Research Partner"})
+        );
         let cleared: PutManagedAgentTemplateProfile = serde_json::from_value(json!({
             "job_title": null, "tagline": null, "description": null
         }))
@@ -468,6 +507,10 @@ mod template_profile_patch_tests {
             json!({"example_tasks": null}),
             json!({"works_in": null}),
             json!({"pronouns": null}),
+            json!({"display_name": null}),
+            json!({"display_name": 7}),
+            json!({"display_name": ""}),
+            json!({"display_name": "x".repeat(256)}),
             json!({"pronouns": "unknown"}),
             json!({"works_in": ["unknown"]}),
             json!({"capabilities": [null]}),
@@ -537,6 +580,12 @@ mod template_profile_patch_tests {
                 serde_json::from_value(wire.clone()).unwrap();
             assert_eq!(serde_json::to_value(decoded).unwrap(), wire);
         }
+        for name in ["R", "é".repeat(255).as_str()] {
+            let wire = json!({"display_name": name});
+            let decoded: PutManagedAgentTemplateProfile =
+                serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(decoded).unwrap(), wire);
+        }
     }
 
     #[test]
@@ -553,6 +602,10 @@ mod template_profile_patch_tests {
             assert_eq!(schema["properties"][field]["type"], "array");
             assert_eq!(schema["properties"][field]["maxItems"], maximum);
         }
+        let display_name = &schema["properties"]["display_name"];
+        assert_eq!(display_name["type"], "string");
+        assert_eq!(display_name["minLength"], 1);
+        assert_eq!(display_name["maxLength"], 255);
         let pronouns = &schema["properties"]["pronouns"];
         let pronouns = pronouns
             .get("$ref")

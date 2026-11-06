@@ -1876,6 +1876,7 @@ mod tests {
             json!({"tagline": null, "description": null, "job_title": null}),
             json!({"capabilities": [], "example_tasks": [], "works_in": []}),
             json!({"job_title": "Researcher", "pronouns": "she/her", "works_in": ["gmail"]}),
+            json!({"display_name": "Research Partner"}),
         ] {
             let server = MockServer::start().await;
             let organization_id = Uuid::new_v4();
