@@ -1310,7 +1310,7 @@ enum PublisherOperation {
 /// This tool handles all publisher interactions based on publisher type:
 /// - Database publishers: provide `query` (and optionally `database`)
 /// - API publishers: provide `method`, `path`, `headers`, and at most one of `body` (JSON),
-///   `body_text` (text) or `body_base64` (binary)
+///   `body_text` (text), `body_base64` (binary) or `body_object` (a Seren Storage object)
 /// - MCP publishers: provide `tool` + `tool_args` OR `resource_uri`
 #[derive(Deserialize, Serialize, JsonSchema)]
 pub struct CallPublisherParams {
@@ -1337,20 +1337,30 @@ pub struct CallPublisherParams {
     /// X-Passthrough-Authorization, rather than the Seren Authorization header.
     #[serde(default)]
     pub headers: Option<HashMap<String, String>>,
-    /// JSON body to send (for API or database publishers). Send a text document in body_text
-    /// and binary data in body_base64. Provide at most one of body, body_text and body_base64.
+    /// JSON body to send (for API or database publishers). Send a text document in body_text,
+    /// small binary data in body_base64 and a file in body_object. Provide at most one of body,
+    /// body_text, body_base64 and body_object.
     #[serde(default)]
     pub body: Option<serde_json::Value>,
-    /// Raw binary request body, base64-encoded. Provide at most one of body, body_text and
-    /// body_base64.
+    /// Raw binary request body, base64-encoded. For a file, upload it to Seren Storage and send
+    /// it with body_object instead. Provide at most one of body, body_text, body_base64 and
+    /// body_object.
     #[serde(default)]
     pub body_base64: Option<String>,
     /// Plain-text request body, sent as its exact UTF-8 bytes, such as HTML, Markdown, CSV or a
     /// multipart/related document whose parts are text. Requires a Content-Type header such as
     /// text/html or multipart/related; boundary=...; send JSON in body instead. Provide at most
-    /// one of body, body_text and body_base64.
+    /// one of body, body_text, body_base64 and body_object.
     #[serde(default)]
     pub body_text: Option<String>,
+    /// Seren Storage object whose exact bytes are the request body, up to 20 MiB, so a file
+    /// never has to be pasted into the call. Upload the file first: seren_storage_create_upload,
+    /// PUT the bytes to its upload_url with its upload_headers, then seren_storage_confirm_upload.
+    /// The object is read with the caller's own credentials. Without a Content-Type header, the
+    /// object's stored content type is sent. Provide at most one of body, body_text, body_base64
+    /// and body_object.
+    #[serde(default)]
+    pub body_object: Option<CallPublisherBodyObject>,
 
     // === MCP publisher parameters ===
     /// MCP tool name to call
@@ -1388,6 +1398,15 @@ pub struct CallPublisherParams {
     pub x402_payment: Option<String>,
 }
 
+/// Seren Storage object sent as a call_publisher request body.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct CallPublisherBodyObject {
+    /// Seren Storage bucket slug
+    pub bucket_slug: String,
+    /// Exact object key
+    pub object_key: String,
+}
+
 impl std::fmt::Debug for CallPublisherParams {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -1401,6 +1420,7 @@ impl std::fmt::Debug for CallPublisherParams {
             .field("body", &self.body)
             .field("body_base64", &self.body_base64)
             .field("body_text", &self.body_text)
+            .field("body_object", &self.body_object)
             .field("tool", &self.tool)
             .field("tool_args", &self.tool_args)
             .field("resource_uri", &self.resource_uri)
@@ -7311,10 +7331,15 @@ async fn put_presigned_object_storage_object(
         .headers()
         .get(reqwest::header::ETAG)
         .and_then(|value| value.to_str().ok())
-        .map(|value| value.trim().trim_matches('"').to_string())
+        .map(unquote_etag)
         .filter(|value| !value.is_empty());
 
     Ok(etag)
+}
+
+/// Strips the quotation marks S3 puts around an ETag, accepting either form.
+fn unquote_etag(etag: &str) -> String {
+    etag.trim().trim_matches('"').to_string()
 }
 
 fn validate_object_storage_key(object_key: &str) -> Result<(), McpError> {
@@ -7785,6 +7810,86 @@ fn normalize_api_request_body(
         },
         _ => Some(Cow::Borrowed(body)),
     }
+}
+
+const CALL_PUBLISHER_ONE_BODY_MESSAGE: &str =
+    "call_publisher: provide only one of 'body', 'body_text', 'body_base64' or 'body_object'";
+
+/// Largest Seren Storage object call_publisher sends as a request body. Matches the run-file
+/// limit for hired Employees (seren-agent-contract MAX_RUN_FILE_BYTES).
+const MAX_CALL_PUBLISHER_BODY_OBJECT_BYTES: u64 = 20 * 1024 * 1024;
+
+fn validate_call_publisher_body_object(
+    body_object: &CallPublisherBodyObject,
+) -> Result<(), McpError> {
+    if body_object.bucket_slug.trim().is_empty() {
+        return Err(McpError::invalid_params(
+            "call_publisher: 'body_object.bucket_slug' must not be empty".to_string(),
+            None,
+        ));
+    }
+    validate_object_storage_key(&body_object.object_key).map_err(|_| {
+        McpError::invalid_params(
+            "call_publisher: 'body_object.object_key' must not be empty".to_string(),
+            None,
+        )
+    })
+}
+
+fn call_publisher_body_object_too_large(byte_length: u64) -> McpError {
+    McpError::invalid_params(
+        format!("call_publisher: 'body_object' is {byte_length} bytes; the limit is 20 MiB"),
+        Some(serde_json::json!({
+            "kind": "body_object_too_large",
+            "byte_length": byte_length,
+            "max_bytes": MAX_CALL_PUBLISHER_BODY_OBJECT_BYTES,
+        })),
+    )
+}
+
+/// Downloads a presigned Seren Storage object, refusing more than `max_bytes`.
+async fn get_presigned_object_storage_object(
+    download_url: &str,
+    download_headers: &HashMap<String, String>,
+    max_bytes: u64,
+) -> Result<Vec<u8>, McpError> {
+    let client = reqwest::Client::new();
+    let mut request = client.get(download_url);
+    for (name, value) in download_headers {
+        if name.eq_ignore_ascii_case("host") || name.eq_ignore_ascii_case("content-length") {
+            continue;
+        }
+        request = request.header(name, value);
+    }
+    let mut response = request
+        .send()
+        .await
+        .map_err(|e| McpError::internal_error(e.without_url().to_string(), None))?;
+    if !response.status().is_success() {
+        let status = response.status();
+        return Err(McpError::internal_error(
+            format!("Failed to download object storage object: HTTP {status}"),
+            None,
+        ));
+    }
+    if let Some(length) = response.content_length()
+        && length > max_bytes
+    {
+        return Err(call_publisher_body_object_too_large(length));
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|e| McpError::internal_error(e.without_url().to_string(), None))?
+    {
+        let total = bytes.len() as u64 + chunk.len() as u64;
+        if total > max_bytes {
+            return Err(call_publisher_body_object_too_large(total));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
 }
 
 fn decode_call_publisher_body_base64(value: Option<&str>) -> Result<Option<Vec<u8>>, McpError> {
@@ -12094,13 +12199,17 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
         let api_client = self.api_client(&extensions)?;
+        // S3 returns the ETag in quotation marks; Storage compares it without them.
+        let body = seren::SerenStorageConfirmObjectStorageUploadRequest {
+            etag: params.body.etag.as_deref().map(unquote_etag),
+        };
         let response = storage_publisher_result(
             "confirm_upload",
             api_client
                 .seren_storage_confirm_upload(
                     &params.path.bucket_slug,
                     &params.path.object_id,
-                    &params.body,
+                    &body,
                 )
                 .await,
         )
@@ -13246,7 +13355,8 @@ impl SerenMcpServer {
         description = "Call a publisher to execute queries, API requests, or MCP operations. This unified tool automatically routes based on parameters:
 
 - DATABASE publishers: provide `query` (SQL) and optionally `database`
-- API publishers: provide `method`, `path`, `headers`, and at most one body: JSON in `body`, text in `body_text` with its Content-Type header, binary as base64 in `body_base64`
+- API publishers: provide `method`, `path`, `headers`, and at most one body: JSON in `body`, text in `body_text` with its Content-Type header, binary as base64 in `body_base64`, or a file up to 20 MiB as a Seren Storage object in `body_object`
+- Sending a file: never paste a file into the call. Upload it with seren_storage_create_upload, PUT the bytes to the returned upload_url with its upload_headers (for example with curl), confirm with seren_storage_confirm_upload, then pass `body_object: {bucket_slug, object_key}` with the upstream Content-Type header. For a multipart upload, the object is the complete multipart payload
 - MCP publishers: provide `tool` + `tool_args` OR `resource_uri`
 - Built-in Seren Passwords helper tools: use publisher \"seren-passwords\" with tool \"passwords_vaults_list\", \"passwords_items_list\", or \"passwords_item_get\"
 
@@ -13254,6 +13364,7 @@ Examples:
 - Database: call_publisher(publisher: \"my-db\", query: \"SELECT * FROM users\")
 - API: call_publisher(publisher: \"firecrawl\", method: \"POST\", path: \"/scrape\", body: {url: \"...\"})
 - API text document: call_publisher(publisher: \"my-api\", method: \"POST\", path: \"/notes\", headers: {\"Content-Type\": \"text/markdown\"}, body_text: \"# Notes ...\")
+- API file upload: call_publisher(publisher: \"google-drive\", method: \"POST\", path: \"/upload/drive/v3/files?uploadType=media\", headers: {\"Content-Type\": \"image/jpeg\"}, body_object: {bucket_slug: \"files\", object_key: \"photos/cat.jpg\"})
 - API passthrough auth: call_publisher(publisher: \"my-api\", method: \"GET\", headers: {\"X-Passthrough-Authorization\": \"Bearer ...\"})
 - MCP tool: call_publisher(publisher: \"my-mcp\", tool: \"search\", tool_args: {query: \"...\"})
 - Seren Passwords helper: call_publisher(publisher: \"seren-passwords\", tool: \"passwords_vaults_list\")
@@ -13308,6 +13419,13 @@ Examples:
         } else {
             PublisherOperation::Api
         };
+
+        if params.body_object.is_some() && !matches!(operation, PublisherOperation::Api) {
+            return Err(McpError::invalid_params(
+                "call_publisher: 'body_object' is only valid for API publishers".to_string(),
+                None,
+            ));
+        }
 
         if matches!(operation, PublisherOperation::Database) && params.connection_id.is_some() {
             return Err(McpError::invalid_params(
@@ -13513,6 +13631,49 @@ Examples:
     }
 
     /// Handle API publisher calls (internal helper for call_publisher)
+    /// Reads a Seren Storage object with the caller's own credentials for use as a
+    /// call_publisher request body. Returns its bytes and stored content type.
+    async fn read_call_publisher_body_object(
+        &self,
+        extensions: &Extensions,
+        body_object: &CallPublisherBodyObject,
+        timeout: std::time::Duration,
+    ) -> Result<(Vec<u8>, String), McpError> {
+        let api_client = self.api_client_with_timeout(extensions, timeout)?;
+        let download = storage_publisher_result(
+            "download_object",
+            api_client
+                .seren_storage_download_object(&body_object.bucket_slug, &body_object.object_key)
+                .await,
+        )
+        .await?
+        .data;
+        let object = download.object;
+        let byte_length = u64::try_from(object.byte_length).unwrap_or(0);
+        if byte_length > MAX_CALL_PUBLISHER_BODY_OBJECT_BYTES {
+            return Err(call_publisher_body_object_too_large(byte_length));
+        }
+        let bytes = get_presigned_object_storage_object(
+            &download.download_url,
+            &download.download_headers,
+            MAX_CALL_PUBLISHER_BODY_OBJECT_BYTES,
+        )
+        .await?;
+        if bytes.len() as u64 != byte_length
+            || !sha256_hex(&bytes).eq_ignore_ascii_case(object.checksum.value.trim())
+        {
+            return Err(McpError::invalid_params(
+                concat!(
+                    "call_publisher: 'body_object' bytes do not match the object's stored size ",
+                    "and checksum; confirm the upload and try again",
+                )
+                .to_string(),
+                Some(serde_json::json!({"kind": "body_object_checksum_mismatch"})),
+            ));
+        }
+        Ok((bytes, object.content_type))
+    }
+
     async fn call_publisher_api(
         &self,
         params: &CallPublisherParams,
@@ -13523,28 +13684,28 @@ Examples:
         reject_publisher_dispatch_header(params.headers.as_ref())?;
         let body_count = params.body.is_some() as u8
             + params.body_base64.is_some() as u8
-            + params.body_text.is_some() as u8;
+            + params.body_text.is_some() as u8
+            + params.body_object.is_some() as u8;
         if body_count > 1 {
             return Err(McpError::invalid_params(
-                "call_publisher: provide only one of 'body', 'body_text' or 'body_base64'"
-                    .to_string(),
+                CALL_PUBLISHER_ONE_BODY_MESSAGE.to_string(),
                 None,
             ));
         }
         if params.body_text.is_some() {
             validate_call_publisher_body_text_content_type(params.headers.as_ref())?;
         }
-        let raw_body = decode_call_publisher_body_base64(params.body_base64.as_deref())?;
-        let normalized_body = if raw_body.is_some() {
+        if let Some(body_object) = params.body_object.as_ref() {
+            validate_call_publisher_body_object(body_object)?;
+        }
+        let mut raw_body = decode_call_publisher_body_base64(params.body_base64.as_deref())?;
+        let normalized_body = if raw_body.is_some() || params.body_object.is_some() {
             None
         } else {
             normalize_api_request_body(params.body.as_ref())
         };
         let body = normalized_body.as_deref();
-        // body_text is sent as-is, through the same raw-body path as body_base64.
-        let raw_body_ref = raw_body
-            .as_deref()
-            .or_else(|| params.body_text.as_deref().map(str::as_bytes));
+        // body_text is sent as-is, through the same raw-body path as body_base64 (below).
         // Keep wildcard proxy calls manual for now:
         // we need dynamic HTTP methods, request-scoped passthrough headers, and
         // per-call x-request-id support that generated OpenAPI methods do not expose.
@@ -13570,12 +13731,45 @@ Examples:
                 ));
             }
         };
-        let headers =
-            publisher_headers_with_oauth_connection(params.headers.as_ref(), params.connection_id)?;
+        let mut request_headers = params.headers.clone();
+        // Validate the caller's headers before reading any object.
+        publisher_headers_with_oauth_connection(request_headers.as_ref(), params.connection_id)?;
         let timeout = publisher_call_timeout(params.timeout_ms, QUERY_TIMEOUT)?;
+        let deadline = tokio::time::Instant::now() + timeout;
 
         let dispatch =
             self.publisher_dispatch_target(extensions, &params.publisher, &publisher_path, None)?;
+
+        // body_object bytes travel through the same raw-body path as body_base64, so payment
+        // retries and refusals behave the same. The object is read before any publisher call,
+        // so an unreadable or oversized object is refused before anything is charged.
+        if let Some(body_object) = params.body_object.as_ref() {
+            let (bytes, content_type) = self
+                .read_call_publisher_body_object(extensions, body_object, timeout)
+                .await?;
+            let has_content_type = request_headers
+                .iter()
+                .flatten()
+                .any(|(name, _)| name.eq_ignore_ascii_case("content-type"));
+            if !has_content_type && !content_type.trim().is_empty() {
+                request_headers
+                    .get_or_insert_with(HashMap::new)
+                    .insert("Content-Type".to_string(), content_type);
+            }
+            raw_body = Some(bytes);
+        }
+        let raw_body_ref = raw_body
+            .as_deref()
+            .or_else(|| params.body_text.as_deref().map(str::as_bytes));
+        let headers = publisher_headers_with_oauth_connection(
+            request_headers.as_ref(),
+            params.connection_id,
+        )?;
+
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return publisher_call_timed_out_result(&params.publisher, timeout);
+        }
 
         // Payment proxy mode
         if let Some(ref x402_payment) = params.x402_payment {
@@ -13592,7 +13786,7 @@ Examples:
                         x402_payment,
                         agent_metadata,
                         None,
-                        timeout,
+                        remaining,
                     )
                     .await
                 {
@@ -13613,7 +13807,7 @@ Examples:
                         x402_payment,
                         agent_metadata,
                         None,
-                        timeout,
+                        remaining,
                     )
                     .await
                 {
@@ -13627,7 +13821,6 @@ Examples:
         // A failed mutation can already have taken effect upstream.
         let max_retries = publisher_retry_count(&method);
         // Every attempt, and the waits between them, share the caller's one deadline.
-        let deadline = tokio::time::Instant::now() + timeout;
         let mut last_error = None;
         for attempt in 0..=max_retries {
             if attempt > 0 {
@@ -24532,6 +24725,7 @@ pub(crate) mod tests {
             body: None,
             body_base64: None,
             body_text: None,
+            body_object: None,
             tool: Some("send_message".to_string()),
             tool_args: Some(serde_json::Map::new()),
             resource_uri: None,
@@ -27087,6 +27281,7 @@ pub(crate) mod tests {
             body: None,
             body_base64: None,
             body_text: None,
+            body_object: None,
             tool: Some("passwords_vaults_list".to_string()),
             tool_args: None,
             resource_uri: None,
@@ -27239,6 +27434,7 @@ pub(crate) mod tests {
             body: None,
             body_base64: None,
             body_text: None,
+            body_object: None,
             tool: Some("passwords_vaults_list".to_string()),
             tool_args: None,
             resource_uri: None,
@@ -27283,6 +27479,7 @@ pub(crate) mod tests {
             body: None,
             body_base64: None,
             body_text: None,
+            body_object: None,
             tool: Some("passwords_vaults_list".to_string()),
             tool_args: Some(tool_args),
             resource_uri: None,
@@ -27323,6 +27520,7 @@ pub(crate) mod tests {
             body: None,
             body_base64: None,
             body_text: None,
+            body_object: None,
             tool: Some("passwords_item_get".to_string()),
             tool_args: Some(serde_json::Map::new()),
             resource_uri: None,
@@ -29458,6 +29656,7 @@ pub(crate) mod tests {
             body: None,
             body_base64: Some("aGVsbG8=".to_string()),
             body_text: None,
+            body_object: None,
             tool: None,
             tool_args: None,
             resource_uri: None,
@@ -29652,7 +29851,7 @@ pub(crate) mod tests {
             assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_PARAMS);
             assert_eq!(
                 error.message,
-                "call_publisher: provide only one of 'body', 'body_text' or 'body_base64'"
+                "call_publisher: provide only one of 'body', 'body_text', 'body_base64' or 'body_object'"
             );
         }
         assert!(proxy.received_requests().await.unwrap().is_empty());
@@ -29858,6 +30057,516 @@ pub(crate) mod tests {
         }
     }
 
+    /// A Seren Storage object record as the Storage publisher returns it.
+    fn body_object_record(content_type: &str, byte_length: u64, sha256: &str) -> Value {
+        serde_json::json!({
+            "id": "00000000-0000-4000-8000-000000000001",
+            "organization_id": "00000000-0000-4000-8000-000000000002",
+            "bucket_id": "00000000-0000-4000-8000-000000000003",
+            "bucket_slug": "files", "object_key": "photos/cat.jpg",
+            "content_type": content_type, "byte_length": byte_length,
+            "checksum": {"algorithm": "sha256", "value": sha256},
+            "upload_mode": "single", "multipart_part_size": null,
+            "multipart_part_count": null, "etag": "abc", "status": "uploaded",
+            "uri": "seren-storage://files/photos/cat.jpg", "metadata": {},
+            "created_by_user_id": "00000000-0000-4000-8000-000000000004",
+            "uploaded_by_user_id": null, "trashed_by_user_id": null,
+            "trash_reason": null, "uploaded_at": null,
+            "upload_expires_at": "2026-10-26T18:00:00Z", "expires_at": null,
+            "trashed_at": null, "purge_after": null,
+            "created_at": "2026-10-26T17:00:00Z", "updated_at": "2026-10-26T17:00:00Z"
+        })
+    }
+
+    /// Mounts the Storage download route for `photos/cat.jpg` and its presigned download.
+    async fn mount_body_object(proxy: &wiremock::MockServer, object: Value, stored_bytes: Vec<u8>) {
+        use wiremock::matchers::{header, method, path, query_param};
+        use wiremock::{Mock, ResponseTemplate};
+        Mock::given(method("GET"))
+            .and(path(
+                "/publishers/seren-storage/buckets/files/objects/by-key/download",
+            ))
+            .and(query_param("object_key", "photos/cat.jpg"))
+            .and(header("Authorization", "Bearer test-key"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "object": object,
+                    "download_url": format!("{}/signed-download", proxy.uri()),
+                    "download_headers": {"x-storage-fixture": "required"},
+                    "download_expires_at": "2026-10-26T18:00:00Z",
+                }
+            })))
+            .mount(proxy)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/signed-download"))
+            .and(header("x-storage-fixture", "required"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(stored_bytes))
+            .mount(proxy)
+            .await;
+    }
+
+    /// Bytes of a 131,911-byte JPEG-sized file, like the one in seren#304.
+    fn body_object_jpeg_bytes() -> Vec<u8> {
+        let mut bytes = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        bytes.extend((0..131_907u32).map(|i| (i.wrapping_mul(2_654_435_761) >> 24) as u8));
+        bytes
+    }
+
+    async fn requests_to(proxy: &wiremock::MockServer, prefix: &str) -> usize {
+        proxy
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|request| request.url.path().starts_with(prefix))
+            .count()
+    }
+
+    #[tokio::test]
+    async fn call_publisher_body_object_sends_the_stored_file_byte_for_byte() {
+        use wiremock::matchers::{body_bytes, header, method, path, query_param};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let bytes = body_object_jpeg_bytes();
+        assert_eq!(bytes.len(), 131_911);
+        mount_body_object(
+            &proxy,
+            body_object_record("image/jpeg", bytes.len() as u64, &sha256_hex(&bytes)),
+            bytes.clone(),
+        )
+        .await;
+        Mock::given(method("POST"))
+            .and(path("/publishers/google-drive/upload/drive/v3/files"))
+            .and(query_param("uploadType", "media"))
+            .and(header("Content-Type", "image/jpeg"))
+            .and(body_bytes(bytes.clone()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "drive-file", "sha256Checksum": sha256_hex(&bytes),
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        // No Content-Type header: the object's stored content type is sent.
+        let arguments = serde_json::json!({
+            "publisher": "google-drive", "method": "POST",
+            "path": "/upload/drive/v3/files?uploadType=media",
+            "body_object": {"bucket_slug": "files", "object_key": "photos/cat.jpg"},
+        });
+        assert!(
+            arguments.to_string().len() < 300,
+            "the call only names the bytes"
+        );
+        let result = server
+            .call_publisher(
+                Parameters(serde_json::from_value(arguments).unwrap()),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error.unwrap_or(false), "{result:?}");
+        let text = &result.content[0].as_text().unwrap().text;
+        assert!(text.contains(&sha256_hex(&bytes)), "{text}");
+        proxy.verify().await;
+    }
+
+    #[tokio::test]
+    async fn call_publisher_body_object_keeps_the_callers_content_type_for_multipart() {
+        use wiremock::matchers::{body_bytes, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let boundary = "seren_upload_boundary";
+        let mut payload = [
+            format!("--{boundary}"),
+            "Content-Type: application/json; charset=UTF-8".to_string(),
+            String::new(),
+            r#"{"name":"cat.jpg","parents":["folder-1"]}"#.to_string(),
+            format!("--{boundary}"),
+            "Content-Type: image/jpeg".to_string(),
+            String::new(),
+            String::new(),
+        ]
+        .join("\r\n")
+        .into_bytes();
+        payload.extend(body_object_jpeg_bytes());
+        payload.extend(format!("\r\n--{boundary}--\r\n").into_bytes());
+        mount_body_object(
+            &proxy,
+            body_object_record(
+                "application/octet-stream",
+                payload.len() as u64,
+                &sha256_hex(&payload),
+            ),
+            payload.clone(),
+        )
+        .await;
+        let content_type = format!("multipart/related; boundary={boundary}");
+        Mock::given(method("POST"))
+            .and(path("/publishers/google-drive/upload/drive/v3/files"))
+            .and(header("Content-Type", content_type.as_str()))
+            .and(body_bytes(payload))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "drive-file", "parents": ["folder-1"],
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let result = server
+            .call_publisher(
+                Parameters(
+                    serde_json::from_value(serde_json::json!({
+                        "publisher": "google-drive", "method": "POST",
+                        "path": "/upload/drive/v3/files?uploadType=multipart",
+                        "headers": {"Content-Type": content_type},
+                        "body_object": {"bucket_slug": "files", "object_key": "photos/cat.jpg"},
+                    }))
+                    .unwrap(),
+                ),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error.unwrap_or(false), "{result:?}");
+        proxy.verify().await;
+    }
+
+    fn body_object_call(publisher: &str) -> CallPublisherParams {
+        serde_json::from_value(serde_json::json!({
+            "publisher": publisher, "method": "POST", "path": "/upload",
+            "headers": {"Content-Type": "image/jpeg"},
+            "body_object": {"bucket_slug": "files", "object_key": "photos/cat.jpg"},
+        }))
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn call_publisher_body_object_refused_by_storage_never_reaches_the_publisher() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        // Storage answers an object of another organization as not found.
+        Mock::given(method("GET"))
+            .and(path(
+                "/publishers/seren-storage/buckets/files/objects/by-key/download",
+            ))
+            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+                "error": "not_found", "message": "Object storage object not found.",
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let error = server
+            .call_publisher(
+                Parameters(body_object_call("google-drive")),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(
+            error.message.contains("download_object"),
+            "{}",
+            error.message
+        );
+        assert_eq!(requests_to(&proxy, "/publishers/google-drive").await, 0);
+        proxy.verify().await;
+    }
+
+    #[tokio::test]
+    async fn call_publisher_body_object_metadata_shares_the_callers_deadline() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let bytes = b"file";
+        Mock::given(method("GET"))
+            .and(path(
+                "/publishers/seren-storage/buckets/files/objects/by-key/download",
+            ))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"data": {
+                        "object": body_object_record("image/jpeg", 4, &sha256_hex(bytes)),
+                        "download_url": format!("{}/signed-download", proxy.uri()),
+                        "download_headers": {},
+                        "download_expires_at": "2026-10-26T18:00:00Z",
+                    }}))
+                    .set_delay(std::time::Duration::from_millis(400)),
+            )
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let mut params = body_object_call("google-drive");
+        params.timeout_ms = Some(100);
+        let result = server
+            .call_publisher(Parameters(params), extensions_with_headers(&[]))
+            .await
+            .unwrap();
+
+        assert_publisher_call_timed_out(&result, 100);
+        tokio::time::sleep(std::time::Duration::from_millis(450)).await;
+        assert_eq!(requests_to(&proxy, "/signed-download").await, 0);
+        assert_eq!(requests_to(&proxy, "/publishers/google-drive").await, 0);
+        proxy.verify().await;
+    }
+
+    #[tokio::test]
+    async fn call_publisher_body_object_stalled_body_cannot_outlive_the_deadline() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let (download_url, task) = stalled_response_body().await;
+        Mock::given(method("GET"))
+            .and(path(
+                "/publishers/seren-storage/buckets/files/objects/by-key/download",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "object": body_object_record("image/jpeg", 32, &"0".repeat(64)),
+                    "download_url": download_url,
+                    "download_headers": {},
+                    "download_expires_at": "2026-10-26T18:00:00Z",
+                }
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let mut params = body_object_call("google-drive");
+        params.timeout_ms = Some(200);
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            server.call_publisher(Parameters(params), extensions_with_headers(&[])),
+        )
+        .await;
+        task.abort();
+        let _ = task.await;
+
+        assert_publisher_call_timed_out(
+            &result
+                .expect("call must finish before the test guard")
+                .unwrap(),
+            200,
+        );
+        assert_eq!(requests_to(&proxy, "/publishers/google-drive").await, 0);
+        proxy.verify().await;
+    }
+
+    #[tokio::test]
+    async fn call_publisher_body_object_over_20_mib_is_refused_before_download_or_charge() {
+        let proxy = wiremock::MockServer::start().await;
+        let oversized = MAX_CALL_PUBLISHER_BODY_OBJECT_BYTES + 1;
+        mount_body_object(
+            &proxy,
+            body_object_record("image/jpeg", oversized, &"0".repeat(64)),
+            Vec::new(),
+        )
+        .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let error = server
+            .call_publisher(
+                Parameters(body_object_call("google-drive")),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_PARAMS);
+        assert_eq!(error.data.unwrap()["kind"], "body_object_too_large");
+        assert_eq!(requests_to(&proxy, "/signed-download").await, 0);
+        assert_eq!(requests_to(&proxy, "/publishers/google-drive").await, 0);
+    }
+
+    #[tokio::test]
+    async fn presigned_body_object_download_stops_at_its_byte_limit() {
+        let error = get_presigned_object_storage_object_capped(5, 4).await;
+        assert_eq!(error.data.unwrap()["kind"], "body_object_too_large");
+    }
+
+    async fn get_presigned_object_storage_object_capped(size: usize, max: u64) -> McpError {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let proxy = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/signed-download"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![7u8; size]))
+            .mount(&proxy)
+            .await;
+        get_presigned_object_storage_object(
+            &format!("{}/signed-download", proxy.uri()),
+            &HashMap::new(),
+            max,
+        )
+        .await
+        .unwrap_err()
+    }
+
+    #[tokio::test]
+    async fn call_publisher_body_object_with_changed_bytes_is_refused_before_sending() {
+        let proxy = wiremock::MockServer::start().await;
+        let bytes = body_object_jpeg_bytes();
+        let mut changed = bytes.clone();
+        changed[10] ^= 0xFF;
+        mount_body_object(
+            &proxy,
+            body_object_record("image/jpeg", bytes.len() as u64, &sha256_hex(&bytes)),
+            changed,
+        )
+        .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let error = server
+            .call_publisher(
+                Parameters(body_object_call("google-drive")),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.data.unwrap()["kind"], "body_object_checksum_mismatch");
+        assert_eq!(requests_to(&proxy, "/publishers/google-drive").await, 0);
+    }
+
+    #[tokio::test]
+    async fn call_publisher_refuses_body_object_with_another_body_or_a_non_api_call() {
+        let proxy = wiremock::MockServer::start().await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let object = serde_json::json!({"bucket_slug": "files", "object_key": "photos/cat.jpg"});
+        for (extra, message) in [
+            (
+                serde_json::json!({"body": {"title": "Notes"}}),
+                CALL_PUBLISHER_ONE_BODY_MESSAGE,
+            ),
+            (
+                serde_json::json!({"body_text": "# Notes"}),
+                CALL_PUBLISHER_ONE_BODY_MESSAGE,
+            ),
+            (
+                serde_json::json!({"body_base64": "aGVsbG8="}),
+                CALL_PUBLISHER_ONE_BODY_MESSAGE,
+            ),
+            (
+                serde_json::json!({"tool": "search"}),
+                "call_publisher: 'body_object' is only valid for API publishers",
+            ),
+            (
+                serde_json::json!({"query": "SELECT 1"}),
+                "call_publisher: 'body_object' is only valid for API publishers",
+            ),
+        ] {
+            let mut params = serde_json::json!({
+                "publisher": "google-drive", "method": "POST", "path": "/upload",
+                "headers": {"Content-Type": "text/markdown"}, "body_object": object,
+            });
+            params
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+
+            let error = server
+                .call_publisher(
+                    Parameters(serde_json::from_value(params).unwrap()),
+                    extensions_with_headers(&[]),
+                )
+                .await
+                .unwrap_err();
+
+            assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_PARAMS);
+            assert_eq!(error.message, message);
+        }
+        assert!(proxy.received_requests().await.unwrap().is_empty());
+    }
+
+    #[test]
+    fn call_publisher_schema_documents_body_object_and_the_upload_flow() {
+        let server = SerenMcpServer::new("test-key", "http://localhost").unwrap();
+        let tool = server
+            .tool_router
+            .list_all()
+            .into_iter()
+            .map(normalize_tool_input_schema)
+            .find(|tool| tool.name == "call_publisher")
+            .unwrap();
+        let description = tool.description.as_deref().unwrap();
+        for expected in [
+            "`body_object`",
+            "seren_storage_create_upload",
+            "upload_headers",
+            "seren_storage_confirm_upload",
+            "20 MiB",
+        ] {
+            assert!(description.contains(expected), "{expected}: {description}");
+        }
+        let schema = Value::Object((*tool.input_schema).clone());
+        let rendered = schema.to_string();
+        assert!(rendered.contains("bucket_slug"), "{rendered}");
+        assert!(rendered.contains("object_key"), "{rendered}");
+        let body_object = schema["properties"]["body_object"].to_string();
+        assert!(
+            body_object.contains("seren_storage_create_upload"),
+            "{body_object}"
+        );
+    }
+
+    #[tokio::test]
+    async fn seren_storage_confirm_upload_accepts_the_etag_as_s3_returns_it() {
+        use wiremock::matchers::{body_json, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        for etag in [
+            "\"5d41402abc4b2a76b9719d911017c592\"",
+            "5d41402abc4b2a76b9719d911017c592",
+        ] {
+            let proxy = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path(concat!(
+                    "/publishers/seren-storage/buckets/files/objects/",
+                    "00000000-0000-4000-8000-000000000001/confirm-upload",
+                )))
+                .and(body_json(serde_json::json!({
+                    "etag": "5d41402abc4b2a76b9719d911017c592",
+                })))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "data": body_object_record("image/jpeg", 5, &"0".repeat(64)),
+                })))
+                .expect(1)
+                .mount(&proxy)
+                .await;
+
+            let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+            let result = server
+                .seren_storage_confirm_upload(
+                    Parameters(
+                        serde_json::from_value(serde_json::json!({
+                            "bucket_slug": "files",
+                            "object_id": "00000000-0000-4000-8000-000000000001",
+                            "etag": etag,
+                        }))
+                        .unwrap(),
+                    ),
+                    extensions_with_headers(&[]),
+                )
+                .await
+                .unwrap();
+            assert!(!result.is_error.unwrap_or(false), "{result:?}");
+            proxy.verify().await;
+        }
+    }
+
     #[test]
     fn call_publisher_schema_documents_each_body_field() {
         let server = SerenMcpServer::new("test-key", "http://localhost").unwrap();
@@ -29984,6 +30693,7 @@ pub(crate) mod tests {
             body: None,
             body_base64: None,
             body_text: None,
+            body_object: None,
             tool: None,
             tool_args: None,
             resource_uri: None,
@@ -31188,6 +31898,7 @@ pub(crate) mod tests {
             )),
             body_base64: None,
             body_text: None,
+            body_object: None,
             tool: None,
             tool_args: None,
             resource_uri: None,
