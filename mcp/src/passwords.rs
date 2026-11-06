@@ -62,6 +62,7 @@ const ATTACHMENT_URI_SCHEME: &str = "seren-secrets://attachment/";
 
 const GRANT_RECONSENT_NEXT_STEP: &str = "Call passwords_request_access with force=true to open a new consent URL. Select every vault that should be accessible; the saved grant is replaced only after approval.";
 const GRANT_RETRY_NEXT_STEP: &str = "Retry passwords_request_access later to verify the saved grant. Verification did not change it.";
+const APPROVAL_FINISHING_NEXT_STEP: &str = "The owner approved this request, but Seren Passwords has not finished applying its vault grants. Nothing was saved or revoked. Call passwords_grant_status with this request_id again in a moment; passwords_request_access, including force=true, preserves this approval until its grants are applied.";
 const EMPTY_APPROVAL_NEXT_STEP: &str = "The approval selected no vault; call passwords_request_access with force=true and select at least one vault.";
 const REPLACEMENT_CLEANUP_NEXT_STEP: &str = "For a leftover identity, passwords_agents_freeze revokes every active agent identity, including the new grant; use it only when that is intended, then re-grant sessions that should remain active. For a leftover API key, verify its exact key ID and organization before using revoke_api_key; a matching name alone does not prove ownership. Cleanup is best effort; if finalization was interrupted, inspect prior identities and keys manually.";
 
@@ -1039,7 +1040,57 @@ impl SerenMcpServer {
         let credential_subject =
             crate::server::hosted_passwords_credential_subject_from_extensions(&extensions)?;
         let credential_subject_key = credential_subject.storage_key();
-        if params.force != Some(true)
+        let force = params.force == Some(true);
+        store
+            .delete_expired_pending_hosted_passwords_agents()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        // An outstanding request the owner already approved comes first, with or
+        // without force: superseding it would make the server revoke that approval.
+        let mut outstanding = None;
+        let mut finalized = None;
+        if let Some(pending) = store
+            .get_pending_hosted_passwords_agent_for_subject(user_id, &credential_subject_key)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+        {
+            let record = self
+                .get_passwords_delegation_request(&extensions, pending.request_id)
+                .await?;
+            if record.request_id != pending.request_id || record.user_id != user_id {
+                return Err(McpError::internal_error(
+                    "Hosted access request identity mismatch",
+                    None,
+                ));
+            }
+            match record.status {
+                HostedDelegationStatus::Applied => {
+                    // Finalization checks the claimed keys against the record.
+                    let result = self
+                        .finalize_applied_hosted_grant(
+                            &extensions,
+                            store,
+                            user_id,
+                            &credential_subject,
+                            &record,
+                        )
+                        .await?;
+                    if !force {
+                        return Ok(CallToolResult::success(vec![crate::server::json_content(
+                            &result,
+                        )?]));
+                    }
+                    finalized = Some(result);
+                }
+                HostedDelegationStatus::Approved => {
+                    return Ok(CallToolResult::success(vec![crate::server::json_content(
+                        &approval_finishing_result(&record),
+                    )?]));
+                }
+                _ => outstanding = Some((pending, record)),
+            }
+        }
+        if !force
             && let Some(agent) = store
                 .get_hosted_passwords_agent(user_id, &credential_subject_key)
                 .await
@@ -1072,27 +1123,10 @@ impl SerenMcpServer {
                 &result,
             )?]));
         }
-        store
-            .delete_expired_pending_hosted_passwords_agents()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         let mut supersedes_request_id = None;
-        if let Some(pending) = store
-            .get_pending_hosted_passwords_agent_for_subject(user_id, &credential_subject_key)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-        {
-            let record = self
-                .get_passwords_delegation_request(&extensions, pending.request_id)
-                .await?;
-            if record.request_id != pending.request_id || record.user_id != user_id {
-                return Err(McpError::internal_error(
-                    "Hosted access request identity mismatch",
-                    None,
-                ));
-            }
+        if let Some((pending, record)) = outstanding {
             match pending_hosted_access_action(
-                params.force == Some(true),
+                force,
                 record.status,
                 pending.consent_capability.is_some(),
             ) {
@@ -1116,7 +1150,7 @@ impl SerenMcpServer {
                     )?;
                     return Ok(CallToolResult::success(vec![crate::server::json_content(
                         &serde_json::json!({
-                            "status": "pending",
+                            "status": record.status,
                             "request_id": record.request_id,
                             "consent_url": consent_url,
                             "expires_at": record.expires_at,
@@ -1203,13 +1237,19 @@ impl SerenMcpServer {
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         let consent_url = hosted_passwords_consent_url(&created.consent_capability)?;
+        let mut result = serde_json::json!({
+            "status": "pending",
+            "request_id": created.request_id,
+            "consent_url": consent_url,
+            "expires_at": created.expires_at,
+        });
+        if let Some(finalized) = finalized {
+            // The approved request was saved first, so the replacement keeps that
+            // grant working until the new request is approved.
+            result["finalized_request"] = finalized;
+        }
         Ok(CallToolResult::success(vec![crate::server::json_content(
-            &serde_json::json!({
-                "status": "pending",
-                "request_id": created.request_id,
-                "consent_url": consent_url,
-                "expires_at": created.expires_at,
-            }),
+            &result,
         )?]))
     }
 
@@ -1301,119 +1341,140 @@ impl SerenMcpServer {
                 )?]))
             }
             HostedDelegationStatus::Approved => {
-                let identity_id = record.identity_id.ok_or_else(|| {
-                    McpError::internal_error("Approved delegation is missing identity id", None)
-                })?;
-                let previous = store
-                    .get_hosted_passwords_agent(user_id, &credential_subject_key)
-                    .await
-                    .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-                let claimed = store
-                    .claim_pending_hosted_passwords_agent(
+                Ok(CallToolResult::success(vec![crate::server::json_content(
+                    &approval_finishing_result(&record),
+                )?]))
+            }
+            HostedDelegationStatus::Applied => {
+                let result = self
+                    .finalize_applied_hosted_grant(
+                        &extensions,
+                        store,
                         user_id,
-                        &credential_subject_key,
-                        params.request_id,
+                        &credential_subject,
+                        &record,
                     )
-                    .await
-                    .map_err(|e| McpError::internal_error(e.to_string(), None))?
-                    .ok_or_else(|| {
-                        McpError::invalid_request(
-                            "Hosted access request is already being finalized",
-                            None,
-                        )
-                    })?;
-                if record.agent_kem_public != claimed.kem_public
-                    || record.agent_signing_public != claimed.signing_public
-                {
-                    return Err(McpError::internal_error(
-                        "Hosted access request binding mismatch",
-                        None,
-                    ));
-                }
-                let api_key = if credential_subject.is_user_api_key() {
-                    None
-                } else {
-                    Some(
-                        self.mint_hosted_passwords_agent_key(
-                            &extensions,
-                            identity_id,
-                            &record.display_name,
-                        )
-                        .await?,
-                    )
-                };
-                let granted_vaults = serde_json::Value::Array(
-                    record
-                        .granted_vault_ids
-                        .iter()
-                        .map(|vault_id| serde_json::json!({ "vault_id": vault_id }))
-                        .collect(),
-                );
-                store
-                    .upsert_hosted_passwords_agent(HostedPasswordsAgentUpsert {
-                        user_id,
-                        credential_subject: &credential_subject_key,
-                        identity_id,
-                        display_name: &record.display_name,
-                        kem_private: &claimed.kem_private,
-                        api_key: api_key.as_ref().map(|(key, _, _)| key.as_str()),
-                        api_key_id: api_key.as_ref().map(|(_, id, _)| *id),
-                        api_key_organization_id: api_key.as_ref().map(|(_, _, org)| *org),
-                        granted_vaults: &granted_vaults,
-                    })
-                    .await
-                    .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-                store
-                    .delete_pending_hosted_passwords_agent(
-                        user_id,
-                        &credential_subject_key,
-                        params.request_id,
-                    )
-                    .await
-                    .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-                let mut result = serde_json::json!({
-                    "status": "granted",
-                    "request_id": record.request_id,
-                    "identity_id": identity_id,
-                    "granted_vault_ids": record.granted_vault_ids,
-                });
-                if record.granted_vault_ids.is_empty() {
-                    result["next_step"] = serde_json::json!(EMPTY_APPROVAL_NEXT_STEP);
-                }
-                let cleanup = match previous {
-                    Some(previous) if previous.identity_id != identity_id => Some(
-                        self.cleanup_replaced_hosted_grant(
-                            &extensions,
-                            &previous,
-                            credential_subject.is_user_api_key(),
-                        )
-                        .await,
-                    ),
-                    // Same-identity finalization revokes nothing. It only reports
-                    // the previous key that the saved grant no longer holds.
-                    Some(previous) if !credential_subject.is_user_api_key() => {
-                        Some(superseded_api_key_leftover(&previous))
-                    }
-                    _ => None,
-                };
-                if let Some(mut cleanup) = cleanup {
-                    if record.granted_vault_ids.is_empty()
-                        && let Some(step) = cleanup.get_mut("next_step")
-                    {
-                        *step = serde_json::json!(format!(
-                            "{EMPTY_APPROVAL_NEXT_STEP} {REPLACEMENT_CLEANUP_NEXT_STEP}"
-                        ));
-                    }
-                    result
-                        .as_object_mut()
-                        .expect("grant response object")
-                        .extend(cleanup);
-                }
+                    .await?;
                 Ok(CallToolResult::success(vec![crate::server::json_content(
                     &result,
                 )?]))
             }
         }
+    }
+
+    /// Saves the agent for a request the server reports as applied, then cleans
+    /// up the grant it replaces. Callers must have pinned `record` to this user.
+    async fn finalize_applied_hosted_grant(
+        &self,
+        extensions: &Extensions,
+        store: &crate::oauth::store::TokenStore,
+        user_id: Uuid,
+        credential_subject: &crate::oauth::store::HostedPasswordsCredentialSubject,
+        record: &HostedDelegationSnapshot,
+    ) -> Result<serde_json::Value, McpError> {
+        let credential_subject_key = credential_subject.storage_key();
+        let identity_id = record.identity_id.ok_or_else(|| {
+            McpError::internal_error("Approved delegation is missing identity id", None)
+        })?;
+        let previous = store
+            .get_hosted_passwords_agent(user_id, &credential_subject_key)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let claimed = store
+            .claim_pending_hosted_passwords_agent(
+                user_id,
+                &credential_subject_key,
+                record.request_id,
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .ok_or_else(|| {
+                McpError::invalid_request("Hosted access request is already being finalized", None)
+            })?;
+        if record.agent_kem_public != claimed.kem_public
+            || record.agent_signing_public != claimed.signing_public
+        {
+            return Err(McpError::internal_error(
+                "Hosted access request binding mismatch",
+                None,
+            ));
+        }
+        let api_key = if credential_subject.is_user_api_key() {
+            None
+        } else {
+            Some(
+                self.mint_hosted_passwords_agent_key(extensions, identity_id, &record.display_name)
+                    .await?,
+            )
+        };
+        let granted_vaults = serde_json::Value::Array(
+            record
+                .granted_vault_ids
+                .iter()
+                .map(|vault_id| serde_json::json!({ "vault_id": vault_id }))
+                .collect(),
+        );
+        store
+            .upsert_hosted_passwords_agent(HostedPasswordsAgentUpsert {
+                user_id,
+                credential_subject: &credential_subject_key,
+                identity_id,
+                display_name: &record.display_name,
+                kem_private: &claimed.kem_private,
+                api_key: api_key.as_ref().map(|(key, _, _)| key.as_str()),
+                api_key_id: api_key.as_ref().map(|(_, id, _)| *id),
+                api_key_organization_id: api_key.as_ref().map(|(_, _, org)| *org),
+                granted_vaults: &granted_vaults,
+            })
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        store
+            .delete_pending_hosted_passwords_agent(
+                user_id,
+                &credential_subject_key,
+                record.request_id,
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let mut result = serde_json::json!({
+            "status": "granted",
+            "request_id": record.request_id,
+            "identity_id": identity_id,
+            "granted_vault_ids": record.granted_vault_ids,
+        });
+        if record.granted_vault_ids.is_empty() {
+            result["next_step"] = serde_json::json!(EMPTY_APPROVAL_NEXT_STEP);
+        }
+        let cleanup = match previous {
+            Some(previous) if previous.identity_id != identity_id => Some(
+                self.cleanup_replaced_hosted_grant(
+                    extensions,
+                    &previous,
+                    credential_subject.is_user_api_key(),
+                )
+                .await,
+            ),
+            // Same-identity finalization revokes nothing. It only reports
+            // the previous key that the saved grant no longer holds.
+            Some(previous) if !credential_subject.is_user_api_key() => {
+                Some(superseded_api_key_leftover(&previous))
+            }
+            _ => None,
+        };
+        if let Some(mut cleanup) = cleanup {
+            if record.granted_vault_ids.is_empty()
+                && let Some(step) = cleanup.get_mut("next_step")
+            {
+                *step = serde_json::json!(format!(
+                    "{EMPTY_APPROVAL_NEXT_STEP} {REPLACEMENT_CLEANUP_NEXT_STEP}"
+                ));
+            }
+            result
+                .as_object_mut()
+                .expect("grant response object")
+                .extend(cleanup);
+        }
+        Ok(result)
     }
 
     async fn create_passwords_delegation_request(
@@ -3971,7 +4032,10 @@ fn hosted_membership_update_handoff_unavailable(
 #[serde(rename_all = "snake_case")]
 enum HostedDelegationStatus {
     Pending,
+    /// The owner approved, but the server has not applied the grants yet.
     Approved,
+    /// The server applied the approved grants; only this state can be finalized.
+    Applied,
     Denied,
     Expired,
 }
@@ -4020,9 +4084,8 @@ fn hosted_status_from_policy(status: DelegationPolicyRequestStatus) -> HostedDel
     match status {
         DelegationPolicyRequestStatus::Pending
         | DelegationPolicyRequestStatus::PartiallyApproved => HostedDelegationStatus::Pending,
-        DelegationPolicyRequestStatus::Approved | DelegationPolicyRequestStatus::Applied => {
-            HostedDelegationStatus::Approved
-        }
+        DelegationPolicyRequestStatus::Approved => HostedDelegationStatus::Approved,
+        DelegationPolicyRequestStatus::Applied => HostedDelegationStatus::Applied,
         DelegationPolicyRequestStatus::Declined => HostedDelegationStatus::Denied,
         DelegationPolicyRequestStatus::Expired
         | DelegationPolicyRequestStatus::Cancelled
@@ -4166,6 +4229,17 @@ fn hosted_passwords_missing_capability_error() -> McpError {
         "This hosted access request has no usable approval capability. Call passwords_request_access with force=true to open a new consent URL.",
         None,
     )
+}
+
+/// Answer for a request the owner approved whose grants the server has not
+/// applied yet: nothing is saved or revoked, and the request stays outstanding.
+fn approval_finishing_result(record: &HostedDelegationSnapshot) -> serde_json::Value {
+    serde_json::json!({
+        "status": "approval_finishing",
+        "request_id": record.request_id,
+        "expires_at": record.expires_at,
+        "next_step": APPROVAL_FINISHING_NEXT_STEP,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -6215,7 +6289,7 @@ mod tests {
         );
         assert_eq!(
             hosted_status_from_policy(DelegationPolicyRequestStatus::Applied),
-            HostedDelegationStatus::Approved
+            HostedDelegationStatus::Applied
         );
         assert_eq!(
             hosted_status_from_policy(DelegationPolicyRequestStatus::Declined),
@@ -6853,6 +6927,24 @@ mod hosted_grant_tests {
             } else {
                 "Bearer stored-agent-token"
             };
+            self.mock_access_as(
+                authorization,
+                identity_status,
+                sync_status,
+                accessible,
+                envelope,
+            )
+            .await;
+        }
+
+        async fn mock_access_as(
+            &self,
+            authorization: &str,
+            identity_status: u16,
+            sync_status: u16,
+            accessible: &[Uuid],
+            envelope: bool,
+        ) {
             let identity_body = if identity_status == 200 {
                 self.identity_response()
             } else {
@@ -7267,7 +7359,7 @@ mod hosted_grant_tests {
         let record = fixture
             .seed_pending(
                 fixture.identity_id,
-                DelegationPolicyRequestStatus::Approved,
+                DelegationPolicyRequestStatus::Applied,
                 &[],
             )
             .await;
@@ -7439,7 +7531,7 @@ mod hosted_grant_tests {
             let record = fixture
                 .seed_pending(
                     replacement_id,
-                    DelegationPolicyRequestStatus::Approved,
+                    DelegationPolicyRequestStatus::Applied,
                     &fixture.vault_ids,
                 )
                 .await;
@@ -7521,7 +7613,7 @@ mod hosted_grant_tests {
         let record = fixture
             .seed_pending(
                 fixture.identity_id,
-                DelegationPolicyRequestStatus::Approved,
+                DelegationPolicyRequestStatus::Applied,
                 &fixture.vault_ids,
             )
             .await;
@@ -7587,7 +7679,7 @@ mod hosted_grant_tests {
             fixture.set_previous_key_id(old_key_id).await;
             let new_identity = Uuid::new_v4();
             let record = fixture
-                .seed_pending(new_identity, DelegationPolicyRequestStatus::Approved, &[])
+                .seed_pending(new_identity, DelegationPolicyRequestStatus::Applied, &[])
                 .await;
             fixture.mint_key().await;
             fixture
@@ -7675,7 +7767,7 @@ mod hosted_grant_tests {
             let record = fixture
                 .seed_pending(
                     Uuid::new_v4(),
-                    DelegationPolicyRequestStatus::Approved,
+                    DelegationPolicyRequestStatus::Applied,
                     &fixture.vault_ids,
                 )
                 .await;
@@ -7726,7 +7818,7 @@ mod hosted_grant_tests {
         let record = fixture
             .seed_pending(
                 Uuid::new_v4(),
-                DelegationPolicyRequestStatus::Approved,
+                DelegationPolicyRequestStatus::Applied,
                 &fixture.vault_ids,
             )
             .await;
@@ -7772,7 +7864,7 @@ mod hosted_grant_tests {
         let record = fixture
             .seed_pending(
                 Uuid::new_v4(),
-                DelegationPolicyRequestStatus::Approved,
+                DelegationPolicyRequestStatus::Applied,
                 &fixture.vault_ids,
             )
             .await;
@@ -7816,5 +7908,178 @@ mod hosted_grant_tests {
         );
         passwords.verify().await;
         fixture.gateway.verify().await;
+    }
+
+    fn gateway_posted(requests: &[wiremock::Request]) -> bool {
+        requests
+            .iter()
+            .any(|request| request.method == "POST" || request.method == "DELETE")
+    }
+
+    impl HostedFixture {
+        /// Mounts the delegation create call and returns the record it answered with.
+        async fn mock_create_unsuperseded(
+            &self,
+        ) -> Arc<std::sync::Mutex<Option<seren::DelegationPolicyRequestView>>> {
+            Mock::given(method("GET")).and(path("/organizations"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": [{
+                    "id": Uuid::new_v4(), "name": "Synthetic organization", "slug": "synthetic", "is_personal": true,
+                    "created_by": self.user_id, "created_at": "2026-10-25T00:00:00Z", "updated_at": "2026-10-25T00:00:00Z"
+                }]}))).expect(1).mount(&self.gateway).await;
+            let user_id = self.user_id;
+            let record_slot = Arc::new(std::sync::Mutex::new(None));
+            let response_record = record_slot.clone();
+            Mock::given(method("POST")).and(path("/publishers/seren-passwords/delegations"))
+                .respond_with(move |request: &wiremock::Request| {
+                    let body: Value = serde_json::from_slice(&request.body).unwrap();
+                    // A saved grant needs no supersession, so the server revokes nothing now.
+                    assert!(body.get("supersedes_request_id").is_none_or(Value::is_null));
+                    let mut record = super::tests::sample_policy_request();
+                    record.request_id = serde_json::from_value(body["request_id"].clone()).unwrap();
+                    record.requester_user_id = user_id;
+                    record.agent_kem_public = body["agent_kem_public"].as_str().unwrap().into();
+                    record.agent_signing_public = body["agent_signing_public"].as_str().unwrap().into();
+                    record.expires_at = jiff::Timestamp::now().checked_add(jiff::SignedDuration::from_hours(1)).unwrap();
+                    let wire = json!({"data": {"request": record, "participant_capabilities": [{
+                        "participant_id": Uuid::new_v4(), "role": "owner", "stage": 0, "participant_capability": "synthetic-consent-capability"
+                    }]}});
+                    *response_record.lock().unwrap() = Some(record);
+                    ResponseTemplate::new(200).set_body_json(wire)
+                }).expect(1).mount(&self.gateway).await;
+            record_slot
+        }
+    }
+
+    #[tokio::test]
+    async fn approved_but_unapplied_request_saves_and_revokes_nothing() {
+        if !integration_tests_enabled() {
+            eprintln!("skipping hosted grant integration test");
+            return;
+        }
+        let (_container, store) = test_token_store().await;
+        let store = Arc::new(store);
+        for call in ["grant_status", "request_access", "forced_request_access"] {
+            let fixture = HostedFixture::new(store.clone()).await;
+            let before = fixture.snapshot().await;
+            let record = fixture
+                .seed_pending(
+                    Uuid::new_v4(),
+                    DelegationPolicyRequestStatus::Approved,
+                    &fixture.vault_ids,
+                )
+                .await;
+            let result = match call {
+                "grant_status" => fixture.finalize(record.request_id).await,
+                "request_access" => fixture.request_access(false).await,
+                _ => fixture.request_access(true).await,
+            };
+            assert_eq!(result["status"], "approval_finishing", "{call}");
+            assert_eq!(result["request_id"], json!(record.request_id));
+            assert_eq!(result["next_step"], APPROVAL_FINISHING_NEXT_STEP);
+            assert!(result.get("identity_id").is_none());
+            assert_eq!(fixture.snapshot().await, before);
+            assert_eq!(
+                store
+                    .get_pending_hosted_passwords_agent_for_subject(fixture.user_id, "user")
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .request_id,
+                record.request_id
+            );
+            assert!(!gateway_posted(
+                &fixture.gateway.received_requests().await.unwrap()
+            ));
+            fixture.gateway.verify().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn request_access_finalizes_an_applied_request_first() {
+        if !integration_tests_enabled() {
+            eprintln!("skipping hosted grant integration test");
+            return;
+        }
+        let (_container, store) = test_token_store().await;
+        let store = Arc::new(store);
+        for force in [false, true] {
+            let mut fixture = HostedFixture::new(store.clone()).await;
+            let previous_key_id = Uuid::new_v4();
+            fixture.set_previous_key_id(previous_key_id).await;
+            let approved_identity = Uuid::new_v4();
+            let record = fixture
+                .seed_pending(
+                    approved_identity,
+                    DelegationPolicyRequestStatus::Applied,
+                    &fixture.vault_ids,
+                )
+                .await;
+            fixture.mint_key().await;
+            fixture.mock_identity_revoke(200, false).await;
+            fixture.mock_key_revoke(previous_key_id, 200).await;
+            let created = if force {
+                Some(fixture.mock_create_unsuperseded().await)
+            } else {
+                None
+            };
+            let result = fixture.request_access(force).await;
+            let granted = if force {
+                assert_eq!(result["status"], "pending");
+                assert!(
+                    result["consent_url"]
+                        .as_str()
+                        .unwrap()
+                        .contains("/grant#capability=")
+                );
+                &result["finalized_request"]
+            } else {
+                &result
+            };
+            assert_eq!(granted["status"], "granted");
+            assert_eq!(granted["request_id"], json!(record.request_id));
+            assert_eq!(granted["identity_id"], json!(approved_identity));
+            assert_eq!(granted["replaced_identity_id"], json!(fixture.identity_id));
+            let saved = store
+                .get_hosted_passwords_agent(fixture.user_id, "user")
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(saved.identity_id, approved_identity);
+            assert_eq!(saved.api_key.unwrap().as_str(), "new-agent-token");
+            let pending = store
+                .get_pending_hosted_passwords_agent_for_subject(fixture.user_id, "user")
+                .await
+                .unwrap();
+            fixture.gateway.verify().await;
+            fixture.gateway.reset().await;
+
+            // The finalized grant still works, including while a forced
+            // replacement waits for approval.
+            if let Some(created) = created {
+                let replacement = created.lock().unwrap().take().unwrap();
+                assert_eq!(pending.unwrap().request_id, replacement.request_id);
+                fixture.mock_policy(&replacement).await;
+            } else {
+                assert!(pending.is_none());
+            }
+            fixture.identity_id = approved_identity;
+            fixture
+                .mock_access_as(
+                    "Bearer new-agent-token",
+                    200,
+                    200,
+                    &fixture.vault_ids,
+                    false,
+                )
+                .await;
+            let check = fixture.request_access(false).await;
+            assert_eq!(check["status"], "already_granted");
+            assert_eq!(check["access"], "full");
+            assert_eq!(check["identity_id"], json!(approved_identity));
+            assert!(!gateway_posted(
+                &fixture.gateway.received_requests().await.unwrap()
+            ));
+            fixture.gateway.verify().await;
+        }
     }
 }
