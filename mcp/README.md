@@ -284,7 +284,7 @@ Typical hosted flow:
 
 1. Call `passwords_request_access` to create a short-lived browser consent URL.
 2. Open the returned URL and approve the vaults the hosted MCP agent may access.
-3. Call `passwords_grant_status` until it returns `granted`.
+3. Call `passwords_grant_status` until it returns `granted`. `approval_finishing` means the owner approved but Seren Passwords is still applying the grant; call it again. `passwords_request_access` preserves this approval, including with `force=true`, until the grants are applied. If the request ID is lost, `passwords_request_access` finalizes an approved request before doing anything else.
 4. Use `passwords_vaults_list`, `passwords_items_list`, and `passwords_item_get` directly, or call them through `call_publisher` with publisher `seren-passwords`.
 
 Built-in helper tools:
