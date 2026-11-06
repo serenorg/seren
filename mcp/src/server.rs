@@ -27682,40 +27682,79 @@ pub(crate) mod tests {
         assert_eq!(extract_bearer_token_from_extensions(&extensions), None);
     }
 
+    fn run_read_only_test_in_child(test_name: &str, read_only: Option<&str>) -> bool {
+        const CHILD_TEST: &str = "SEREN_MCP_READ_ONLY_TEST_CHILD";
+        if std::env::var(CHILD_TEST).ok().as_deref() == Some(test_name) {
+            return false;
+        }
+
+        // Configure the child's environment without mutating the parallel test process.
+        let mut command = std::process::Command::new(
+            std::env::current_exe().expect("the test executable has a path"),
+        );
+        command
+            .args([
+                "--exact", test_name, "--format", "pretty", "--color", "never",
+            ])
+            .env(CHILD_TEST, test_name);
+        if let Some(value) = read_only {
+            command.env("READ_ONLY", value);
+        } else {
+            command.env_remove("READ_ONLY");
+        }
+        let output = command.output().expect("the isolated test process starts");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success() && stdout.contains("1 passed; 0 failed"),
+            "isolated test {test_name} failed: status={} stdout={stdout} stderr={stderr}",
+            output.status,
+        );
+        true
+    }
+
     #[test]
     fn read_only_header_enables_read_only_mode() {
-        temp_env::with_var_unset("READ_ONLY", || {
-            let extensions = extensions_with_headers(&[("x-read-only", "true")]);
-            assert!(is_read_only(&extensions));
-            assert!(ensure_writes_allowed(&extensions).is_err());
-            assert!(
-                ensure_managed_deployment_mutation_allowed(
-                    &extensions,
-                    ManagedDeploymentMutation::Update
-                )
-                .is_err()
-            );
+        if run_read_only_test_in_child(
+            "server::tests::read_only_header_enables_read_only_mode",
+            None,
+        ) {
+            return;
+        }
+        let extensions = extensions_with_headers(&[("x-read-only", "true")]);
+        assert!(is_read_only(&extensions));
+        assert!(ensure_writes_allowed(&extensions).is_err());
+        assert!(
+            ensure_managed_deployment_mutation_allowed(
+                &extensions,
+                ManagedDeploymentMutation::Update
+            )
+            .is_err()
+        );
 
-            let extensions = extensions_with_headers(&[("x-read-only", "0")]);
-            assert!(!is_read_only(&extensions));
-            assert!(ensure_writes_allowed(&extensions).is_ok());
-        });
+        let extensions = extensions_with_headers(&[("x-read-only", "0")]);
+        assert!(!is_read_only(&extensions));
+        assert!(ensure_writes_allowed(&extensions).is_ok());
     }
 
     #[test]
     fn read_only_env_enables_read_only_mode() {
-        temp_env::with_var("READ_ONLY", Some("yes"), || {
-            let extensions = extensions_with_headers(&[]);
-            assert!(is_read_only(&extensions));
-            assert!(ensure_writes_allowed(&extensions).is_err());
-            assert!(
-                ensure_managed_deployment_mutation_allowed(
-                    &extensions,
-                    ManagedDeploymentMutation::Create
-                )
-                .is_err()
-            );
-        });
+        if run_read_only_test_in_child(
+            "server::tests::read_only_env_enables_read_only_mode",
+            Some("yes"),
+        ) {
+            return;
+        }
+        let extensions = extensions_with_headers(&[]);
+        assert!(is_read_only(&extensions));
+        assert!(ensure_writes_allowed(&extensions).is_err());
+        assert!(
+            ensure_managed_deployment_mutation_allowed(
+                &extensions,
+                ManagedDeploymentMutation::Create
+            )
+            .is_err()
+        );
     }
 
     #[test]
