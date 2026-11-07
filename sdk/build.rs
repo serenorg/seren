@@ -200,6 +200,7 @@ fn remove_unsupported_operations(value: &mut serde_json::Value) -> anyhow::Resul
     const MULTIPART_PATHS: &[&str] = &[
         "/users/me/avatar",
         "/organizations/{organization_id}/templates/{slug}/avatar",
+        "/organizations/{organization_id}/addons/{name}/thumbnail",
     ];
     // Raw uploads whose Content-Type header selects the stored file type.
     // Progenitor sends one fixed media type per operation, so a generated
