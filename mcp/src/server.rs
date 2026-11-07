@@ -2989,6 +2989,78 @@ pub struct SetSerenAgentTemplateRunFeeParams {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct SerenAgentAddonsParams {
+    /// Organization that publishes the add-ons.
+    pub organization_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SerenAgentAddonParams {
+    /// Organization that publishes the add-on.
+    pub organization_id: Uuid,
+    /// The add-on's name, lowercase with hyphens.
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateSerenAgentAddonListingParams {
+    pub organization_id: Uuid,
+    pub name: String,
+    pub request: seren::PutManagedAgentAddonListing,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetSerenAgentAddonPriceParams {
+    pub organization_id: Uuid,
+    pub name: String,
+    pub request: seren::PutManagedAgentAddonPrice,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PublishSerenAgentAddonReleaseParams {
+    pub organization_id: Uuid,
+    pub name: String,
+    pub request: seren::PublishManagedAgentAddonRelease,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UploadSerenAgentAddonThumbnailParams {
+    pub organization_id: Uuid,
+    pub name: String,
+    /// File name of the PNG or JPEG picture.
+    pub file_name: String,
+    /// MIME type declared on the multipart file: image/png or image/jpeg.
+    pub content_type: String,
+    /// Raw base64 image bytes, without a data URL prefix. Compress large pictures first.
+    pub image_base64: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SerenAgentTemplateAddonsParams {
+    /// Organization that publishes the managed agent template.
+    pub organization_id: Uuid,
+    /// The managed agent template's slug.
+    pub slug: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetSerenAgentTemplateAddonVisibilityParams {
+    pub organization_id: Uuid,
+    pub slug: String,
+    /// The public add-on's slug.
+    pub addon: String,
+    pub request: seren::PutManagedAgentTemplateAddonVisibility,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PublishSerenAgentTemplateReleaseParams {
     pub organization_id: Uuid,
     pub slug: String,
@@ -17892,6 +17964,211 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "List the organization's published add-ons with each one's price in US cents, buyers who were not refunded, and the organization's earnings from their sales in USD atomic units (1,000,000 = $1), plus the listing words buyers read. Requires a built-in Owner or Admin of the publishing organization using an unrestricted direct credential.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_seren_agent_addons(
+        &self,
+        Parameters(params): Parameters<SerenAgentAddonsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .list_managed_agent_addons(&params.organization_id)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Replace a published add-on's listing words after user authorization: summary (what it does, at most 160 characters, null clears it), you_can (at most 6 lines of at most 100 characters), how_it_works (at most 600 characters, null clears it) and works_with (slugs of listed Employee templates it works with). Plain text only, with no links or HTML. Name, reach, license and code are fixed by the release and need a new version. Requires a built-in Owner or Admin of the publishing organization using an unrestricted direct credential.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn update_seren_agent_addon_listing(
+        &self,
+        Parameters(params): Parameters<UpdateSerenAgentAddonListingParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .put_managed_agent_addon_listing(&params.organization_id, &params.name, &params.request)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Set a published add-on's price for buyers who haven't bought it yet, after user authorization. price_cents is US cents, paid once from SerenBucks; 0 makes it free. People who already bought it are unaffected and later versions stay free to them. Requires a built-in Owner or Admin of the publishing organization using an unrestricted direct credential.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn set_seren_agent_addon_price(
+        &self,
+        Parameters(params): Parameters<SetSerenAgentAddonPriceParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .put_managed_agent_addon_price(&params.organization_id, &params.name, &params.request)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Upload or replace a published add-on's square picture from base64 PNG or JPEG through Core's multipart file route. At least 512 by 512 pixels and at most 5 MB; Core re-encodes it. Large pictures may not fit in an AI client's tool call; compress them first. Requires a built-in Owner or Admin of the publishing organization using an unrestricted direct credential.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn upload_seren_agent_addon_thumbnail(
+        &self,
+        Parameters(params): Parameters<UploadSerenAgentAddonThumbnailParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let file_name = params.file_name.trim();
+        if file_name.is_empty() {
+            return Err(McpError::invalid_params("file_name is required", None));
+        }
+        let image = BASE64
+            .decode(params.image_base64.trim())
+            .map_err(|_| McpError::invalid_params("image_base64 is invalid", None))?;
+        if image.is_empty() {
+            return Err(McpError::invalid_params(
+                "image_base64 must decode to a non-empty image",
+                None,
+            ));
+        }
+        let response = self
+            .api_client(&extensions)?
+            .upload_managed_agent_addon_thumbnail(
+                &params.organization_id,
+                &params.name,
+                file_name,
+                &params.content_type,
+                image,
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List every price a published add-on has had, oldest first, with the old and new price in US cents, who changed it and when. The first entry has no old price. Requires a built-in Owner or Admin of the publishing organization using an unrestricted direct credential.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_seren_agent_addon_price_changes(
+        &self,
+        Parameters(params): Parameters<SerenAgentAddonParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .list_managed_agent_addon_price_changes(&params.organization_id, &params.name)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Publish a completed add-on upload as a public release after user authorization, at price_cents (US cents, paid once; 0 makes it free). Returns the add-on's name, version and digest. A public copy can't be recalled, so confirm the file list, the price and that warning with your user first. Requires a built-in Owner or Admin of the publishing organization using an unrestricted direct credential.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn publish_seren_agent_addon_release(
+        &self,
+        Parameters(params): Parameters<PublishSerenAgentAddonReleaseParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .publish_managed_agent_addon_release(
+                &params.organization_id,
+                &params.name,
+                &params.request,
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "For an Employee's Owner: list the public add-ons that work with this Employee and whether each is shown to its hirers, hidden by the Owner, or delisted by Seren. A hirer's own private add-ons aren't listed or affected. Requires the publishing organization's built-in Owner using an unrestricted direct credential.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_seren_agent_template_addons(
+        &self,
+        Parameters(params): Parameters<SerenAgentTemplateAddonsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .list_managed_agent_template_addons(&params.organization_id, &params.slug)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "For an Employee's Owner: show or hide a public add-on for this Employee's hirers, after user authorization. shown=false hides it; a Seren delisting overrides shown=true. A hirer's own private add-ons aren't affected. Requires the publishing organization's built-in Owner using an unrestricted direct credential.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn set_seren_agent_template_addon_visibility(
+        &self,
+        Parameters(params): Parameters<SetSerenAgentTemplateAddonVisibilityParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .put_managed_agent_template_addon_visibility(
+                &params.organization_id,
+                &params.slug,
+                &params.addon,
+                &params.request,
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
         description = "Publish an Employee template release using an uploaded bundle and exact commit hash after user authorization. Requires a user API key of the publishing organization explicitly scoped managed-agent-template:publish; sessions and unrestricted keys cannot publish. New templates begin pending review; new hires require Seren approval, platform activation and Owner listing. Only its publishing organization can release it again, and a suspended template refuses releases. A release with no supported provider is refused; the result lists supported connected-account providers.",
         annotations(
             read_only_hint = false,
@@ -28119,6 +28396,14 @@ pub(crate) mod tests {
             ("get_seren_agent_template_run_fee", true),
             ("set_seren_agent_template_run_fee", false),
             ("list_seren_agent_template_run_fee_changes", true),
+            ("list_seren_agent_addons", true),
+            ("update_seren_agent_addon_listing", false),
+            ("set_seren_agent_addon_price", false),
+            ("upload_seren_agent_addon_thumbnail", false),
+            ("list_seren_agent_addon_price_changes", true),
+            ("publish_seren_agent_addon_release", false),
+            ("list_seren_agent_template_addons", true),
+            ("set_seren_agent_template_addon_visibility", false),
             ("update_seren_agent_template_profile", false),
             ("update_seren_agent_template_listing", false),
             ("request_seren_agent_template_review", false),
@@ -28315,6 +28600,244 @@ pub(crate) mod tests {
             assert_eq!(proxy.received_requests().await.unwrap().len(), 3);
             proxy.verify().await;
         }
+
+        let proxy = MockServer::start().await;
+        let addons = format!("/organizations/{organization_id}/addons");
+        let addon = format!("{addons}/weekly-report");
+        let template_addons = format!("/organizations/{organization_id}/templates/fee-test/addons");
+        let listing_request = serde_json::json!({"summary": "Lists stale sign-ins.",
+            "you_can": ["Get a weekly list"], "how_it_works": null, "works_with": ["fee-test"]});
+        let listing = |price_cents: i32| {
+            serde_json::json!({"data": {"name": "weekly-report", "description": "Weekly report",
+                "price_cents": price_cents, "summary": "Lists stale sign-ins.",
+                "you_can": ["Get a weekly list"], "how_it_works": "Reads sign-in names and emails you.",
+                "works_with": ["fee-test"]}})
+        };
+        let summaries = serde_json::json!({"data": [{"name": "weekly-report",
+            "description": "Weekly report", "price_cents": 500, "summary": "Lists stale sign-ins.",
+            "you_can": ["Get a weekly list"], "how_it_works": "Reads sign-in names and emails you.",
+            "works_with": ["fee-test"], "buyers": 3, "earned_atomic": 9000000}]});
+        let price_changes = serde_json::json!({"data": [
+            {"old_price_cents": null, "new_price_cents": 0,
+                "changed_by_user_id": Uuid::from_u128(1), "changed_at": "2026-11-06T03:00:00Z"},
+            {"old_price_cents": 0, "new_price_cents": 500,
+                "changed_by_user_id": Uuid::from_u128(1), "changed_at": "2026-11-07T03:00:00Z"}
+        ]});
+        let upload_id = Uuid::from_u128(77);
+        let release = serde_json::json!({"data": {"name": "weekly-report", "version": "1",
+            "digest": "sha256:abc"}});
+        let thumbnail = serde_json::json!({"data": {"thumbnail_url": "https://media.serendb.com/addons/weekly-report.png"}});
+        let standing = serde_json::json!({"data": [{"slug": "weekly-report", "name": "weekly-report",
+            "description": "Weekly report", "shown": false,
+            "delisted_by_seren": false, "available": true}]});
+        let visibility = serde_json::json!({"data": {"slug": "weekly-report", "shown": false,
+            "delisted_by_seren": false, "available": true}});
+        for (verb, endpoint, request, response) in [
+            ("GET", addons.clone(), None, summaries.clone()),
+            (
+                "PUT",
+                format!("{addon}/listing"),
+                // A cleared field leaves the body; Core reads a missing field as cleared.
+                Some(serde_json::json!({"summary": "Lists stale sign-ins.",
+                    "you_can": ["Get a weekly list"], "works_with": ["fee-test"]})),
+                listing(0),
+            ),
+            (
+                "PUT",
+                format!("{addon}/price"),
+                Some(serde_json::json!({"price_cents": 500})),
+                listing(500),
+            ),
+            (
+                "GET",
+                format!("{addon}/price-changes"),
+                None,
+                price_changes.clone(),
+            ),
+            (
+                "POST",
+                format!("{addon}/releases"),
+                Some(serde_json::json!({"upload_id": upload_id, "price_cents": 500})),
+                release.clone(),
+            ),
+            (
+                "POST",
+                format!("{addon}/thumbnail"),
+                None,
+                thumbnail.clone(),
+            ),
+            ("GET", template_addons.clone(), None, standing.clone()),
+            (
+                "PUT",
+                format!("{template_addons}/weekly-report/visibility"),
+                Some(serde_json::json!({"shown": false})),
+                visibility.clone(),
+            ),
+        ] {
+            let endpoint_is_release = endpoint.ends_with("/releases");
+            let mut mock = Mock::given(method(verb))
+                .and(path(endpoint))
+                .and(header("authorization", "Bearer fee-owner-key"));
+            if let Some(request) = request {
+                mock = mock.and(body_json(request));
+            }
+            // Core answers a published release with 201 Created.
+            let status = if endpoint_is_release { 201 } else { 200 };
+            mock.respond_with(ResponseTemplate::new(status).set_body_json(response))
+                .expect(1)
+                .mount(&proxy)
+                .await;
+        }
+        let server = SerenMcpServer::new("fee-owner-key", &proxy.uri()).unwrap();
+        let read_only = || extensions_with_headers(&[("x-read-only", "true")]);
+        let addon_params = || SerenAgentAddonParams {
+            organization_id,
+            name: "weekly-report".into(),
+        };
+        let result = server
+            .list_seren_agent_addons(
+                Parameters(SerenAgentAddonsParams { organization_id }),
+                read_only(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(template_catalog_result_json(result), summaries);
+        let result = server
+            .update_seren_agent_addon_listing(
+                Parameters(
+                    serde_json::from_value(serde_json::json!({"organization_id": organization_id,
+                        "name": "weekly-report", "request": listing_request}))
+                    .unwrap(),
+                ),
+                Extensions::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(template_catalog_result_json(result), listing(0));
+        let result = server
+            .set_seren_agent_addon_price(
+                Parameters(
+                    serde_json::from_value(serde_json::json!({"organization_id": organization_id,
+                        "name": "weekly-report", "request": {"price_cents": 500}}))
+                    .unwrap(),
+                ),
+                Extensions::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(template_catalog_result_json(result), listing(500));
+        let result = server
+            .list_seren_agent_addon_price_changes(Parameters(addon_params()), read_only())
+            .await
+            .unwrap();
+        let mut expected = price_changes;
+        let mut actual = template_catalog_result_json(result);
+        for value in [&mut expected, &mut actual] {
+            fee_tool_remove_null_field(value, "/data/0", "old_price_cents");
+        }
+        assert_eq!(actual, expected);
+        let result = server
+            .publish_seren_agent_addon_release(
+                Parameters(
+                    serde_json::from_value(serde_json::json!({"organization_id": organization_id,
+                        "name": "weekly-report",
+                        "request": {"upload_id": upload_id, "price_cents": 500}}))
+                    .unwrap(),
+                ),
+                Extensions::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(template_catalog_result_json(result), release);
+        let result = server
+            .upload_seren_agent_addon_thumbnail(
+                Parameters(UploadSerenAgentAddonThumbnailParams {
+                    organization_id,
+                    name: "weekly-report".into(),
+                    file_name: "weekly-report.png".into(),
+                    content_type: "image/png".into(),
+                    image_base64: BASE64.encode(b"png-bytes"),
+                }),
+                Extensions::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(template_catalog_result_json(result), thumbnail);
+        let result = server
+            .list_seren_agent_template_addons(
+                Parameters(SerenAgentTemplateAddonsParams {
+                    organization_id,
+                    slug: "fee-test".into(),
+                }),
+                read_only(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(template_catalog_result_json(result), standing);
+        let result = server
+            .set_seren_agent_template_addon_visibility(
+                Parameters(
+                    serde_json::from_value(serde_json::json!({"organization_id": organization_id,
+                        "slug": "fee-test", "addon": "weekly-report", "request": {"shown": false}}))
+                    .unwrap(),
+                ),
+                Extensions::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(template_catalog_result_json(result), visibility);
+        let requests = proxy.received_requests().await.unwrap();
+        let picture = requests
+            .iter()
+            .find(|request| request.url.path().ends_with("/thumbnail"))
+            .unwrap();
+        let content_type = picture
+            .headers
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(
+            content_type.starts_with("multipart/form-data"),
+            "{content_type}"
+        );
+        assert!(
+            picture.body.windows(9).any(|window| window == b"png-bytes"),
+            "picture bytes reach Core"
+        );
+
+        // Writes stay refused in read-only mode and before any request reaches Core.
+        let blocked = proxy.received_requests().await.unwrap().len();
+        assert!(
+            server
+                .set_seren_agent_addon_price(
+                    Parameters(
+                        serde_json::from_value(
+                            serde_json::json!({"organization_id": organization_id,
+                            "name": "weekly-report", "request": {"price_cents": 0}})
+                        )
+                        .unwrap(),
+                    ),
+                    read_only(),
+                )
+                .await
+                .is_err()
+        );
+        assert!(
+            server
+                .set_seren_agent_template_addon_visibility(
+                    Parameters(
+                        serde_json::from_value(serde_json::json!({"organization_id": organization_id,
+                            "slug": "fee-test", "addon": "weekly-report", "request": {"shown": true}}))
+                        .unwrap(),
+                    ),
+                    read_only(),
+                )
+                .await
+                .is_err()
+        );
+        assert_eq!(proxy.received_requests().await.unwrap().len(), blocked);
+        proxy.verify().await;
     }
 
     #[tokio::test]

@@ -3436,6 +3436,716 @@
         ]
       }
     },
+    "/organizations/{organization_id}/addons": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "List the organization's published add-ons with their price, buyers and earnings.",
+        "operationId": "list_managed_agent_addons",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the add-ons",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The organization's published add-ons",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_ManagedAgentAddonSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "A built-in Owner or Admin using an unrestricted direct credential of the organization is required (`managed_agent_addon_author_required`)"
+          },
+          "503": {
+            "description": "The add-on catalog is unavailable (`managed_agent_addon_catalog_unavailable`)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/addons/{name}/listing": {
+      "put": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Replace an add-on's catalog words and the managed agents it works with. Buyers see the\nchange at once; the released code and what it can reach are unchanged.",
+        "operationId": "put_managed_agent_addon_listing",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the add-on",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Add-on name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutManagedAgentAddonListing"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The add-on after the change",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentAddonListing"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The words exceed their limits (`managed_agent_addon_change_refused`), or Works with names a managed agent that is not listed (`managed_agent_addon_works_with_invalid`)"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "A built-in Owner or Admin using an unrestricted direct credential of the organization is required (`managed_agent_addon_author_required`)"
+          },
+          "404": {
+            "description": "The organization has no published add-on with that name (`managed_agent_addon_not_found`)"
+          },
+          "503": {
+            "description": "The add-on catalog is unavailable (`managed_agent_addon_catalog_unavailable`)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/addons/{name}/price": {
+      "put": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Set the price a new buyer pays once. Buyers who already paid are never charged again.",
+        "operationId": "put_managed_agent_addon_price",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the add-on",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Add-on name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutManagedAgentAddonPrice"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The add-on after the change",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentAddonListing"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The price must be whole cents from 0 to 1,000,000"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "A built-in Owner or Admin using an unrestricted direct credential of the organization is required (`managed_agent_addon_author_required`)"
+          },
+          "404": {
+            "description": "The organization has no published add-on with that name (`managed_agent_addon_not_found`)"
+          },
+          "503": {
+            "description": "The add-on catalog is unavailable (`managed_agent_addon_catalog_unavailable`)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/addons/{name}/price-changes": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "List every price the organization set for an add-on, oldest first.",
+        "operationId": "list_managed_agent_addon_price_changes",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the add-on",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Add-on name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every price set, oldest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_ManagedAgentAddonPriceChange"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "A built-in Owner or Admin using an unrestricted direct credential of the organization is required (`managed_agent_addon_author_required`)"
+          },
+          "404": {
+            "description": "The organization has no published add-on with that name (`managed_agent_addon_not_found`)"
+          },
+          "503": {
+            "description": "The add-on catalog is unavailable (`managed_agent_addon_catalog_unavailable`)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/addons/{name}/releases": {
+      "post": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Publish a completed upload as a public release of the organization's add-on, with no hire.\nThe package must hold SKILL.md naming this add-on, a valid manifest.json with a license,\nand only services Seren has. A public release can't be recalled.",
+        "operationId": "publish_managed_agent_addon_release",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the add-on",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Add-on name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishManagedAgentAddonRelease"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The published release",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentAddonRelease"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The package is not a valid add-on (`addon_package_invalid`, `addon_manifest_invalid`, `managed_agent_addon_name_mismatch`, `managed_agent_addon_upload_digest_mismatch`), or the price is out of range (`managed_agent_addon_price_invalid`)"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "A built-in Owner or Admin using an unrestricted direct credential of the organization is required (`managed_agent_addon_author_required`), or publishing is not open to the organization (`addon_catalog_unavailable`)"
+          },
+          "404": {
+            "description": "No open upload has this identifier (`managed_agent_addon_upload_not_found`)"
+          },
+          "409": {
+            "description": "The upload is incomplete (`managed_agent_addon_upload_incomplete`), the package has no license (`addon_license_required`), another organization holds the name (`managed_agent_addon_name_taken`), or the catalog refused the release (`managed_agent_addon_release_refused`)"
+          },
+          "503": {
+            "description": "The add-on catalog is unavailable (`managed_agent_addon_catalog_unavailable`)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/addons/{name}/thumbnail": {
+      "post": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Upload one multipart `file`: a square PNG, JPEG or WebP picture of at least 512 by 512\npixels, at most 5 MiB. It is stored without metadata, at most 1024 pixels on each edge,\nand replaces any earlier picture.",
+        "operationId": "upload_managed_agent_addon_thumbnail",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the add-on",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Add-on name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The add-on's picture",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentAddonThumbnail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a usable picture; `addon_thumbnail_shape`, `addon_thumbnail_width` or `addon_thumbnail_too_large` explains how to correct it"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "A built-in Owner or Admin using an unrestricted direct credential of the organization is required (`managed_agent_addon_author_required`)"
+          },
+          "404": {
+            "description": "The organization has no published add-on with that name (`managed_agent_addon_not_found`)"
+          },
+          "503": {
+            "description": "The add-on catalog, picture processing or picture storage is temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Remove an add-on's picture. Repeated removal succeeds.",
+        "operationId": "delete_managed_agent_addon_thumbnail",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the add-on",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Add-on name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The add-on has no picture",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentAddonThumbnail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "A built-in Owner or Admin using an unrestricted direct credential of the organization is required (`managed_agent_addon_author_required`)"
+          },
+          "404": {
+            "description": "The organization has no published add-on with that name (`managed_agent_addon_not_found`)"
+          },
+          "503": {
+            "description": "The add-on catalog is unavailable (`managed_agent_addon_catalog_unavailable`)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/addons/{name}/uploads": {
+      "post": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Start, or resume, an upload of an add-on package to publish with no hire. Send each part\nwith `PUT .../uploads/{upload_id}/parts/{part_index}`; a repeat of this request with the\nsame size and SHA-256 returns the open upload and the parts it already holds.",
+        "operationId": "create_managed_agent_addon_upload",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the add-on",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Add-on name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateManagedAgentAddonUpload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The open upload of the same package",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentAddonUpload"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "A new upload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentAddonUpload"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The name, size or SHA-256 is invalid (`managed_agent_addon_name_invalid`, `managed_agent_addon_upload_invalid`)"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "A built-in Owner or Admin using an unrestricted direct credential of the organization is required (`managed_agent_addon_author_required`), or publishing is not open to the organization (`addon_catalog_unavailable`)"
+          },
+          "429": {
+            "description": "The organization holds too many open uploads (`managed_agent_addon_uploads_exhausted`)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/addons/{name}/uploads/{upload_id}": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Read an upload and the parts it holds.",
+        "operationId": "get_managed_agent_addon_upload",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the add-on",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Add-on name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "upload_id",
+            "in": "path",
+            "description": "Upload",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The upload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentAddonUpload"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "A built-in Owner or Admin using an unrestricted direct credential of the organization is required (`managed_agent_addon_author_required`), or publishing is not open to the organization (`addon_catalog_unavailable`)"
+          },
+          "404": {
+            "description": "No open upload has this identifier (`managed_agent_addon_upload_not_found`)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/addons/{name}/uploads/{upload_id}/parts/{part_index}": {
+      "put": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Send one part of an upload as the raw request body, with its SHA-256 in\n`X-Seren-Part-Sha256`. Sending a received part again with the same bytes is harmless.",
+        "operationId": "put_managed_agent_addon_upload_part",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the add-on",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Add-on name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "upload_id",
+            "in": "path",
+            "description": "Upload",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "part_index",
+            "in": "path",
+            "description": "Zero-based part index",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "X-Seren-Part-Sha256",
+            "in": "header",
+            "description": "Lowercase hexadecimal SHA-256 of the part",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The part's raw bytes",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The upload after this part",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentAddonUpload"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The part's index, size or SHA-256 is wrong (`managed_agent_addon_upload_part_invalid`)"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "A built-in Owner or Admin using an unrestricted direct credential of the organization is required (`managed_agent_addon_author_required`), or publishing is not open to the organization (`addon_catalog_unavailable`)"
+          },
+          "404": {
+            "description": "No open upload has this identifier (`managed_agent_addon_upload_not_found`)"
+          },
+          "409": {
+            "description": "The part was already received with different bytes (`managed_agent_addon_upload_part_conflict`)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/organizations/{organization_id}/agent-credential-secrets": {
       "get": {
         "tags": [
@@ -9202,6 +9912,140 @@
           },
           "500": {
             "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/addons": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "List the public add-ons with their standing on this managed agent.",
+        "operationId": "list_managed_agent_template_addons",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Public add-ons and their standing on this managed agent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_ManagedAgentTemplateAddon"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, or the organization does not publish the template (`managed_agent_profile_owner_required`)"
+          },
+          "503": {
+            "description": "The public add-on catalog cannot be read right now (`addon_catalog_unavailable`)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/addons/{addon}/visibility": {
+      "put": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Show or hide a public add-on for this managed agent's hirers. Hirers who already\nhave it keep it. Repeating the current choice changes nothing.",
+        "operationId": "put_managed_agent_template_addon_visibility",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "addon",
+            "in": "path",
+            "description": "The public add-on's slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutManagedAgentTemplateAddonVisibility"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The add-on's standing after the change",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateAddonVisibility"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is invalid"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, or the organization does not publish the template (`managed_agent_profile_owner_required`)"
+          },
+          "404": {
+            "description": "The slug is not a public add-on slug (`addon_not_found`)"
           }
         },
         "security": [
@@ -18026,6 +18870,28 @@
         },
         "additionalProperties": false
       },
+      "CreateManagedAgentAddonUpload": {
+        "type": "object",
+        "description": "The package an author will send in parts: its exact size and SHA-256.",
+        "required": [
+          "byte_length",
+          "sha256"
+        ],
+        "properties": {
+          "byte_length": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Size of the package tar in bytes, at most 20 MiB.",
+            "maximum": 20971520,
+            "minimum": 1
+          },
+          "sha256": {
+            "type": "string",
+            "description": "Lowercase hexadecimal SHA-256 of the whole package tar."
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateOAuthProviderRequest": {
         "type": "object",
         "description": "Request to create/update an OAuth provider (admin only)",
@@ -21585,6 +22451,214 @@
           }
         }
       },
+      "DataResponse_ManagedAgentAddonListing": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "An add-on as buyers see it in the catalog.",
+            "required": [
+              "name",
+              "description",
+              "price_cents",
+              "you_can",
+              "works_with"
+            ],
+            "properties": {
+              "description": {
+                "type": "string"
+              },
+              "how_it_works": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "price_cents": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "summary": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "works_with": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "you_can": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentAddonRelease": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "A published add-on release.",
+            "required": [
+              "name",
+              "version",
+              "digest"
+            ],
+            "properties": {
+              "digest": {
+                "type": "string",
+                "description": "The release's public fingerprint: SHA-256 over SKILL.md and every other file."
+              },
+              "name": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentAddonThumbnail": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "An add-on's picture as its author sees it.",
+            "properties": {
+              "thumbnail_url": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The picture's public address. Absent once it is removed."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentAddonUpload": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "An add-on package upload and the parts received so far.",
+            "required": [
+              "upload_id",
+              "byte_length",
+              "sha256",
+              "part_bytes",
+              "part_count",
+              "received_parts",
+              "expires_at"
+            ],
+            "properties": {
+              "byte_length": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "part_bytes": {
+                "type": "integer",
+                "format": "int32",
+                "description": "Size of every part but the last, which holds the rest."
+              },
+              "part_count": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "received_parts": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "description": "Indexes of the parts received, ascending."
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "upload_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedAgentDeploymentPublicationPreview": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -22394,6 +23468,54 @@
               },
               "status": {
                 "$ref": "#/components/schemas/ManagedAgentSecretsSetupState"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentTemplateAddonVisibility": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "A public add-on's standing with this managed agent.",
+            "required": [
+              "slug",
+              "shown",
+              "delisted_by_seren",
+              "available"
+            ],
+            "properties": {
+              "available": {
+                "type": "boolean",
+                "description": "Hirers of this managed agent can find and install it."
+              },
+              "delisted_by_seren": {
+                "type": "boolean",
+                "description": "Seren took the add-on off this managed agent. The Owner's choice has no effect\nuntil Seren lists it again."
+              },
+              "shown": {
+                "type": "boolean",
+                "description": "The Owner's choice. False hides the add-on from this managed agent's hirers."
+              },
+              "slug": {
+                "type": "string",
+                "description": "The add-on's catalog slug."
               }
             }
           },
@@ -27420,6 +28542,142 @@
           }
         }
       },
+      "DataResponse_Vec_ManagedAgentAddonPriceChange": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One price the author set. The first has no old price.",
+              "required": [
+                "new_price_cents",
+                "changed_by_user_id",
+                "changed_at"
+              ],
+              "properties": {
+                "changed_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "changed_by_user_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "new_price_cents": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "old_price_cents": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int32"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_ManagedAgentAddonSummary": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One of the organization's published add-ons, with what its sales earned.",
+              "required": [
+                "name",
+                "description",
+                "price_cents",
+                "you_can",
+                "works_with",
+                "buyers",
+                "earned_atomic"
+              ],
+              "properties": {
+                "buyers": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "People who bought it and were not refunded."
+                },
+                "description": {
+                  "type": "string"
+                },
+                "earned_atomic": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "The organization's share of those sales, in USD atomic units."
+                },
+                "how_it_works": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "price_cents": {
+                  "type": "integer",
+                  "format": "int32",
+                  "description": "Price in US cents a new buyer pays once."
+                },
+                "summary": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "works_with": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "you_can": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_Vec_ManagedAgentRunFeeChange": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -27463,6 +28721,52 @@
                   "$ref": "#/components/schemas/ManagedAgentRunFeeChangeReason"
                 }
               }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_ManagedAgentTemplateAddon": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/ManagedAgentTemplateAddonVisibility"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "description"
+                  ],
+                  "properties": {
+                    "description": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "description": "A public add-on and its standing with this managed agent."
             }
           },
           "pagination": {
@@ -34399,6 +35703,34 @@
           "seren_organization_database"
         ]
       },
+      "ManagedAgentTemplateAddonVisibility": {
+        "type": "object",
+        "description": "A public add-on's standing with this managed agent.",
+        "required": [
+          "slug",
+          "shown",
+          "delisted_by_seren",
+          "available"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "Hirers of this managed agent can find and install it."
+          },
+          "delisted_by_seren": {
+            "type": "boolean",
+            "description": "Seren took the add-on off this managed agent. The Owner's choice has no effect\nuntil Seren lists it again."
+          },
+          "shown": {
+            "type": "boolean",
+            "description": "The Owner's choice. False hides the add-on from this managed agent's hirers."
+          },
+          "slug": {
+            "type": "string",
+            "description": "The add-on's catalog slug."
+          }
+        }
+      },
       "ManagedAgentTemplateBrowserDefaults": {
         "type": "object",
         "required": [
@@ -38781,6 +40113,28 @@
           }
         }
       },
+      "PublishManagedAgentAddonRelease": {
+        "type": "object",
+        "description": "Publishes a completed upload.",
+        "required": [
+          "upload_id",
+          "price_cents"
+        ],
+        "properties": {
+          "price_cents": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Price in US cents a new buyer pays once; 0 makes it free.",
+            "maximum": 1000000,
+            "minimum": 0
+          },
+          "upload_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
       "PublishManagedAgentDeploymentRequest": {
         "type": "object",
         "required": [
@@ -40207,6 +41561,66 @@
         },
         "additionalProperties": false
       },
+      "PutManagedAgentAddonListing": {
+        "type": "object",
+        "description": "The words buyers read about an add-on, outside its released code. Plain text only: no\nlinks or HTML.",
+        "required": [
+          "you_can",
+          "works_with"
+        ],
+        "properties": {
+          "how_it_works": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "How it works, at most 600 characters; null clears it.",
+            "maxLength": 600
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What the add-on does, at most 160 characters; null clears it.",
+            "maxLength": 160
+          },
+          "works_with": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Slugs of the listed managed agent templates the add-on works with.",
+            "maxItems": 50
+          },
+          "you_can": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What a buyer can do with it: at most 6 lines of at most 100 characters.",
+            "maxItems": 6
+          }
+        },
+        "additionalProperties": false
+      },
+      "PutManagedAgentAddonPrice": {
+        "type": "object",
+        "description": "The add-on's price for buyers who have not bought it yet.",
+        "required": [
+          "price_cents"
+        ],
+        "properties": {
+          "price_cents": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Price in US cents, paid once; 0 makes it free.",
+            "maximum": 1000000,
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
       "PutManagedAgentReferralCampaignRequest": {
         "type": "object",
         "required": [
@@ -40222,6 +41636,19 @@
             "type": "integer",
             "format": "int64",
             "description": "Reward for each qualifying referred hire, in atomic USD units. Must be\na positive whole number of cents."
+          }
+        },
+        "additionalProperties": false
+      },
+      "PutManagedAgentTemplateAddonVisibility": {
+        "type": "object",
+        "required": [
+          "shown"
+        ],
+        "properties": {
+          "shown": {
+            "type": "boolean",
+            "description": "False hides the add-on from this managed agent's hirers."
           }
         },
         "additionalProperties": false
