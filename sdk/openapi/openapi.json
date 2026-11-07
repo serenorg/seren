@@ -6284,7 +6284,7 @@
           "managed-agent-templates"
         ],
         "summary": "List the charges settled for the organization's managed agents, newest first.",
-        "description": "Each charge names the template and an opaque run identifier. It carries no\nrun content and does not identify the hirer. The response also lists the\nnewest add-on sales that pay the organization, with the date each share can\nbe collected.",
+        "description": "Each charge names the template and an opaque run identifier. It carries no\nrun content and does not identify the hirer.",
         "operationId": "list_managed_agent_earnings_charges",
         "parameters": [
           {
@@ -11695,7 +11695,7 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Change the name, job title, tagline, plain-text description, ordered\ncapabilities and their skill keys, example tasks, tools, pronouns, colors, greeting, page address and\ndefault spending limits. A field left out keeps its value; null removes text or\ncolors or returns the limits to Seren's computed ones, and an empty list removes\nevery item. The picture is managed separately. Suspended templates or profiles refuse edits. A\nrename costs $1.00 in SerenBucks and the response's `rename` names the\ncharge; the request changes nothing when the rename is refused.",
+        "summary": "Change the name, job title, tagline, plain-text description, ordered\ncapabilities, example tasks, tools and pronouns. A field left out keeps its\nvalue; null removes text and an empty list removes every item. The picture\nis managed separately. Suspended templates or profiles refuse edits. A\nrename costs $1.00 in SerenBucks and the response's `rename` names the\ncharge; the request changes nothing when the rename is refused.",
         "operationId": "put_managed_agent_template_profile",
         "parameters": [
           {
@@ -11740,7 +11740,7 @@
             }
           },
           "400": {
-            "description": "The profile is invalid, names no field, its default spending limits are below what a task needs to start, its text states a number Seren shows itself, such as hires, ratings or reviews (`profile_states_a_count`, with the field, its list position and the matched text in `details`), or its skill keys wouldn't match its capabilities one for one (`skill_slugs_do_not_match_capabilities`, with both counts in `details`)",
+            "description": "The profile is invalid, names no field, or its text states a number Seren shows itself, such as hires, ratings or reviews (`profile_states_a_count`, with the field, its list position and the matched text in `details`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -11756,7 +11756,7 @@
             "description": "The caller is not a built-in Owner using a direct unrestricted credential of the organization, the organization does not publish the template, or the template or its profile is suspended"
           },
           "409": {
-            "description": "The name was used before (`managed_agent_template_name_retired`), the Owner's SerenBucks can't cover the $1.00 rename (`InsufficientPaymentBalance`), another template uses the page address as its page address or slug (`managed_agent_template_page_slug_taken`), or the page address is reserved (`managed_agent_template_page_slug_reserved`)",
+            "description": "The name was used before (`managed_agent_template_name_retired`), or the Owner's SerenBucks can't cover the $1.00 rename (`InsufficientPaymentBalance`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -11835,7 +11835,7 @@
             "description": "Deployment not found, or the deployment asks for a sandbox runtime class Seren doesn't offer (`runtime_class_not_found`)"
           },
           "409": {
-            "description": "Template publication conflict, including a reserved slug for a new template (`managed_agent_template_slug_reserved`), a slug another template uses as its page address (`managed_agent_template_page_slug_taken`), a publisher without a public name (`publisher_name_required`) or store address (`publisher_handle_required`), or a deployment model hires cannot run without an `llm_connection` choice (`publication_model_choice_required`, with `source_model` and `allowed_private_models` details)"
+            "description": "Template publication conflict, including a reserved slug for a new template (`managed_agent_template_slug_reserved`), a publisher without a public name (`publisher_name_required`) or store address (`publisher_handle_required`), or a deployment model hires cannot run without an `llm_connection` choice (`publication_model_choice_required`, with `source_model` and `allowed_private_models` details)"
           }
         },
         "security": [
@@ -11907,7 +11907,7 @@
             "description": "Deployment not found, or the deployment asks for a sandbox runtime class Seren doesn't offer (`runtime_class_not_found`)"
           },
           "409": {
-            "description": "Template publication conflict, including a reserved slug for a new template (`managed_agent_template_slug_reserved`), a slug another template uses as its page address (`managed_agent_template_page_slug_taken`), a publisher without a public name (`publisher_name_required`) or store address (`publisher_handle_required`), or a deployment model hires cannot run without an `llm_connection` choice (`publication_model_choice_required`, with `source_model` and `allowed_private_models` details)"
+            "description": "Template publication conflict, including a reserved slug for a new template (`managed_agent_template_slug_reserved`), a publisher without a public name (`publisher_name_required`) or store address (`publisher_handle_required`), or a deployment model hires cannot run without an `llm_connection` choice (`publication_model_choice_required`, with `source_model` and `allowed_private_models` details)"
           }
         },
         "security": [
@@ -11980,7 +11980,7 @@
             "description": "The release asks for a sandbox runtime class Seren doesn't offer (`runtime_class_not_found`)"
           },
           "409": {
-            "description": "The slug is reserved, or is kept for Seren's own organization, and no template exists there (`managed_agent_template_slug_reserved`), another template uses the slug as its page address (`managed_agent_template_page_slug_taken`), a new template's publisher has no public name (`publisher_name_required`) or store address (`publisher_handle_required`), the display name differs from the template's current name, which the message names (`managed_agent_template_display_name_mismatch`), a new template's name was used before (`managed_agent_template_name_retired`), the release conflicts with the template or its bundle, the rollout of a published release could not start because the current revision is unavailable or the template is suspended, or one of the template's run kinds is priced below its minimum (`run_fee_below_minimum`)"
+            "description": "The slug is reserved, or is kept for Seren's own organization, and no template exists there (`managed_agent_template_slug_reserved`), a new template's publisher has no public name (`publisher_name_required`) or store address (`publisher_handle_required`), the display name differs from the template's current name, which the message names (`managed_agent_template_display_name_mismatch`), a new template's name was used before (`managed_agent_template_name_retired`), the release conflicts with the template or its bundle, the rollout of a published release could not start because the current revision is unavailable or the template is suspended, or one of the template's run kinds is priced below its minimum (`run_fee_below_minimum`)"
           }
         },
         "security": [
@@ -14734,39 +14734,6 @@
           },
           "401": {
             "description": "Unauthorized"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/sessions/publisher/seren-passwords/email-addresses": {
-      "get": {
-        "tags": [
-          "Publisher Sessions"
-        ],
-        "summary": "GET `/sessions/publisher/seren-passwords/email-addresses`",
-        "description": "Lists the signed-in person's own email addresses: their sign-in email, then\nthe address of each of their connected accounts.",
-        "operationId": "email_addresses",
-        "responses": {
-          "200": {
-            "description": "The person's own email addresses, with their sign-in email first and without duplicates. The response must not be cached.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DataResponse_PublisherSessionEmailAddressesResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No valid signed-in credential"
-          },
-          "403": {
-            "description": "The credential is not a Seren Passwords session"
           }
         },
         "security": [
@@ -18486,10 +18453,6 @@
           }
         }
       },
-      "BrandColor": {
-        "type": "string",
-        "pattern": "^#[0-9A-Fa-f]{6}$"
-      },
       "BrowserDisplay": {
         "type": "string",
         "description": "Display mode for the managed Chromium browser.",
@@ -18558,7 +18521,7 @@
       },
       "CapabilityLabel": {
         "type": "string",
-        "maxLength": 160,
+        "maxLength": 80,
         "minLength": 1
       },
       "ChangePlanRequest": {
@@ -22823,17 +22786,9 @@
               "charges",
               "total",
               "limit",
-              "offset",
-              "addon_sales"
+              "offset"
             ],
             "properties": {
-              "addon_sales": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/ManagedAgentEarningsAddonSale"
-                },
-                "description": "The newest add-on sales that pay the organization, up to 50."
-              },
               "charges": {
                 "type": "array",
                 "items": {
@@ -23646,10 +23601,9 @@
         "properties": {
           "data": {
             "type": "object",
-            "description": "Public text and an optional picture; also the job title, example tasks,\ntools, pronouns, colors and greeting a catalog card and page show.",
+            "description": "Public text and an optional picture; also the job title, example tasks,\ntools and pronouns a catalog card shows.",
             "required": [
               "capabilities",
-              "skill_slugs",
               "example_tasks",
               "works_in",
               "pronouns"
@@ -23668,16 +23622,6 @@
                 },
                 "maxItems": 8
               },
-              "colors": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/ManagedAgentTemplateColors"
-                  }
-                ]
-              },
               "description": {
                 "oneOf": [
                   {
@@ -23695,16 +23639,6 @@
                 },
                 "maxItems": 3
               },
-              "greeting": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/Greeting"
-                  }
-                ]
-              },
               "job_title": {
                 "oneOf": [
                   {
@@ -23715,38 +23649,8 @@
                   }
                 ]
               },
-              "page_slug": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/PageSlug",
-                    "description": "The public page's address when it differs from the template slug."
-                  }
-                ]
-              },
               "pronouns": {
                 "$ref": "#/components/schemas/Pronouns"
-              },
-              "skill_slugs": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/SkillSlug"
-                },
-                "description": "The skill key behind each capability, in the same order; empty when\nthe capabilities have no keys.",
-                "maxItems": 8
-              },
-              "spend_limit_defaults": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/SpendLimitDefaults",
-                    "description": "The default task and day limits the Owner set for hirers without saved\nlimits. Left out while Seren computes them."
-                  }
-                ]
               },
               "tagline": {
                 "oneOf": [
@@ -23758,23 +23662,12 @@
                   }
                 ]
               },
-              "why": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/ManagedAgentTemplateWhy",
-                    "description": "The \"Why {name}\" section; null when unset."
-                  }
-                ]
-              },
               "works_in": {
                 "type": "array",
                 "items": {
                   "$ref": "#/components/schemas/ManagedAgentTemplateTool"
                 },
-                "maxItems": 14
+                "maxItems": 13
               }
             }
           },
@@ -27120,41 +27013,6 @@
               "wallet_network_id": {
                 "type": "string",
                 "description": "Network for the wallet address"
-              }
-            }
-          },
-          "pagination": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/PaginationMeta",
-                "description": "Optional pagination metadata"
-              }
-            ]
-          }
-        }
-      },
-      "DataResponse_PublisherSessionEmailAddressesResponse": {
-        "type": "object",
-        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
-        "required": [
-          "data"
-        ],
-        "properties": {
-          "data": {
-            "type": "object",
-            "required": [
-              "email_addresses"
-            ],
-            "properties": {
-              "email_addresses": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "description": "The signed-in person's own email addresses, with their sign-in email first."
               }
             }
           },
@@ -32949,10 +32807,6 @@
           "response": {
             "description": "Response schema (JSON Schema or simplified description)"
           },
-          "rest_of_path": {
-            "type": "boolean",
-            "description": "Whether the path's last `{value}` takes one or more remaining path\nsegments, such as a file path inside folders."
-          },
           "upstream_url": {
             "type": [
               "string",
@@ -33572,11 +33426,6 @@
           "always",
           "opt_in"
         ]
-      },
-      "Greeting": {
-        "type": "string",
-        "maxLength": 300,
-        "minLength": 1
       },
       "HttpMethod": {
         "type": "string",
@@ -34264,224 +34113,6 @@
           }
         }
       },
-      "ManagedAgentAddonListing": {
-        "type": "object",
-        "description": "An add-on as buyers see it in the catalog.",
-        "required": [
-          "name",
-          "description",
-          "price_cents",
-          "you_can",
-          "works_with"
-        ],
-        "properties": {
-          "description": {
-            "type": "string"
-          },
-          "how_it_works": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "name": {
-            "type": "string"
-          },
-          "price_cents": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "summary": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "works_with": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "you_can": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      "ManagedAgentAddonPriceChange": {
-        "type": "object",
-        "description": "One price the author set. The first has no old price.",
-        "required": [
-          "new_price_cents",
-          "changed_by_user_id",
-          "changed_at"
-        ],
-        "properties": {
-          "changed_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "changed_by_user_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "new_price_cents": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "old_price_cents": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32"
-          }
-        }
-      },
-      "ManagedAgentAddonRelease": {
-        "type": "object",
-        "description": "A published add-on release.",
-        "required": [
-          "name",
-          "version",
-          "digest"
-        ],
-        "properties": {
-          "digest": {
-            "type": "string",
-            "description": "The release's public fingerprint: SHA-256 over SKILL.md and every other file."
-          },
-          "name": {
-            "type": "string"
-          },
-          "version": {
-            "type": "string"
-          }
-        }
-      },
-      "ManagedAgentAddonSummary": {
-        "type": "object",
-        "description": "One of the organization's published add-ons, with what its sales earned.",
-        "required": [
-          "name",
-          "description",
-          "price_cents",
-          "you_can",
-          "works_with",
-          "buyers",
-          "earned_atomic"
-        ],
-        "properties": {
-          "buyers": {
-            "type": "integer",
-            "format": "int64",
-            "description": "People who bought it and were not refunded."
-          },
-          "description": {
-            "type": "string"
-          },
-          "earned_atomic": {
-            "type": "integer",
-            "format": "int64",
-            "description": "The organization's share of those sales, in USD atomic units."
-          },
-          "how_it_works": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "name": {
-            "type": "string"
-          },
-          "price_cents": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Price in US cents a new buyer pays once."
-          },
-          "summary": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "works_with": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "you_can": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      "ManagedAgentAddonThumbnail": {
-        "type": "object",
-        "description": "An add-on's picture as its author sees it.",
-        "properties": {
-          "thumbnail_url": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "The picture's public address. Absent once it is removed."
-          }
-        }
-      },
-      "ManagedAgentAddonUpload": {
-        "type": "object",
-        "description": "An add-on package upload and the parts received so far.",
-        "required": [
-          "upload_id",
-          "byte_length",
-          "sha256",
-          "part_bytes",
-          "part_count",
-          "received_parts",
-          "expires_at"
-        ],
-        "properties": {
-          "byte_length": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "expires_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "part_bytes": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Size of every part but the last, which holds the rest."
-          },
-          "part_count": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "received_parts": {
-            "type": "array",
-            "items": {
-              "type": "integer",
-              "format": "int32"
-            },
-            "description": "Indexes of the parts received, ascending."
-          },
-          "sha256": {
-            "type": "string"
-          },
-          "upload_id": {
-            "type": "string",
-            "format": "uuid"
-          }
-        }
-      },
       "ManagedAgentDeploymentPublicationPreview": {
         "type": "object",
         "required": [
@@ -34553,42 +34184,6 @@
           },
           "totals": {
             "$ref": "#/components/schemas/ManagedAgentEarningsTotals"
-          }
-        }
-      },
-      "ManagedAgentEarningsAddonSale": {
-        "type": "object",
-        "description": "One sale of a priced add-on that pays the organization, as its author, as the Owner of the\nmanaged agent it was bought on, or both. Does not identify the buyer.",
-        "required": [
-          "addon_slug",
-          "price_atomic",
-          "share_atomic",
-          "sold_at",
-          "collectable_at"
-        ],
-        "properties": {
-          "addon_slug": {
-            "type": "string"
-          },
-          "collectable_at": {
-            "type": "string",
-            "format": "date-time",
-            "description": "When the share can first be paid out or taken as credit."
-          },
-          "price_atomic": {
-            "type": "string",
-            "example": "5000000",
-            "pattern": "^(0|-?[1-9][0-9]*)$"
-          },
-          "share_atomic": {
-            "type": "string",
-            "description": "The organization's share of the price.",
-            "example": "3000000",
-            "pattern": "^(0|-?[1-9][0-9]*)$"
-          },
-          "sold_at": {
-            "type": "string",
-            "format": "date-time"
           }
         }
       },
@@ -34689,17 +34284,9 @@
           "charges",
           "total",
           "limit",
-          "offset",
-          "addon_sales"
+          "offset"
         ],
         "properties": {
-          "addon_sales": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ManagedAgentEarningsAddonSale"
-            },
-            "description": "The newest add-on sales that pay the organization, up to 50."
-          },
           "charges": {
             "type": "array",
             "items": {
@@ -34877,8 +34464,7 @@
           "available_atomic",
           "withdrawable_atomic",
           "promotional_earned_atomic",
-          "promotional_available_atomic",
-          "held_atomic"
+          "promotional_available_atomic"
         ],
         "properties": {
           "available_atomic": {
@@ -34889,13 +34475,8 @@
           },
           "earned_atomic": {
             "type": "string",
-            "description": "Owner shares of every settled charge, and the organization's shares of add-on sales\nthat weren't refunded. Reserved and released fees earn nothing.",
+            "description": "Owner shares of every settled charge. Reserved and released fees earn nothing.",
             "example": "490000",
-            "pattern": "^(0|-?[1-9][0-9]*)$"
-          },
-          "held_atomic": {
-            "type": "string",
-            "description": "Add-on sale shares included in `earned_atomic` that can't be collected until 30 days\nafter their sale.",
             "pattern": "^(0|-?[1-9][0-9]*)$"
           },
           "paid_out_usdc_atomic": {
@@ -36122,29 +35703,6 @@
           "seren_organization_database"
         ]
       },
-      "ManagedAgentTemplateAddon": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/ManagedAgentTemplateAddonVisibility"
-          },
-          {
-            "type": "object",
-            "required": [
-              "name",
-              "description"
-            ],
-            "properties": {
-              "description": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              }
-            }
-          }
-        ],
-        "description": "A public add-on and its standing with this managed agent."
-      },
       "ManagedAgentTemplateAddonVisibility": {
         "type": "object",
         "description": "A public add-on's standing with this managed agent.",
@@ -36195,32 +35753,12 @@
         },
         "additionalProperties": false
       },
-      "ManagedAgentTemplateColors": {
-        "type": "object",
-        "description": "The colors of an Employee's catalog card and page.",
-        "required": [
-          "from",
-          "to",
-          "ink"
-        ],
-        "properties": {
-          "from": {
-            "$ref": "#/components/schemas/BrandColor"
-          },
-          "ink": {
-            "$ref": "#/components/schemas/BrandColor"
-          },
-          "to": {
-            "$ref": "#/components/schemas/BrandColor"
-          }
-        },
-        "additionalProperties": false
-      },
       "ManagedAgentTemplateDeployDefaults": {
         "type": "object",
         "description": "Deployment settings a template revision applies to every hired copy.",
         "required": [
           "mode",
+          "cron_schedule",
           "model_policy",
           "max_runtime_seconds",
           "browser",
@@ -36232,11 +35770,7 @@
             "$ref": "#/components/schemas/ManagedAgentTemplateBrowserDefaults"
           },
           "cron_schedule": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Required when `mode` is `cron`; refused when `mode` is `job`."
+            "type": "string"
           },
           "llm_connection": {
             "oneOf": [
@@ -36264,8 +35798,7 @@
             "minimum": 0
           },
           "mode": {
-            "$ref": "#/components/schemas/CloudDeploymentMode",
-            "description": "`cron` runs on `cron_schedule` as well as on tasks. `job` has no schedule:\nhired copies run only on chat, webhook and API tasks."
+            "$ref": "#/components/schemas/CloudDeploymentMode"
           },
           "model_policy": {
             "$ref": "#/components/schemas/ManagedAgentModelPolicy"
@@ -36286,17 +35819,6 @@
           "owner_connection": {
             "$ref": "#/components/schemas/ManagedAgentTemplateOwnerConnection",
             "description": "Defaults to mail_and_files when omitted."
-          },
-          "privacy_mode": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ManagedAgentTemplatePrivacyMode",
-                "description": "What a hirer is promised about this template's data. Omit for no promise.\nRequires a Seren Models connection whose model only Google serves, no\nscript model key, and no script grant or skill connector for\n`seren-models`, `seren-private-models` or `seren-memory`."
-              }
-            ]
           },
           "requirements_txt": {
             "type": [
@@ -36326,10 +35848,6 @@
                 "description": "Optional sandbox runtime for every hired copy. Omit to use the cluster default."
               }
             ]
-          },
-          "script_model_key": {
-            "type": "boolean",
-            "description": "Whether the hired copy's skill scripts may ask, during a live run, for\na short-lived key that can call only `seren-private-models` and is\nbilled to that run. Refused with a Codex model connection. Defaults to\nfalse when omitted."
           },
           "script_publisher_grants": {
             "type": "array",
@@ -36457,29 +35975,6 @@
               }
             },
             "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "description": "Run one Seren Models model alone, with no fallback model and no other route.",
-            "required": [
-              "model_id",
-              "provider"
-            ],
-            "properties": {
-              "model_id": {
-                "type": "string",
-                "enum": [
-                  "google/gemini-4-argon-us"
-                ]
-              },
-              "provider": {
-                "type": "string",
-                "enum": [
-                  "seren_models"
-                ]
-              }
-            },
-            "additionalProperties": false
           }
         ],
         "description": "Credential-free model choices shared by a template's hired copies."
@@ -36555,19 +36050,11 @@
           }
         }
       },
-      "ManagedAgentTemplatePrivacyMode": {
-        "type": "string",
-        "description": "A promise a template makes to its hirers about their data.",
-        "enum": [
-          "no_training_short_lived_cache"
-        ]
-      },
       "ManagedAgentTemplateProfile": {
         "type": "object",
-        "description": "Public text and an optional picture; also the job title, example tasks,\ntools, pronouns, colors and greeting a catalog card and page show.",
+        "description": "Public text and an optional picture; also the job title, example tasks,\ntools and pronouns a catalog card shows.",
         "required": [
           "capabilities",
-          "skill_slugs",
           "example_tasks",
           "works_in",
           "pronouns"
@@ -36586,16 +36073,6 @@
             },
             "maxItems": 8
           },
-          "colors": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ManagedAgentTemplateColors"
-              }
-            ]
-          },
           "description": {
             "oneOf": [
               {
@@ -36613,16 +36090,6 @@
             },
             "maxItems": 3
           },
-          "greeting": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Greeting"
-              }
-            ]
-          },
           "job_title": {
             "oneOf": [
               {
@@ -36633,38 +36100,8 @@
               }
             ]
           },
-          "page_slug": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/PageSlug",
-                "description": "The public page's address when it differs from the template slug."
-              }
-            ]
-          },
           "pronouns": {
             "$ref": "#/components/schemas/Pronouns"
-          },
-          "skill_slugs": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SkillSlug"
-            },
-            "description": "The skill key behind each capability, in the same order; empty when\nthe capabilities have no keys.",
-            "maxItems": 8
-          },
-          "spend_limit_defaults": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/SpendLimitDefaults",
-                "description": "The default task and day limits the Owner set for hirers without saved\nlimits. Left out while Seren computes them."
-              }
-            ]
           },
           "tagline": {
             "oneOf": [
@@ -36676,23 +36113,12 @@
               }
             ]
           },
-          "why": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ManagedAgentTemplateWhy",
-                "description": "The \"Why {name}\" section; null when unset."
-              }
-            ]
-          },
           "works_in": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ManagedAgentTemplateTool"
             },
-            "maxItems": 14
+            "maxItems": 13
           }
         }
       },
@@ -37090,7 +36516,6 @@
         "description": "A product a managed agent works in, shown as a logo on its catalog card.",
         "enum": [
           "1password",
-          "arkham",
           "canva",
           "discord",
           "gmail",
@@ -37104,30 +36529,6 @@
           "slack",
           "whatsapp"
         ]
-      },
-      "ManagedAgentTemplateWhy": {
-        "type": "object",
-        "description": "The section of an Employee's public page headed \"Why {name}\".",
-        "required": [
-          "name",
-          "reasons"
-        ],
-        "properties": {
-          "name": {
-            "$ref": "#/components/schemas/WhyName",
-            "description": "The word after \"Why\" in the heading."
-          },
-          "reasons": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/WhyReason"
-            },
-            "description": "The reasons, in the order the section shows them.",
-            "maxItems": 8,
-            "minItems": 1
-          }
-        },
-        "additionalProperties": false
       },
       "ManagedAgentWebhookReceipt": {
         "type": "object",
@@ -39204,12 +38605,6 @@
           "sign_in",
           "unreviewed"
         ]
-      },
-      "PageSlug": {
-        "type": "string",
-        "maxLength": 63,
-        "minLength": 1,
-        "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
       },
       "PaginatedResponse_Vec_PublisherResponse": {
         "type": "object",
@@ -42025,21 +41420,6 @@
         ],
         "description": "Request body for publisher root `POST /publishers/{slug}`.\n\n- For database publishers: use `DatabaseQueryRequest`\n- For API publishers: any JSON body will be proxied to the upstream API root (`/`)"
       },
-      "PublisherSessionEmailAddressesResponse": {
-        "type": "object",
-        "required": [
-          "email_addresses"
-        ],
-        "properties": {
-          "email_addresses": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "The signed-in person's own email addresses, with their sign-in email first."
-          }
-        }
-      },
       "PublisherSuggestion": {
         "type": "object",
         "description": "A publisher suggestion with match score and reason",
@@ -42288,7 +41668,7 @@
       },
       "PutManagedAgentTemplateProfile": {
         "type": "object",
-        "description": "Changes the fields it names. A field left out keeps its value; null\nremoves text or colors and an empty list removes every item. The picture is\nmanaged separately.",
+        "description": "Changes the fields it names. A field left out keeps its value; null\nremoves text and an empty list removes every item. The picture is\nmanaged separately.",
         "properties": {
           "capabilities": {
             "type": "array",
@@ -42296,17 +41676,6 @@
               "$ref": "#/components/schemas/CapabilityLabel"
             },
             "maxItems": 8
-          },
-          "colors": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ManagedAgentTemplateColors",
-                "description": "All three colors, each `#` followed by six hex digits."
-              }
-            ]
           },
           "description": {
             "oneOf": [
@@ -42331,16 +41700,6 @@
             },
             "maxItems": 3
           },
-          "greeting": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Greeting"
-              }
-            ]
-          },
           "job_title": {
             "oneOf": [
               {
@@ -42351,38 +41710,8 @@
               }
             ]
           },
-          "page_slug": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/PageSlug",
-                "description": "The public page's address when it differs from the template slug: 1-63\nlowercase letters, digits or single hyphens. No other template may use\nit as its page address or its slug. Null removes it and the page goes\nback to the template slug, which never changes."
-              }
-            ]
-          },
           "pronouns": {
             "$ref": "#/components/schemas/Pronouns"
-          },
-          "skill_slugs": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SkillSlug"
-            },
-            "description": "The skill key behind each capability, in the same order. An empty list\nremoves the keys. After the change, a non-empty list must have as many\nkeys as there are capabilities.",
-            "maxItems": 8
-          },
-          "spend_limit_defaults": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/SpendLimitDefaults",
-                "description": "The default task and day limits for hirers without saved limits, both\ntogether, in atomic units. Neither may be below what a task needs to\nstart: the highest service fee plus expected running cost. Null returns\nto the limits Seren computes. A hirer's saved limits never change."
-              }
-            ]
           },
           "tagline": {
             "oneOf": [
@@ -42394,24 +41723,13 @@
               }
             ]
           },
-          "why": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ManagedAgentTemplateWhy",
-                "description": "The \"Why {name}\" section, replaced whole; null removes it."
-              }
-            ]
-          },
           "works_in": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ManagedAgentTemplateTool"
             },
             "description": "Each tool at most once, in the order the card shows them.",
-            "maxItems": 14
+            "maxItems": 13
           }
         },
         "additionalProperties": false
@@ -43354,12 +42672,6 @@
           }
         }
       },
-      "SkillSlug": {
-        "type": "string",
-        "maxLength": 64,
-        "minLength": 1,
-        "pattern": "^[a-z0-9-]+$"
-      },
       "SlashChargeRequest": {
         "type": "object",
         "required": [
@@ -43380,24 +42692,6 @@
         "type": "string",
         "description": "A validated URL-safe slug.\n\nSlugs must be:\n- 2-64 characters long\n- Lowercase alphanumeric with hyphens\n- Cannot start or end with a hyphen\n- Cannot have consecutive hyphens\n\n# Examples\n\n```\nuse seren_core::models::Slug;\n\nlet slug = Slug::new(\"my-project\").unwrap();\nassert!(Slug::new(\"My Project\").is_err()); // spaces not allowed\nassert!(Slug::new(\"-invalid\").is_err()); // can't start with hyphen\n```",
         "example": "my-project"
-      },
-      "SpendLimitDefaults": {
-        "type": "object",
-        "required": [
-          "per_task_atomic",
-          "per_day_atomic"
-        ],
-        "properties": {
-          "per_day_atomic": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "per_task_atomic": {
-            "type": "integer",
-            "format": "int64"
-          }
-        },
-        "additionalProperties": false
       },
       "StripeChargeId": {
         "type": "string",
@@ -46377,14 +45671,6 @@
             ],
             "description": "Remaining amount on the grant in USD (credit entries only)"
           },
-          "run_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uuid",
-            "description": "Employee run this charge or refund belongs to, when it belongs to one"
-          },
           "source": {
             "type": "string"
           }
@@ -46896,16 +46182,6 @@
             "type": "string"
           }
         }
-      },
-      "WhyName": {
-        "type": "string",
-        "maxLength": 60,
-        "minLength": 1
-      },
-      "WhyReason": {
-        "type": "string",
-        "maxLength": 160,
-        "minLength": 1
       }
     },
     "securitySchemes": {
@@ -46971,10 +46247,6 @@
     {
       "name": "Sessions",
       "description": "User session management"
-    },
-    {
-      "name": "Publisher Sessions",
-      "description": "Sessions for hosted publisher apps"
     },
     {
       "name": "agent",
