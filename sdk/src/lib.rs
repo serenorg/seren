@@ -175,6 +175,54 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
+
+    /// Upload or replace a published add-on's square picture.
+    /// `content_type` declares the multipart file MIME type (PNG or JPEG);
+    /// Core validates the declaration and the actual image and re-encodes it.
+    ///
+    /// This method is implemented manually because Progenitor does not
+    /// currently generate multipart request bodies.
+    #[allow(clippy::result_large_err)]
+    pub async fn upload_managed_agent_addon_thumbnail(
+        &self,
+        organization_id: &uuid::Uuid,
+        name: &str,
+        file_name: &str,
+        content_type: &str,
+        file: Vec<u8>,
+    ) -> Result<ResponseValue<DataResponseManagedAgentAddonThumbnail>, Error<()>> {
+        use progenitor_client::{ClientHooks, ClientInfo, OperationInfo};
+
+        let form = reqwest::multipart::Form::new().part(
+            "file",
+            reqwest::multipart::Part::bytes(file)
+                .file_name(file_name.to_string())
+                .mime_str(content_type)?,
+        );
+        let url = format!(
+            "{}/organizations/{organization_id}/addons/{}/thumbnail",
+            self.baseurl.trim_end_matches('/'),
+            progenitor_client::encode_path(name),
+        );
+        let mut request = self
+            .client
+            .post(url)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .header("api-version", <Self as ClientInfo<()>>::api_version())
+            .multipart(form)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "upload_managed_agent_addon_thumbnail",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200 => ResponseValue::from_response(response).await,
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
 }
 
 // Re-export commonly used types

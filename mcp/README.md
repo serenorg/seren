@@ -243,6 +243,8 @@ Use `create_seren_agent_template_deployment` to create a managed agent deploymen
 | Resubmit a rejected template for review | `request_seren_agent_template_review` |
 | Publish a template release | `publish_seren_agent_template_release` |
 | Inspect or set template service fees | `get_seren_agent_template_run_fee`, `set_seren_agent_template_run_fee`, `list_seren_agent_template_run_fee_changes` |
+| Manage your published add-ons: list them with price, buyers and earnings, reword a listing, set a price, upload a picture, read price history, publish a release | `list_seren_agent_addons`, `update_seren_agent_addon_listing`, `set_seren_agent_addon_price`, `upload_seren_agent_addon_thumbnail`, `list_seren_agent_addon_price_changes`, `publish_seren_agent_addon_release` |
+| Show or hide public add-ons on an Employee you own | `list_seren_agent_template_addons`, `set_seren_agent_template_addon_visibility` |
 
 Owner tools accept the Employee owner's session or user API key; agent keys and organization work contexts cannot act as the owner. Adding publisher grants and starting API-key credential setup require a signed-in user session. Credential approval and browser sign-in remain human actions. Show returned Seren Passwords launch URLs and one-use browser viewer tickets only to the owner; viewer tickets expire after 60 seconds. Template publication requires a user API key explicitly scoped `managed-agent-template:publish`; sessions and unrestricted API keys cannot publish. Fee inspection, updates, and history require the publishing organization's built-in Owner using an unrestricted direct credential.
 
