@@ -2586,6 +2586,11 @@ mod tests {
                 "upload_managed_agent_template_avatar",
                 "#/components/schemas/DataResponse_ManagedAgentTemplateProfile",
             ),
+            (
+                "/organizations/{organization_id}/addons/{name}/thumbnail",
+                "upload_managed_agent_addon_thumbnail",
+                "#/components/schemas/DataResponse_ManagedAgentAddonThumbnail",
+            ),
         ] {
             let operation = &spec["paths"][path]["post"];
             assert_eq!(operation["operationId"], operation_id, "{path}");
@@ -2617,6 +2622,7 @@ mod tests {
                         path.as_str(),
                         "/users/me/avatar"
                             | "/organizations/{organization_id}/templates/{slug}/avatar"
+                            | "/organizations/{organization_id}/addons/{name}/thumbnail"
                     )
                 {
                     continue;
