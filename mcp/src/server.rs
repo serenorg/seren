@@ -13434,7 +13434,7 @@ impl SerenMcpServer {
 
 Examples:
 - Database: call_publisher(publisher: \"my-db\", query: \"SELECT * FROM users\")
-- API: call_publisher(publisher: \"firecrawl\", method: \"POST\", path: \"/scrape\", body: {url: \"...\"})
+- API: call_publisher(publisher: \"firecrawl\", method: \"POST\", path: \"/v2/scrape\", body: {url: \"...\"})
 - API text document: call_publisher(publisher: \"my-api\", method: \"POST\", path: \"/notes\", headers: {\"Content-Type\": \"text/markdown\"}, body_text: \"# Notes ...\")
 - API file upload: call_publisher(publisher: \"google-drive\", method: \"POST\", path: \"/upload/drive/v3/files?uploadType=media\", headers: {\"Content-Type\": \"image/jpeg\"}, body_object: {bucket_slug: \"files\", object_key: \"photos/cat.jpg\"})
 - API passthrough auth: call_publisher(publisher: \"my-api\", method: \"GET\", headers: {\"X-Passthrough-Authorization\": \"Bearer ...\"})
@@ -31143,6 +31143,11 @@ pub(crate) mod tests {
             .unwrap();
         let description = tool.description.as_deref().unwrap();
         assert!(description.contains("JSON in `body`"), "{description}");
+        assert!(
+            description.contains(r#"path: "/v2/scrape""#),
+            "{description}"
+        );
+        assert!(!description.contains(r#"path: "/scrape""#), "{description}");
         assert!(description.contains("text in `body_text`"), "{description}");
         assert!(
             description.contains("binary as base64 in `body_base64`"),
