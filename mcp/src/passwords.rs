@@ -1130,15 +1130,7 @@ impl SerenMcpServer {
                 record.status,
                 pending.consent_capability.is_some(),
             ) {
-                PendingHostedAccessAction::Delete => {
-                    store
-                        .delete_pending_hosted_passwords_agent(
-                            user_id,
-                            &credential_subject_key,
-                            pending.request_id,
-                        )
-                        .await
-                        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                PendingHostedAccessAction::Replace => {
                     supersedes_request_id = Some(pending.request_id);
                 }
                 PendingHostedAccessAction::ReturnConsent => {
@@ -1180,20 +1172,25 @@ impl SerenMcpServer {
         let signing_public = BASE64.encode(signing.public.as_bytes());
         let kem_private = Zeroizing::new(BASE64.encode(kem.private.as_bytes()));
         let local_expires_at = jiff::Timestamp::now() + jiff::SignedDuration::from_hours(1);
-        store
-            .upsert_pending_hosted_passwords_agent(PendingHostedPasswordsAgentRequest {
-                user_id,
-                credential_subject: &credential_subject_key,
-                request_id,
-                display_name,
-                kem_public: &kem_public,
-                signing_public: &signing_public,
-                kem_private: &kem_private,
-                consent_capability: None,
-                expires_at: local_expires_at,
-            })
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        // The store has one pending row per user and credential. Keep an earlier
+        // request's private key and capability usable until Passwords accepts its
+        // replacement; neither deleting nor upserting here is safe in that case.
+        if supersedes_request_id.is_none() {
+            store
+                .upsert_pending_hosted_passwords_agent(PendingHostedPasswordsAgentRequest {
+                    user_id,
+                    credential_subject: &credential_subject_key,
+                    request_id,
+                    display_name,
+                    kem_public: &kem_public,
+                    signing_public: &signing_public,
+                    kem_private: &kem_private,
+                    consent_capability: None,
+                    expires_at: local_expires_at,
+                })
+                .await
+                .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        }
 
         let created = match self
             .create_passwords_delegation_request(
@@ -4244,7 +4241,7 @@ fn approval_finishing_result(record: &HostedDelegationSnapshot) -> serde_json::V
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PendingHostedAccessAction {
-    Delete,
+    Replace,
     ReturnConsent,
 }
 
@@ -4258,7 +4255,7 @@ fn pending_hosted_access_action(
         || status == HostedDelegationStatus::Expired
         || status == HostedDelegationStatus::Pending && !has_consent_capability
     {
-        PendingHostedAccessAction::Delete
+        PendingHostedAccessAction::Replace
     } else {
         PendingHostedAccessAction::ReturnConsent
     }
@@ -6361,11 +6358,11 @@ mod tests {
     fn force_reconsent_replaces_an_existing_pending_request() {
         assert_eq!(
             pending_hosted_access_action(true, HostedDelegationStatus::Pending, true),
-            PendingHostedAccessAction::Delete
+            PendingHostedAccessAction::Replace
         );
         assert_eq!(
             pending_hosted_access_action(false, HostedDelegationStatus::Pending, false),
-            PendingHostedAccessAction::Delete
+            PendingHostedAccessAction::Replace
         );
         assert_eq!(
             pending_hosted_access_action(false, HostedDelegationStatus::Pending, true),
@@ -6377,11 +6374,11 @@ mod tests {
         );
         assert_eq!(
             pending_hosted_access_action(false, HostedDelegationStatus::Denied, true),
-            PendingHostedAccessAction::Delete
+            PendingHostedAccessAction::Replace
         );
         assert_eq!(
             pending_hosted_access_action(false, HostedDelegationStatus::Expired, true),
-            PendingHostedAccessAction::Delete
+            PendingHostedAccessAction::Replace
         );
     }
 
@@ -7921,6 +7918,15 @@ mod hosted_grant_tests {
         async fn mock_create_unsuperseded(
             &self,
         ) -> Arc<std::sync::Mutex<Option<seren::DelegationPolicyRequestView>>> {
+            self.mock_create(None, 200, false).await
+        }
+
+        async fn mock_create(
+            &self,
+            supersedes_request_id: Option<Uuid>,
+            status: u16,
+            envelope: bool,
+        ) -> Arc<std::sync::Mutex<Option<seren::DelegationPolicyRequestView>>> {
             Mock::given(method("GET")).and(path("/organizations"))
                 .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": [{
                     "id": Uuid::new_v4(), "name": "Synthetic organization", "slug": "synthetic", "is_personal": true,
@@ -7932,8 +7938,15 @@ mod hosted_grant_tests {
             Mock::given(method("POST")).and(path("/publishers/seren-passwords/delegations"))
                 .respond_with(move |request: &wiremock::Request| {
                     let body: Value = serde_json::from_slice(&request.body).unwrap();
-                    // A saved grant needs no supersession, so the server revokes nothing now.
-                    assert!(body.get("supersedes_request_id").is_none_or(Value::is_null));
+                    assert_eq!(body.get("supersedes_request_id").unwrap_or(&Value::Null), &json!(supersedes_request_id));
+                    if status != 200 {
+                        let error = json!({"error": "replacement rejected"});
+                        return if envelope {
+                            ResponseTemplate::new(200).set_body_json(json!({"data": {"status": status, "body": error}}))
+                        } else {
+                            ResponseTemplate::new(status).set_body_json(error)
+                        };
+                    }
                     let mut record = super::tests::sample_policy_request();
                     record.request_id = serde_json::from_value(body["request_id"].clone()).unwrap();
                     record.requester_user_id = user_id;
@@ -7948,6 +7961,176 @@ mod hosted_grant_tests {
                 }).expect(1).mount(&self.gateway).await;
             record_slot
         }
+
+        async fn pending_snapshot(&self) -> Option<Value> {
+            sqlx::query_scalar("SELECT to_jsonb(request) FROM mcp_oauth.hosted_passwords_agent_requests request WHERE user_id = $1 AND credential_subject = $2")
+                .bind(self.user_id).bind(self.subject.storage_key()).fetch_optional(self.store.pool()).await.unwrap()
+        }
+    }
+
+    async fn failed_forced_replacement_preserves_pending(status: u16) {
+        if !integration_tests_enabled() {
+            eprintln!("skipping hosted grant integration test");
+            return;
+        }
+        let (_container, store) = test_token_store().await;
+        let store = Arc::new(store);
+        for envelope in [false, true] {
+            for subject in [
+                crate::oauth::store::HostedPasswordsCredentialSubject::User,
+                crate::oauth::store::HostedPasswordsCredentialSubject::UserApiKey(Uuid::new_v4()),
+            ] {
+                let fixture = HostedFixture::new_for_subject(store.clone(), subject).await;
+                let grant_before = fixture.snapshot().await;
+                let mut record = fixture
+                    .seed_pending(
+                        fixture.identity_id,
+                        DelegationPolicyRequestStatus::Pending,
+                        &fixture.vault_ids,
+                    )
+                    .await;
+                let pending_before = fixture.pending_snapshot().await.unwrap();
+                fixture
+                    .mock_create(Some(record.request_id), status, envelope)
+                    .await;
+                let error = fixture
+                    .server
+                    .passwords_request_access(
+                        Parameters(PasswordsRequestAccessParams {
+                            display_name: None,
+                            force: Some(true),
+                        }),
+                        fixture.extensions(),
+                    )
+                    .await
+                    .unwrap_err();
+                assert!(error.message.contains(&status.to_string()), "{error}");
+                // The entire encrypted row, including expiry and capability, survives.
+                assert_eq!(fixture.pending_snapshot().await, Some(pending_before));
+                assert_eq!(fixture.snapshot().await, grant_before);
+                let pending = store
+                    .get_pending_hosted_passwords_agent(
+                        fixture.user_id,
+                        &fixture.subject.storage_key(),
+                        record.request_id,
+                    )
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    pending.kem_private.as_str(),
+                    BASE64.encode(fixture.kem.private.as_bytes())
+                );
+                assert_eq!(
+                    pending.consent_capability.unwrap().as_str(),
+                    "synthetic-consent-capability"
+                );
+                fixture.gateway.verify().await;
+                fixture.gateway.reset().await;
+
+                fixture.mock_policy(&record).await;
+                let waiting = fixture.finalize(record.request_id).await;
+                assert_eq!(waiting["status"], "pending");
+                assert_eq!(waiting["request_id"], json!(record.request_id));
+                assert!(
+                    waiting["consent_url"]
+                        .as_str()
+                        .unwrap()
+                        .contains("#capability=synthetic-consent-capability")
+                );
+                fixture.gateway.verify().await;
+                fixture.gateway.reset().await;
+
+                record.status = DelegationPolicyRequestStatus::Approved;
+                fixture.mock_policy(&record).await;
+                assert_eq!(
+                    fixture.finalize(record.request_id).await["status"],
+                    "approval_finishing"
+                );
+                fixture.gateway.verify().await;
+                fixture.gateway.reset().await;
+
+                record.status = DelegationPolicyRequestStatus::Applied;
+                fixture.mock_policy(&record).await;
+                if !fixture.subject.is_user_api_key() {
+                    fixture.mint_key().await;
+                }
+                let granted = fixture.finalize(record.request_id).await;
+                assert_eq!(granted["status"], "granted");
+                assert_eq!(granted["identity_id"], json!(record.agent_identity_id));
+                assert!(fixture.pending_snapshot().await.is_none());
+                fixture.gateway.verify().await;
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn forced_replacement_409_preserves_pending_status_and_approval() {
+        failed_forced_replacement_preserves_pending(409).await;
+    }
+
+    #[tokio::test]
+    async fn forced_replacement_503_preserves_pending_status_and_approval() {
+        failed_forced_replacement_preserves_pending(503).await;
+    }
+
+    #[tokio::test]
+    async fn forced_replacement_success_replaces_pending_request() {
+        if !integration_tests_enabled() {
+            eprintln!("skipping hosted grant integration test");
+            return;
+        }
+        let (_container, store) = test_token_store().await;
+        let fixture = HostedFixture::new(Arc::new(store)).await;
+        let grant_before = fixture.snapshot().await;
+        let earlier = fixture
+            .seed_pending(
+                fixture.identity_id,
+                DelegationPolicyRequestStatus::Pending,
+                &fixture.vault_ids,
+            )
+            .await;
+        let created = fixture
+            .mock_create(Some(earlier.request_id), 200, false)
+            .await;
+        let result = fixture.request_access(true).await;
+        let record = created.lock().unwrap().take().unwrap();
+        assert_eq!(result["status"], "pending");
+        assert_eq!(result["request_id"], json!(record.request_id));
+        assert_ne!(record.request_id, earlier.request_id);
+        assert_eq!(fixture.snapshot().await, grant_before);
+        assert!(
+            fixture
+                .store
+                .get_pending_hosted_passwords_agent(fixture.user_id, "user", earlier.request_id,)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let pending = fixture
+            .store
+            .get_pending_hosted_passwords_agent(fixture.user_id, "user", record.request_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(pending.kem_public, record.agent_kem_public);
+        assert_eq!(pending.signing_public, record.agent_signing_public);
+        assert_ne!(
+            pending.kem_private.as_str(),
+            BASE64.encode(fixture.kem.private.as_bytes())
+        );
+        assert_eq!(
+            pending.consent_capability.unwrap().as_str(),
+            "synthetic-consent-capability"
+        );
+        fixture.gateway.verify().await;
+        fixture.gateway.reset().await;
+        fixture.mock_policy(&record).await;
+        assert_eq!(
+            fixture.finalize(record.request_id).await["status"],
+            "pending"
+        );
+        fixture.gateway.verify().await;
     }
 
     #[tokio::test]
