@@ -69,9 +69,9 @@ pub struct PutManagedAgentTemplateProfile {
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_optional_list::<_, _, 13>"
+        deserialize_with = "deserialize_optional_list::<_, _, 15>"
     )]
-    #[schemars(with = "Vec<crate::ManagedAgentTemplateTool>", length(max = 13))]
+    #[schemars(with = "Vec<crate::ManagedAgentTemplateTool>", length(max = 15))]
     pub works_in: Option<Vec<crate::ManagedAgentTemplateTool>>,
 }
 
@@ -526,15 +526,17 @@ mod template_profile_patch_tests {
 
     #[test]
     fn profile_patch_enforces_named_text_and_list_bounds() {
-        for (field, maximum) in [("capabilities", 8), ("example_tasks", 3), ("works_in", 13)] {
+        for (field, maximum) in [("capabilities", 8), ("example_tasks", 3), ("works_in", 15)] {
             let items = if field == "works_in" {
                 vec![
                     "1password",
+                    "arkham",
                     "canva",
                     "discord",
                     "gmail",
                     "google",
                     "google-drive",
+                    "kraken",
                     "microsoft",
                     "onedrive",
                     "outlook",
@@ -562,7 +564,7 @@ mod template_profile_patch_tests {
             ("job_title", 60, false),
             ("tagline", 120, false),
             ("description", 2000, false),
-            ("capabilities", 80, true),
+            ("capabilities", 160, true),
             ("example_tasks", 80, true),
         ] {
             for length in [0, maximum + 1] {
@@ -598,7 +600,7 @@ mod template_profile_patch_tests {
                 .is_none_or(|required| required.as_array().unwrap().is_empty())
         );
         assert_eq!(schema["additionalProperties"], false);
-        for (field, maximum) in [("capabilities", 8), ("example_tasks", 3), ("works_in", 13)] {
+        for (field, maximum) in [("capabilities", 8), ("example_tasks", 3), ("works_in", 15)] {
             assert_eq!(schema["properties"][field]["type"], "array");
             assert_eq!(schema["properties"][field]["maxItems"], maximum);
         }

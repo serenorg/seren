@@ -560,9 +560,6 @@ mod tests {
                 .unwrap()
                 .remove("download_expires_at");
             invalid.push(body);
-            let mut body = expected.clone();
-            body["data"]["snapshot"]["object"]["checksum"]["encoding"] = json!("hex");
-            invalid.push(body);
             for body in invalid {
                 let server = MockServer::start().await;
                 Mock::given(method("GET"))
@@ -583,6 +580,29 @@ mod tests {
                 ));
                 server.verify().await;
             }
+
+            // A field Core adds later decodes; it is not part of this client's view.
+            let mut body = expected.clone();
+            body["data"]["snapshot"]["object"]["checksum"]["encoding"] = json!("hex");
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path(&route))
+                .respond_with(ResponseTemplate::new(200).set_body_json(body))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let snapshot = Client::from_config(
+                &ClientConfig::new("synthetic-workspace-key").with_base_url(server.uri()),
+            )
+            .unwrap()
+            .seren_cloud_get_latest_workspace_snapshot(&deployment_id)
+            .await
+            .unwrap();
+            assert_eq!(
+                serde_json::to_value(&snapshot.data.snapshot.object.checksum).unwrap(),
+                expected["data"]["snapshot"]["object"]["checksum"]
+            );
+            server.verify().await;
         }
     }
 
@@ -1380,10 +1400,6 @@ mod tests {
             .unwrap()
             .remove("price_list_version");
         invalid.push(wire);
-        // A measurement admits no extra figures, such as a derived total.
-        let mut wire = run_fee_view_fixture(true);
-        wire["data"]["measured_cost"]["total_atomic"] = json!(500000);
-        invalid.push(wire);
         for wire in invalid {
             let server = MockServer::start().await;
             Mock::given(method("GET"))
@@ -1401,6 +1417,26 @@ mod tests {
             ));
             server.verify().await;
         }
+        // A figure Core adds to a measurement later, such as a derived total,
+        // decodes without changing the figures this client knows.
+        let mut wire = run_fee_view_fixture(true);
+        wire["data"]["measured_cost"]["total_atomic"] = json!(500000);
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(&route))
+            .respond_with(ResponseTemplate::new(200).set_body_json(wire))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let fee = Client::new(&server.uri())
+            .get_managed_agent_run_fee(&organization_id, "fee-test", "work")
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&fee.data.measured_cost).unwrap(),
+            run_fee_view_fixture(true)["data"]["measured_cost"]
+        );
+        server.verify().await;
         let server = MockServer::start().await;
         let mut wire = run_fee_history_fixture();
         wire["data"][0]["reason"] = json!("unknown_reason");
@@ -1959,7 +1995,6 @@ mod tests {
             ("pronouns", None),
             ("capabilities", Some(json!(null))),
             ("pronouns", Some(json!("unknown"))),
-            ("works_in", Some(json!(["unknown"]))),
             ("example_tasks", Some(json!([null]))),
         ];
         for (field, value) in mutations {
@@ -2026,7 +2061,6 @@ mod tests {
         for (pointer, value) in [
             ("/data/0/pronouns", json!("unknown")),
             ("/data/0/catalog", json!(null)),
-            ("/data/0/works_in", json!(["unknown"])),
             ("/data/0/publisher/verified", json!("true")),
         ] {
             let mut wire = public_template_list_wire(Uuid::new_v4());
@@ -2038,6 +2072,13 @@ mod tests {
                 .is_err()
             );
         }
+        // A tool Core adds later decodes, and keeps its name.
+        let mut wire = public_template_list_wire(Uuid::new_v4());
+        wire["data"][0]["works_in"] = json!(["kraken", "a-tool-core-adds-later"]);
+        let listing =
+            serde_json::from_value::<crate::ManagedAgentTemplateListing>(wire["data"][0].clone())
+                .unwrap();
+        assert_eq!(listing.works_in, ["kraken", "a-tool-core-adds-later"]);
     }
 
     fn organization_template_wire(review_state: &str) -> serde_json::Value {
