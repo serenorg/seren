@@ -40691,6 +40691,50 @@ pub(crate) mod tests {
         assert_eq!(decoded["p90_atomic"], 400350);
     }
 
+    /// Core allows 160-character capability lines, and a text limit Core
+    /// relaxes later must not break the catalog either.
+    #[tokio::test]
+    async fn the_employee_catalog_decodes_text_longer_than_the_bundled_limits() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, ResponseTemplate};
+
+        let capability = "c".repeat(121);
+        let tagline = "t".repeat(500);
+        let mut catalog = public_employee_catalog();
+        catalog["data"][0]["capabilities"] = serde_json::json!([capability]);
+        catalog["data"][0]["tagline"] = serde_json::json!(tagline);
+        let core = wiremock::MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/templates"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&catalog))
+            .mount(&core)
+            .await;
+
+        let listings = employee_catalog_json(
+            call_employee_catalog_tool(&core, "list_seren_agent_templates", serde_json::json!({}))
+                .await,
+        );
+
+        assert_eq!(listings[0]["slug"], "camilla");
+        assert_eq!(listings[0]["capabilities"], serde_json::json!([capability]));
+        assert_eq!(listings[0]["tagline"], tagline);
+    }
+
+    /// The profile update still refuses a capability line over Core's limit
+    /// before sending it.
+    #[test]
+    fn a_profile_update_still_checks_capability_length() {
+        let request = |capability: String| {
+            serde_json::from_value::<UpdateSerenAgentTemplateProfileParams>(serde_json::json!({
+                "organization_id": Uuid::nil(),
+                "slug": "example",
+                "request": {"capabilities": [capability]},
+            }))
+        };
+        assert!(request("c".repeat(160)).is_ok());
+        assert!(request("c".repeat(161)).is_err());
+    }
+
     #[tokio::test]
     async fn a_missing_employee_points_to_the_catalog_and_owner_tools() {
         let core = wiremock::MockServer::start().await;
