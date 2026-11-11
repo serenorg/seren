@@ -1131,9 +1131,93 @@ fn open_object_schema(value: &mut serde_json::Value, union_branch: bool) {
     }
 }
 
-/// Drops `additionalProperties: false` from schemas reached only through
-/// responses, so a field a server adds never breaks decoding in a deployed
-/// client. Schemas a request body or parameter reaches stay strict.
+/// Schemas the SDK's hand-written request models in `src/models.rs` name.
+/// They keep their limits for those requests even where the spec reaches them
+/// only through responses.
+const HAND_WRITTEN_REQUEST_SCHEMAS: &[&str] = &[
+    "CapabilityLabel",
+    "Description",
+    "ExampleTask",
+    "JobTitle",
+    "ManagedAgentTemplateTool",
+    "Pronouns",
+    "Tagline",
+];
+
+/// Length, count and pattern limits the generator turns into decoding checks.
+const VALUE_LIMITS: &[&str] = &["maxLength", "minLength", "maxItems", "minItems", "pattern"];
+
+/// A string or number schema with a limit and no reference inside it.
+fn limited_scalar(schema: &serde_json::Value) -> bool {
+    let Some(map) = schema.as_object() else {
+        return false;
+    };
+    let scalar = matches!(
+        map.get("type").and_then(serde_json::Value::as_str),
+        Some("string" | "integer" | "number")
+    );
+    let mut refs = HashSet::new();
+    collect_refs(schema, &mut refs);
+    scalar && refs.is_empty() && VALUE_LIMITS.iter().any(|k| map.contains_key(*k))
+}
+
+/// Drops length, count and pattern limits, so a limit a server relaxes never
+/// breaks decoding in a deployed client. A reference to a limited scalar a
+/// request shares becomes that scalar's unlimited copy. Branches of a union
+/// with more than one non-null alternative stay as they are, since untagged
+/// decoding may tell them apart by those limits.
+fn relax_value_limits(
+    value: &mut serde_json::Value,
+    shared_scalars: &HashMap<String, serde_json::Value>,
+) {
+    let shared = value
+        .get("$ref")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|r| r.strip_prefix("#/components/schemas/"))
+        .and_then(|name| shared_scalars.get(name));
+    if let (Some(relaxed), Some(map)) = (shared, value.as_object()) {
+        // Keeps keywords beside the reference, such as `nullable`.
+        let mut copy = relaxed.as_object().cloned().unwrap_or_default();
+        for (key, v) in map {
+            if key != "$ref" {
+                copy.insert(key.clone(), v.clone());
+            }
+        }
+        *value = serde_json::Value::Object(copy);
+        return;
+    }
+    match value {
+        serde_json::Value::Object(map) => {
+            for key in VALUE_LIMITS {
+                map.remove(*key);
+            }
+            for (key, v) in map.iter_mut() {
+                let multi_way = matches!(key.as_str(), "oneOf" | "anyOf")
+                    && v.as_array().is_some_and(|branches| {
+                        branches
+                            .iter()
+                            .filter(|b| b.get("type").and_then(|t| t.as_str()) != Some("null"))
+                            .count()
+                            > 1
+                    });
+                if !multi_way {
+                    relax_value_limits(v, shared_scalars);
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                relax_value_limits(v, shared_scalars);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Drops `additionalProperties: false` and length, count and pattern limits
+/// from schemas reached only through responses, so a field a server adds or a
+/// limit it relaxes never breaks decoding in a deployed client. Schemas a
+/// request body, parameter or hand-written request model reaches stay strict.
 fn open_response_only_schemas(value: &mut serde_json::Value) {
     let mut request_roots = Vec::new();
     let mut response_roots = Vec::new();
@@ -1163,7 +1247,23 @@ fn open_response_only_schemas(value: &mut serde_json::Value) {
         .and_then(serde_json::Value::as_object)
         .cloned()
         .unwrap_or_default();
+    request_roots.extend(
+        HAND_WRITTEN_REQUEST_SCHEMAS
+            .iter()
+            .map(|name| serde_json::json!({"$ref": format!("#/components/schemas/{name}")})),
+    );
     let requests = reachable_schemas(&serde_json::Value::Array(request_roots), &schemas);
+    // A limited scalar a request also names keeps its limits for that request;
+    // a response reaching it gets an unlimited copy in place of the reference.
+    let shared_scalars: HashMap<String, serde_json::Value> = schemas
+        .iter()
+        .filter(|(name, schema)| requests.contains(*name) && limited_scalar(schema))
+        .map(|(name, schema)| {
+            let mut relaxed = schema.clone();
+            relax_value_limits(&mut relaxed, &HashMap::new());
+            (name.clone(), relaxed)
+        })
+        .collect();
     let responses = reachable_schemas(&serde_json::Value::Array(response_roots), &schemas);
     let mut union_branches = HashSet::new();
     union_branch_schemas(value, &mut union_branches);
@@ -1180,6 +1280,7 @@ fn open_response_only_schemas(value: &mut serde_json::Value) {
             {
                 if let Some(responses) = operation.get_mut("responses") {
                     open_object_schema(responses, false);
+                    relax_value_limits(responses, &shared_scalars);
                 }
             }
         }
@@ -1191,6 +1292,9 @@ fn open_response_only_schemas(value: &mut serde_json::Value) {
         for (name, schema) in schemas.iter_mut() {
             if responses.contains(name) && !requests.contains(name) {
                 open_object_schema(schema, union_branches.contains(name));
+                if !union_branches.contains(name) {
+                    relax_value_limits(schema, &shared_scalars);
+                }
             }
         }
     }
