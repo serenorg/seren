@@ -1032,6 +1032,170 @@ fn merge_publisher_spec(
     )
 }
 
+/// Names of the component schemas a value reaches, following `$ref` through
+/// `#/components/schemas` transitively.
+fn reachable_schemas(
+    roots: &serde_json::Value,
+    schemas: &serde_json::Map<String, serde_json::Value>,
+) -> HashSet<String> {
+    let mut reached = HashSet::new();
+    let mut pending = HashSet::new();
+    collect_refs(roots, &mut pending);
+    while let Some(name) = pending.iter().next().cloned() {
+        pending.remove(&name);
+        if !reached.insert(name.clone()) {
+            continue;
+        }
+        if let Some(schema) = schemas.get(&name) {
+            let mut next = HashSet::new();
+            collect_refs(schema, &mut next);
+            pending.extend(next.into_iter().filter(|n| !reached.contains(n)));
+        }
+    }
+    reached
+}
+
+/// Names of component schemas that are a branch of a union with more than one
+/// non-null alternative. Untagged decoding tells such branches apart by
+/// refusing unknown fields, so they stay closed.
+fn union_branch_schemas(value: &serde_json::Value, acc: &mut HashSet<String>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for keyword in ["oneOf", "anyOf"] {
+                if let Some(serde_json::Value::Array(branches)) = map.get(keyword) {
+                    let alternatives = branches
+                        .iter()
+                        .filter(|b| b.get("type").and_then(|t| t.as_str()) != Some("null"))
+                        .count();
+                    if alternatives > 1 {
+                        for branch in branches {
+                            if let Some(name) = component_ref_name(branch) {
+                                acc.insert(name.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            for v in map.values() {
+                union_branch_schemas(v, acc);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                union_branch_schemas(v, acc);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Lets an object schema accept fields it does not name, except where it is a
+/// branch of a multi-way union or names no properties at all.
+fn open_object_schema(value: &mut serde_json::Value, union_branch: bool) {
+    match value {
+        serde_json::Value::Object(map) => {
+            let names_properties = map
+                .get("properties")
+                .and_then(serde_json::Value::as_object)
+                .is_some_and(|p| !p.is_empty());
+            if !union_branch
+                && names_properties
+                && map.get("additionalProperties") == Some(&serde_json::Value::Bool(false))
+            {
+                map.remove("additionalProperties");
+            }
+            for (key, v) in map.iter_mut() {
+                let multi_way = matches!(key.as_str(), "oneOf" | "anyOf")
+                    && v.as_array().is_some_and(|branches| {
+                        branches
+                            .iter()
+                            .filter(|b| b.get("type").and_then(|t| t.as_str()) != Some("null"))
+                            .count()
+                            > 1
+                    });
+                if multi_way {
+                    for branch in v.as_array_mut().into_iter().flatten() {
+                        open_object_schema(branch, true);
+                    }
+                } else {
+                    open_object_schema(v, false);
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                open_object_schema(v, false);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Drops `additionalProperties: false` from schemas reached only through
+/// responses, so a field a server adds never breaks decoding in a deployed
+/// client. Schemas a request body or parameter reaches stay strict.
+fn open_response_only_schemas(value: &mut serde_json::Value) {
+    let mut request_roots = Vec::new();
+    let mut response_roots = Vec::new();
+    if let Some(paths) = value.get("paths").and_then(serde_json::Value::as_object) {
+        for item in paths.values() {
+            let Some(item) = item.as_object() else {
+                continue;
+            };
+            for (key, operation) in item {
+                if key == "parameters" {
+                    request_roots.push(operation.clone());
+                    continue;
+                }
+                for field in ["requestBody", "parameters"] {
+                    if let Some(v) = operation.get(field) {
+                        request_roots.push(v.clone());
+                    }
+                }
+                if let Some(v) = operation.get("responses") {
+                    response_roots.push(v.clone());
+                }
+            }
+        }
+    }
+    let schemas = value
+        .pointer("/components/schemas")
+        .and_then(serde_json::Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let requests = reachable_schemas(&serde_json::Value::Array(request_roots), &schemas);
+    let responses = reachable_schemas(&serde_json::Value::Array(response_roots), &schemas);
+    let mut union_branches = HashSet::new();
+    union_branch_schemas(value, &mut union_branches);
+
+    if let Some(paths) = value
+        .get_mut("paths")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        for item in paths.values_mut() {
+            for operation in item
+                .as_object_mut()
+                .into_iter()
+                .flat_map(|i| i.values_mut())
+            {
+                if let Some(responses) = operation.get_mut("responses") {
+                    open_object_schema(responses, false);
+                }
+            }
+        }
+    }
+    if let Some(schemas) = value
+        .pointer_mut("/components/schemas")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        for (name, schema) in schemas.iter_mut() {
+            if responses.contains(name) && !requests.contains(name) {
+                open_object_schema(schema, union_branches.contains(name));
+            }
+        }
+    }
+}
+
 /// Checks the SerenDB query-cell contract before code generation.
 ///
 /// The generated client decodes every cell shape the server can emit only while
@@ -1269,6 +1433,9 @@ fn main() -> anyhow::Result<()> {
     }
     normalize_binary_content_schemas(&mut raw_json);
     remove_unsupported_operations(&mut raw_json)?;
+    // After every other pass, so only operations the client keeps decide
+    // which schemas are response-only.
+    open_response_only_schemas(&mut raw_json);
 
     // Checked on the document the generator consumes, after every normalization
     // pass. `downconvert_31_to_30` rewrites an empty `items` schema to an
