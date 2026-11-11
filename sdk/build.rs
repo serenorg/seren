@@ -1147,6 +1147,22 @@ const HAND_WRITTEN_REQUEST_SCHEMAS: &[&str] = &[
 /// Length, count and pattern limits the generator turns into decoding checks.
 const VALUE_LIMITS: &[&str] = &["maxLength", "minLength", "maxItems", "minItems", "pattern"];
 
+/// String enums whose values Core adds to over time, such as the tools an
+/// Employee's catalog card shows. A request still sends only listed values,
+/// but a response reaching one decodes it as a plain string, so a value Core
+/// adds never breaks a deployed client. Other enums keep their values, since
+/// the SDK's own code matches on them.
+const OPEN_RESPONSE_ENUMS: &[&str] = &["ManagedAgentTemplateTool"];
+
+/// A string enum with more than one value.
+fn open_string_enum(map: &serde_json::Map<String, serde_json::Value>) -> bool {
+    map.get("type").and_then(serde_json::Value::as_str) == Some("string")
+        && map
+            .get("enum")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|values| values.len() > 1)
+}
+
 /// A string or number schema with a limit and no reference inside it.
 fn limited_scalar(schema: &serde_json::Value) -> bool {
     let Some(map) = schema.as_object() else {
@@ -1161,21 +1177,31 @@ fn limited_scalar(schema: &serde_json::Value) -> bool {
     scalar && refs.is_empty() && VALUE_LIMITS.iter().any(|k| map.contains_key(*k))
 }
 
+/// Shared limited scalars with their limits dropped, with and without their
+/// lists of allowed values.
+struct SharedScalars {
+    limits: HashMap<String, serde_json::Value>,
+    values: HashMap<String, serde_json::Value>,
+}
+
 /// Drops length, count and pattern limits, so a limit a server relaxes never
 /// breaks decoding in a deployed client. A reference to a limited scalar a
 /// request shares becomes that scalar's unlimited copy. Branches of a union
 /// with more than one non-null alternative stay as they are, since untagged
-/// decoding may tell them apart by those limits.
-fn relax_value_limits(
-    value: &mut serde_json::Value,
-    shared_scalars: &HashMap<String, serde_json::Value>,
-) {
-    let shared = value
+/// decoding may tell them apart by those limits. With `values`, a reference to
+/// one of `OPEN_RESPONSE_ENUMS` becomes a plain string.
+fn relax_value_limits(value: &mut serde_json::Value, shared: &SharedScalars, values: bool) {
+    let shared_scalars = if values {
+        &shared.values
+    } else {
+        &shared.limits
+    };
+    let relaxed_copy = value
         .get("$ref")
         .and_then(serde_json::Value::as_str)
         .and_then(|r| r.strip_prefix("#/components/schemas/"))
         .and_then(|name| shared_scalars.get(name));
-    if let (Some(relaxed), Some(map)) = (shared, value.as_object()) {
+    if let (Some(relaxed), Some(map)) = (relaxed_copy, value.as_object()) {
         // Keeps keywords beside the reference, such as `nullable`.
         let mut copy = relaxed.as_object().cloned().unwrap_or_default();
         for (key, v) in map {
@@ -1201,13 +1227,13 @@ fn relax_value_limits(
                             > 1
                     });
                 if !multi_way {
-                    relax_value_limits(v, shared_scalars);
+                    relax_value_limits(v, shared, values);
                 }
             }
         }
         serde_json::Value::Array(arr) => {
             for v in arr {
-                relax_value_limits(v, shared_scalars);
+                relax_value_limits(v, shared, values);
             }
         }
         _ => {}
@@ -1255,18 +1281,50 @@ fn open_response_only_schemas(value: &mut serde_json::Value) {
     let requests = reachable_schemas(&serde_json::Value::Array(request_roots), &schemas);
     // A limited scalar a request also names keeps its limits for that request;
     // a response reaching it gets an unlimited copy in place of the reference.
-    let shared_scalars: HashMap<String, serde_json::Value> = schemas
-        .iter()
-        .filter(|(name, schema)| requests.contains(*name) && limited_scalar(schema))
-        .map(|(name, schema)| {
-            let mut relaxed = schema.clone();
-            relax_value_limits(&mut relaxed, &HashMap::new());
-            (name.clone(), relaxed)
-        })
-        .collect();
+    let no_shared = SharedScalars {
+        limits: HashMap::new(),
+        values: HashMap::new(),
+    };
+    let relaxed_copies = |values: bool| -> HashMap<String, serde_json::Value> {
+        schemas
+            .iter()
+            .filter(|(name, schema)| {
+                requests.contains(*name)
+                    && (limited_scalar(schema)
+                        || values && OPEN_RESPONSE_ENUMS.contains(&name.as_str()))
+            })
+            .map(|(name, schema)| {
+                let mut relaxed = schema.clone();
+                relax_value_limits(&mut relaxed, &no_shared, false);
+                if let Some(map) = relaxed.as_object_mut()
+                    && values
+                    && OPEN_RESPONSE_ENUMS.contains(&name.as_str())
+                    && open_string_enum(map)
+                {
+                    map.remove("enum");
+                }
+                (name.clone(), relaxed)
+            })
+            .collect()
+    };
+    let shared_scalars = SharedScalars {
+        limits: relaxed_copies(false),
+        values: relaxed_copies(true),
+    };
     let responses = reachable_schemas(&serde_json::Value::Array(response_roots), &schemas);
     let mut union_branches = HashSet::new();
     union_branch_schemas(value, &mut union_branches);
+    // Untagged decoding may tell union branches apart by the values a field
+    // allows, so everything a branch reaches keeps its lists of values.
+    let union_reached = reachable_schemas(
+        &serde_json::Value::Array(
+            union_branches
+                .iter()
+                .map(|name| serde_json::json!({"$ref": format!("#/components/schemas/{name}")}))
+                .collect(),
+        ),
+        &schemas,
+    );
 
     if let Some(paths) = value
         .get_mut("paths")
@@ -1280,7 +1338,7 @@ fn open_response_only_schemas(value: &mut serde_json::Value) {
             {
                 if let Some(responses) = operation.get_mut("responses") {
                     open_object_schema(responses, false);
-                    relax_value_limits(responses, &shared_scalars);
+                    relax_value_limits(responses, &shared_scalars, true);
                 }
             }
         }
@@ -1293,7 +1351,7 @@ fn open_response_only_schemas(value: &mut serde_json::Value) {
             if responses.contains(name) && !requests.contains(name) {
                 open_object_schema(schema, union_branches.contains(name));
                 if !union_branches.contains(name) {
-                    relax_value_limits(schema, &shared_scalars);
+                    relax_value_limits(schema, &shared_scalars, !union_reached.contains(name));
                 }
             }
         }

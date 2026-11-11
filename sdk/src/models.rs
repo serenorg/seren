@@ -71,7 +71,7 @@ pub struct PutManagedAgentTemplateProfile {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "deserialize_optional_list::<_, _, 13>"
     )]
-    #[schemars(with = "Vec<crate::ManagedAgentTemplateTool>", length(max = 13))]
+    #[schemars(with = "Vec<crate::ManagedAgentTemplateTool>", length(max = 15))]
     pub works_in: Option<Vec<crate::ManagedAgentTemplateTool>>,
 }
 

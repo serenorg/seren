@@ -23220,11 +23220,13 @@
         "description": "A product a managed agent works in, shown as a logo on its catalog card.",
         "enum": [
           "1password",
+          "arkham",
           "canva",
           "discord",
           "gmail",
           "google",
           "google-drive",
+          "kraken",
           "microsoft",
           "onedrive",
           "outlook",

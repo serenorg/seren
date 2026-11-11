@@ -40720,6 +40720,68 @@ pub(crate) mod tests {
         assert_eq!(listings[0]["tagline"], tagline);
     }
 
+    /// A tool Core adds to an Employee's card, in `works_in` or in a similar
+    /// Employee's shared tools, must not break the catalog.
+    #[tokio::test]
+    async fn the_employee_catalog_decodes_tools_the_bundled_contract_does_not_list() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, ResponseTemplate};
+
+        let mut catalog = public_employee_catalog();
+        catalog["data"][0]["works_in"] = serde_json::json!(["kraken", "a-tool-core-adds-later"]);
+        catalog["data"][0]["similar"] = serde_json::json!([{
+            "slug": "iris",
+            "score": 0.5,
+            "shared": {"skills": [], "tools": ["arkham"], "words": []},
+        }]);
+        let core = wiremock::MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/templates"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&catalog))
+            .mount(&core)
+            .await;
+
+        let listings = employee_catalog_json(
+            call_employee_catalog_tool(&core, "list_seren_agent_templates", serde_json::json!({}))
+                .await,
+        );
+        assert_eq!(listings[0]["slug"], "camilla");
+        assert_eq!(
+            listings[0]["works_in"],
+            serde_json::json!(["kraken", "a-tool-core-adds-later"])
+        );
+
+        let listing = employee_catalog_json(
+            call_employee_catalog_tool(
+                &core,
+                "get_seren_agent_template",
+                serde_json::json!({"slug": "camilla"}),
+            )
+            .await,
+        );
+        assert_eq!(listing["works_in"][0], "kraken");
+        assert_eq!(
+            listing["similar"][0]["shared"]["tools"],
+            serde_json::json!(["arkham"])
+        );
+    }
+
+    /// The profile update accepts Core's 15 tools, `arkham` and `kraken`
+    /// among them, and still refuses a tool Core does not allow before sending
+    /// it.
+    #[test]
+    fn a_profile_update_still_checks_its_tools() {
+        let request = |tools: Value| {
+            serde_json::from_value::<UpdateSerenAgentTemplateProfileParams>(serde_json::json!({
+                "organization_id": Uuid::nil(),
+                "slug": "example",
+                "request": {"works_in": tools},
+            }))
+        };
+        assert!(request(serde_json::json!(["arkham", "kraken"])).is_ok());
+        assert!(request(serde_json::json!(["a-tool-core-adds-later"])).is_err());
+    }
+
     /// The profile update still refuses a capability line over Core's limit
     /// before sending it.
     #[test]
