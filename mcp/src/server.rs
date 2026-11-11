@@ -40656,6 +40656,41 @@ pub(crate) mod tests {
         assert_eq!(listings[1]["intro_video"]["shape"], "2:3");
     }
 
+    /// A field Core adds to a measured cost later must not break the catalog.
+    #[tokio::test]
+    async fn the_employee_catalog_decodes_measured_cost_fields_core_adds_later() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, ResponseTemplate};
+
+        let mut catalog = public_employee_catalog();
+        let measured = &mut catalog["data"][0]["run_kinds"][0]["measured_cost"];
+        assert!(measured.is_object(), "fixture carries a measured cost");
+        measured["p90_task_atomic"] = serde_json::json!(812000);
+        measured["a_field_core_adds_later"] = serde_json::json!({"any": ["shape"]});
+        let core = wiremock::MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/templates"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&catalog))
+            .mount(&core)
+            .await;
+
+        let listings = employee_catalog_json(
+            call_employee_catalog_tool(&core, "list_seren_agent_templates", serde_json::json!({}))
+                .await,
+        );
+
+        let slugs: Vec<&str> = listings
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|listing| listing["slug"].as_str().unwrap())
+            .collect();
+        assert_eq!(slugs, ["camilla", "vera-hale"]);
+        let decoded = &listings[0]["run_kinds"][0]["measured_cost"];
+        assert_eq!(decoded["p90_task_atomic"], 812000);
+        assert_eq!(decoded["p90_atomic"], 400350);
+    }
+
     #[tokio::test]
     async fn a_missing_employee_points_to_the_catalog_and_owner_tools() {
         let core = wiremock::MockServer::start().await;
