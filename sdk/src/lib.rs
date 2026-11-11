@@ -1995,7 +1995,6 @@ mod tests {
             ("pronouns", None),
             ("capabilities", Some(json!(null))),
             ("pronouns", Some(json!("unknown"))),
-            ("works_in", Some(json!(["unknown"]))),
             ("example_tasks", Some(json!([null]))),
         ];
         for (field, value) in mutations {
@@ -2062,7 +2061,6 @@ mod tests {
         for (pointer, value) in [
             ("/data/0/pronouns", json!("unknown")),
             ("/data/0/catalog", json!(null)),
-            ("/data/0/works_in", json!(["unknown"])),
             ("/data/0/publisher/verified", json!("true")),
         ] {
             let mut wire = public_template_list_wire(Uuid::new_v4());
@@ -2074,6 +2072,13 @@ mod tests {
                 .is_err()
             );
         }
+        // A tool Core adds later decodes, and keeps its name.
+        let mut wire = public_template_list_wire(Uuid::new_v4());
+        wire["data"][0]["works_in"] = json!(["kraken", "a-tool-core-adds-later"]);
+        let listing =
+            serde_json::from_value::<crate::ManagedAgentTemplateListing>(wire["data"][0].clone())
+                .unwrap();
+        assert_eq!(listing.works_in, ["kraken", "a-tool-core-adds-later"]);
     }
 
     fn organization_template_wire(review_state: &str) -> serde_json::Value {
