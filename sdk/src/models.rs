@@ -562,7 +562,7 @@ mod template_profile_patch_tests {
             ("job_title", 60, false),
             ("tagline", 120, false),
             ("description", 2000, false),
-            ("capabilities", 80, true),
+            ("capabilities", 160, true),
             ("example_tasks", 80, true),
         ] {
             for length in [0, maximum + 1] {
