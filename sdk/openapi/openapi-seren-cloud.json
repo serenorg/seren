@@ -27010,6 +27010,14 @@
             "format": "int64",
             "description": "The cost 9 in 10 runs stay at or under."
           },
+          "p90_task_atomic": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Running cost 9 in 10 tasks stay at or under, including spending-stopped\ntasks at their spend so far; null below ten eligible tasks."
+          },
           "price_list_version": {
             "type": "integer",
             "format": "int64",
