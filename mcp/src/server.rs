@@ -7803,6 +7803,18 @@ fn extract_publisher_dispatch_transport(
     Ok(())
 }
 
+// Fixed reasons a publisher dispatch target is refused. They follow the
+// `invalid publisher dispatch target: ` prefix and never include caller input.
+const PUBLISHER_DISPATCH_NAME_RULE: &str =
+    "publisher name may contain only letters, digits, '-' and '_'";
+const PUBLISHER_DISPATCH_PARSE_RULE: &str = "path has a '.' or '..' segment or characters that change when parsed as a URL; percent-encode spaces and reserved characters and remove '.'/'..' segments";
+const PUBLISHER_DISPATCH_BACKSLASH_RULE: &str = "path contains a backslash";
+const PUBLISHER_DISPATCH_ENCODED_SLASH_RULE: &str =
+    "path contains an encoded '/'; use a literal '/' between segments";
+const PUBLISHER_DISPATCH_FRAGMENT_RULE: &str = "path contains '#'";
+const PUBLISHER_DISPATCH_OUTSIDE_RULE: &str = "path leaves /publishers/{publisher}";
+const PUBLISHER_DISPATCH_TOOL_QUERY_RULE: &str = "tool name contains '?'";
+
 /// A request-local assertion bound to one normalized Core publisher URL.
 struct PublisherDispatchTarget {
     value: PublisherDispatchTransport,
@@ -9211,13 +9223,19 @@ impl SerenMcpServer {
         let Some(value) = extensions.get::<PublisherDispatchTransport>() else {
             return Ok(None);
         };
+        // Each refusal names the broken rule with a fixed message. Never echo the
+        // caller's path (it can hold a hirer's file or repository names) or the
+        // dispatch value.
         let invalid = || McpError::invalid_params("invalid publisher dispatch target", None);
+        let refuse = |rule: &'static str| {
+            McpError::invalid_params(format!("invalid publisher dispatch target: {rule}"), None)
+        };
         if publisher.is_empty()
             || !publisher
                 .bytes()
                 .all(|c| c.is_ascii_alphanumeric() || b"-_".contains(&c))
         {
-            return Err(invalid());
+            return Err(refuse(PUBLISHER_DISPATCH_NAME_RULE));
         }
         let base = reqwest::Url::parse(&self.api_base_url).map_err(|_| invalid())?;
         if !matches!(base.scheme(), "http" | "https")
@@ -9237,7 +9255,7 @@ impl SerenMcpServer {
             raw.push('?');
             raw.push_str(query);
         }
-        let url = reqwest::Url::parse(&raw).map_err(|_| invalid())?;
+        let url = reqwest::Url::parse(&raw).map_err(|_| refuse(PUBLISHER_DISPATCH_PARSE_RULE))?;
         let raw_path = format!(
             "{}/{}",
             base.path().trim_end_matches('/'),
@@ -9251,15 +9269,23 @@ impl SerenMcpServer {
             base.path().trim_end_matches('/')
         );
         let lower = raw_path.to_ascii_lowercase();
-        if url.origin() != base.origin()
-            || url.fragment().is_some()
-            || url.path() != raw_path
-            || raw_path.contains('\\')
-            || lower.contains("%2f")
-            || lower.contains("%5c")
-            || !(url.path() == prefix || url.path().starts_with(&format!("{prefix}/")))
-        {
-            return Err(invalid());
+        if url.fragment().is_some() || raw_path.contains('#') {
+            return Err(refuse(PUBLISHER_DISPATCH_FRAGMENT_RULE));
+        }
+        if raw_path.contains('\\') || lower.contains("%5c") {
+            return Err(refuse(PUBLISHER_DISPATCH_BACKSLASH_RULE));
+        }
+        if lower.contains("%2f") {
+            return Err(refuse(PUBLISHER_DISPATCH_ENCODED_SLASH_RULE));
+        }
+        if url.origin() != base.origin() {
+            return Err(refuse(PUBLISHER_DISPATCH_OUTSIDE_RULE));
+        }
+        if url.path() != raw_path {
+            return Err(refuse(PUBLISHER_DISPATCH_PARSE_RULE));
+        }
+        if !(url.path() == prefix || url.path().starts_with(&format!("{prefix}/"))) {
+            return Err(refuse(PUBLISHER_DISPATCH_OUTSIDE_RULE));
         }
         Ok(Some(PublisherDispatchTarget {
             value: value.clone(),
@@ -14057,7 +14083,7 @@ Examples:
         // A query in the tool name would move part of the target outside the path.
         if extensions.get::<PublisherDispatchTransport>().is_some() && tool_path.contains('?') {
             return Err(McpError::invalid_params(
-                "invalid publisher dispatch target",
+                format!("invalid publisher dispatch target: {PUBLISHER_DISPATCH_TOOL_QUERY_RULE}"),
                 None,
             ));
         }
@@ -24646,18 +24672,40 @@ pub(crate) mod tests {
         let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
         let mut extensions = Extensions::default();
         extensions.insert(PublisherDispatchTransport::parse("dispatch-target-fixture").unwrap());
-        for selector in [
-            serde_json::json!({"path":"/../outside"}),
-            serde_json::json!({"path":"/%2e%2e/outside"}),
-            serde_json::json!({"path":"/a/../../outside"}),
-            serde_json::json!({"path":"/reports#fragment"}),
-            serde_json::json!({"path":"/%2foutside"}),
-            serde_json::json!({"path":"/reports\\..\\outside"}),
-            serde_json::json!({"path":"/%2Foutside"}),
-            serde_json::json!({"path":"/reports%5C..%5Coutside"}),
-            serde_json::json!({"publisher":"../outside"}),
-            serde_json::json!({"tool":"../../../../outside"}),
-            serde_json::json!({"tool":"read_report?scope=other"}),
+        let dot = PUBLISHER_DISPATCH_PARSE_RULE;
+        let backslash = PUBLISHER_DISPATCH_BACKSLASH_RULE;
+        let encoded_slash = PUBLISHER_DISPATCH_ENCODED_SLASH_RULE;
+        for (selector, rule) in [
+            (serde_json::json!({"path":"/../outside"}), dot),
+            (serde_json::json!({"path":"/%2e%2e/outside"}), dot),
+            (serde_json::json!({"path":"/a/../../outside"}), dot),
+            (serde_json::json!({"path":"/contents/a/../b.txt"}), dot),
+            (serde_json::json!({"path":"/contents/./b.txt"}), dot),
+            (serde_json::json!({"path":"/contents/my file.txt"}), dot),
+            (
+                serde_json::json!({"path":"/reports#fragment"}),
+                PUBLISHER_DISPATCH_FRAGMENT_RULE,
+            ),
+            (serde_json::json!({"path":"/%2foutside"}), encoded_slash),
+            (serde_json::json!({"path":"/%2Foutside"}), encoded_slash),
+            (
+                serde_json::json!({"path":"/reports\\..\\outside"}),
+                backslash,
+            ),
+            (
+                serde_json::json!({"path":"/reports%5C..%5Coutside"}),
+                backslash,
+            ),
+            (serde_json::json!({"path":"/reports%5coutside"}), backslash),
+            (
+                serde_json::json!({"publisher":"../outside"}),
+                PUBLISHER_DISPATCH_NAME_RULE,
+            ),
+            (serde_json::json!({"tool":"../../../../outside"}), dot),
+            (
+                serde_json::json!({"tool":"read_report?scope=other"}),
+                PUBLISHER_DISPATCH_TOOL_QUERY_RULE,
+            ),
         ] {
             let mut arguments = serde_json::json!({"publisher":"example", "method":"POST"});
             arguments
@@ -24670,6 +24718,34 @@ pub(crate) mod tests {
                 .await
                 .unwrap_err();
             assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_PARAMS);
+            assert_eq!(
+                error.message,
+                format!("invalid publisher dispatch target: {rule}"),
+                "{selector}"
+            );
+            assert!(!error.message.contains("dispatch-target-fixture"));
+            for value in selector.as_object().unwrap().values() {
+                let value = value.as_str().unwrap();
+                assert!(!error.message.contains(value), "{selector}");
+                assert!(!error.message.contains(value.trim_start_matches('/')));
+            }
+        }
+        // A path that stays well-formed but is outside the publisher's prefix.
+        for path in [
+            "/publishers/other/reports",
+            "/publishers/examplex",
+            "/outside",
+        ] {
+            let error = match server.publisher_dispatch_target(&extensions, "example", path, None) {
+                Err(error) => error,
+                Ok(_) => panic!("{path} must be refused"),
+            };
+            assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_PARAMS);
+            assert_eq!(
+                error.message,
+                format!("invalid publisher dispatch target: {PUBLISHER_DISPATCH_OUTSIDE_RULE}")
+            );
+            assert!(!error.message.contains(path));
             assert!(!error.message.contains("dispatch-target-fixture"));
         }
         for name in [
