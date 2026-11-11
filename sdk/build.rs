@@ -1032,6 +1032,312 @@ fn merge_publisher_spec(
     )
 }
 
+/// Follow transitive component schema references from the roots.
+fn reachable_schemas(
+    roots: &serde_json::Value,
+    schemas: &serde_json::Map<String, serde_json::Value>,
+) -> HashSet<String> {
+    let mut reached = HashSet::new();
+    let mut pending = HashSet::new();
+    collect_refs(roots, &mut pending);
+    while let Some(name) = pending.iter().next().cloned() {
+        pending.remove(&name);
+        if !reached.insert(name.clone()) {
+            continue;
+        }
+        if let Some(schema) = schemas.get(&name) {
+            let mut next = HashSet::new();
+            collect_refs(schema, &mut next);
+            pending.extend(next.into_iter().filter(|n| !reached.contains(n)));
+        }
+    }
+    reached
+}
+
+/// Keep referenced union branches closed to preserve untagged decoding.
+fn union_branch_schemas(value: &serde_json::Value, acc: &mut HashSet<String>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for keyword in ["oneOf", "anyOf"] {
+                if let Some(serde_json::Value::Array(branches)) = map.get(keyword) {
+                    let alternatives = branches
+                        .iter()
+                        .filter(|b| b.get("type").and_then(|t| t.as_str()) != Some("null"))
+                        .count();
+                    if alternatives > 1 {
+                        for branch in branches {
+                            if let Some(name) = component_ref_name(branch) {
+                                acc.insert(name.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            for v in map.values() {
+                union_branch_schemas(v, acc);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                union_branch_schemas(v, acc);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Allow unknown fields on nonempty objects outside union branches.
+fn open_object_schema(value: &mut serde_json::Value, union_branch: bool) {
+    match value {
+        serde_json::Value::Object(map) => {
+            let names_properties = map
+                .get("properties")
+                .and_then(serde_json::Value::as_object)
+                .is_some_and(|p| !p.is_empty());
+            if !union_branch
+                && names_properties
+                && map.get("additionalProperties") == Some(&serde_json::Value::Bool(false))
+            {
+                map.remove("additionalProperties");
+            }
+            for (key, v) in map.iter_mut() {
+                let multi_way = matches!(key.as_str(), "oneOf" | "anyOf")
+                    && v.as_array().is_some_and(|branches| {
+                        branches
+                            .iter()
+                            .filter(|b| b.get("type").and_then(|t| t.as_str()) != Some("null"))
+                            .count()
+                            > 1
+                    });
+                if multi_way {
+                    for branch in v.as_array_mut().into_iter().flatten() {
+                        open_object_schema(branch, true);
+                    }
+                } else {
+                    open_object_schema(v, false);
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                open_object_schema(v, false);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Keep schemas used by hand-written requests strict.
+const HAND_WRITTEN_REQUEST_SCHEMAS: &[&str] = &[
+    "CapabilityLabel",
+    "Description",
+    "ExampleTask",
+    "JobTitle",
+    "ManagedAgentTemplateTool",
+    "Pronouns",
+    "Tagline",
+];
+
+/// Length, count and pattern limits the generator turns into decoding checks.
+const VALUE_LIMITS: &[&str] = &["maxLength", "minLength", "maxItems", "minItems", "pattern"];
+
+/// Decode allowlisted response enums as strings while keeping request values closed.
+const OPEN_RESPONSE_ENUMS: &[&str] = &["ManagedAgentTemplateTool"];
+
+/// A string enum with more than one value.
+fn open_string_enum(map: &serde_json::Map<String, serde_json::Value>) -> bool {
+    map.get("type").and_then(serde_json::Value::as_str) == Some("string")
+        && map
+            .get("enum")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|values| values.len() > 1)
+}
+
+/// A string or number schema with a limit and no reference inside it.
+fn limited_scalar(schema: &serde_json::Value) -> bool {
+    let Some(map) = schema.as_object() else {
+        return false;
+    };
+    let scalar = matches!(
+        map.get("type").and_then(serde_json::Value::as_str),
+        Some("string" | "integer" | "number")
+    );
+    let mut refs = HashSet::new();
+    collect_refs(schema, &mut refs);
+    scalar && refs.is_empty() && VALUE_LIMITS.iter().any(|k| map.contains_key(*k))
+}
+
+/// Unbounded shared scalars, with closed and open enum variants.
+struct SharedScalars {
+    limits: HashMap<String, serde_json::Value>,
+    values: HashMap<String, serde_json::Value>,
+}
+
+/// Relax response limits and inline shared scalars without changing union discrimination.
+/// With `values`, also open allowlisted response enums.
+fn relax_value_limits(value: &mut serde_json::Value, shared: &SharedScalars, values: bool) {
+    let shared_scalars = if values {
+        &shared.values
+    } else {
+        &shared.limits
+    };
+    let relaxed_copy = value
+        .get("$ref")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|r| r.strip_prefix("#/components/schemas/"))
+        .and_then(|name| shared_scalars.get(name));
+    if let (Some(relaxed), Some(map)) = (relaxed_copy, value.as_object()) {
+        // Keeps keywords beside the reference, such as `nullable`.
+        let mut copy = relaxed.as_object().cloned().unwrap_or_default();
+        for (key, v) in map {
+            if key != "$ref" {
+                copy.insert(key.clone(), v.clone());
+            }
+        }
+        *value = serde_json::Value::Object(copy);
+        return;
+    }
+    match value {
+        serde_json::Value::Object(map) => {
+            for key in VALUE_LIMITS {
+                map.remove(*key);
+            }
+            for (key, v) in map.iter_mut() {
+                let multi_way = matches!(key.as_str(), "oneOf" | "anyOf")
+                    && v.as_array().is_some_and(|branches| {
+                        branches
+                            .iter()
+                            .filter(|b| b.get("type").and_then(|t| t.as_str()) != Some("null"))
+                            .count()
+                            > 1
+                    });
+                if !multi_way {
+                    relax_value_limits(v, shared, values);
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                relax_value_limits(v, shared, values);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Relax response-only schemas while preserving request and union constraints.
+fn open_response_only_schemas(value: &mut serde_json::Value) {
+    let mut request_roots = Vec::new();
+    let mut response_roots = Vec::new();
+    if let Some(paths) = value.get("paths").and_then(serde_json::Value::as_object) {
+        for item in paths.values() {
+            let Some(item) = item.as_object() else {
+                continue;
+            };
+            for (key, operation) in item {
+                if key == "parameters" {
+                    request_roots.push(operation.clone());
+                    continue;
+                }
+                for field in ["requestBody", "parameters"] {
+                    if let Some(v) = operation.get(field) {
+                        request_roots.push(v.clone());
+                    }
+                }
+                if let Some(v) = operation.get("responses") {
+                    response_roots.push(v.clone());
+                }
+            }
+        }
+    }
+    let schemas = value
+        .pointer("/components/schemas")
+        .and_then(serde_json::Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    request_roots.extend(
+        HAND_WRITTEN_REQUEST_SCHEMAS
+            .iter()
+            .map(|name| serde_json::json!({"$ref": format!("#/components/schemas/{name}")})),
+    );
+    let requests = reachable_schemas(&serde_json::Value::Array(request_roots), &schemas);
+    // Inline relaxed copies so shared request schemas retain their limits.
+    let no_shared = SharedScalars {
+        limits: HashMap::new(),
+        values: HashMap::new(),
+    };
+    let relaxed_copies = |values: bool| -> HashMap<String, serde_json::Value> {
+        schemas
+            .iter()
+            .filter(|(name, schema)| {
+                requests.contains(*name)
+                    && (limited_scalar(schema)
+                        || values && OPEN_RESPONSE_ENUMS.contains(&name.as_str()))
+            })
+            .map(|(name, schema)| {
+                let mut relaxed = schema.clone();
+                relax_value_limits(&mut relaxed, &no_shared, false);
+                if let Some(map) = relaxed.as_object_mut()
+                    && values
+                    && OPEN_RESPONSE_ENUMS.contains(&name.as_str())
+                    && open_string_enum(map)
+                {
+                    map.remove("enum");
+                }
+                (name.clone(), relaxed)
+            })
+            .collect()
+    };
+    let shared_scalars = SharedScalars {
+        limits: relaxed_copies(false),
+        values: relaxed_copies(true),
+    };
+    let responses = reachable_schemas(&serde_json::Value::Array(response_roots), &schemas);
+    let mut union_branches = HashSet::new();
+    union_branch_schemas(value, &mut union_branches);
+    // Keep enums closed within union branches to preserve discrimination.
+    let union_reached = reachable_schemas(
+        &serde_json::Value::Array(
+            union_branches
+                .iter()
+                .map(|name| serde_json::json!({"$ref": format!("#/components/schemas/{name}")}))
+                .collect(),
+        ),
+        &schemas,
+    );
+
+    if let Some(paths) = value
+        .get_mut("paths")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        for item in paths.values_mut() {
+            for operation in item
+                .as_object_mut()
+                .into_iter()
+                .flat_map(|i| i.values_mut())
+            {
+                if let Some(responses) = operation.get_mut("responses") {
+                    open_object_schema(responses, false);
+                    relax_value_limits(responses, &shared_scalars, true);
+                }
+            }
+        }
+    }
+    if let Some(schemas) = value
+        .pointer_mut("/components/schemas")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        for (name, schema) in schemas.iter_mut() {
+            if responses.contains(name) && !requests.contains(name) {
+                open_object_schema(schema, union_branches.contains(name));
+                if !union_branches.contains(name) {
+                    relax_value_limits(schema, &shared_scalars, !union_reached.contains(name));
+                }
+            }
+        }
+    }
+}
+
 /// Checks the SerenDB query-cell contract before code generation.
 ///
 /// The generated client decodes every cell shape the server can emit only while
@@ -1269,6 +1575,8 @@ fn main() -> anyhow::Result<()> {
     }
     normalize_binary_content_schemas(&mut raw_json);
     remove_unsupported_operations(&mut raw_json)?;
+    // Classify response-only schemas after unsupported operations are removed.
+    open_response_only_schemas(&mut raw_json);
 
     // Checked on the document the generator consumes, after every normalization
     // pass. `downconvert_31_to_30` rewrites an empty `items` schema to an

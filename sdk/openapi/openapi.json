@@ -18521,7 +18521,7 @@
       },
       "CapabilityLabel": {
         "type": "string",
-        "maxLength": 80,
+        "maxLength": 160,
         "minLength": 1
       },
       "ChangePlanRequest": {
@@ -23667,7 +23667,7 @@
                 "items": {
                   "$ref": "#/components/schemas/ManagedAgentTemplateTool"
                 },
-                "maxItems": 13
+                "maxItems": 15
               }
             }
           },
@@ -36126,7 +36126,7 @@
             "items": {
               "$ref": "#/components/schemas/ManagedAgentTemplateTool"
             },
-            "maxItems": 13
+            "maxItems": 15
           }
         }
       },
@@ -36524,11 +36524,13 @@
         "description": "A product a managed agent works in, shown as a logo on its catalog card.",
         "enum": [
           "1password",
+          "arkham",
           "canva",
           "discord",
           "gmail",
           "google",
           "google-drive",
+          "kraken",
           "microsoft",
           "onedrive",
           "outlook",
@@ -41737,7 +41739,7 @@
               "$ref": "#/components/schemas/ManagedAgentTemplateTool"
             },
             "description": "Each tool at most once, in the order the card shows them.",
-            "maxItems": 13
+            "maxItems": 15
           }
         },
         "additionalProperties": false

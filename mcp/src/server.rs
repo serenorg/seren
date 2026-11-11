@@ -40239,10 +40239,10 @@ pub(crate) mod tests {
         );
     }
 
-    /// Two real listings from Core's public Employee catalog
+    /// Two public managed agent catalog listings
     /// (`GET https://api.serendb.com/publishers/seren-agent/templates`, read on 2026-11-01),
     /// updated with the required intro-video metadata and catalog fields.
-    fn public_employee_catalog() -> Value {
+    fn public_managed_agent_catalog() -> Value {
         serde_json::json!({
             "data": [
                 {
@@ -40486,7 +40486,7 @@ pub(crate) mod tests {
         without_nulls(&catalog["data"])
     }
 
-    async fn mount_public_employee_catalog(core: &wiremock::MockServer) {
+    async fn mount_public_managed_agent_catalog(core: &wiremock::MockServer) {
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, ResponseTemplate};
 
@@ -40495,14 +40495,14 @@ pub(crate) mod tests {
             .respond_with(
                 ResponseTemplate::new(200)
                     .insert_header("cache-control", "no-cache")
-                    .set_body_json(public_employee_catalog()),
+                    .set_body_json(public_managed_agent_catalog()),
             )
             .expect(1)
             .mount(core)
             .await;
     }
 
-    async fn employee_catalog_client(
+    async fn managed_agent_catalog_client(
         core: &wiremock::MockServer,
     ) -> (
         rmcp::service::RunningService<rmcp::RoleClient, ()>,
@@ -40524,12 +40524,12 @@ pub(crate) mod tests {
         (().serve(client_transport).await.unwrap(), server_task)
     }
 
-    async fn call_employee_catalog_tool(
+    async fn call_managed_agent_catalog_tool(
         core: &wiremock::MockServer,
         tool: &str,
         arguments: Value,
     ) -> Result<CallToolResult, McpError> {
-        let (client, server_task) = employee_catalog_client(core).await;
+        let (client, server_task) = managed_agent_catalog_client(core).await;
         let result = client
             .call_tool(
                 CallToolRequestParams::new(tool.to_string())
@@ -40545,7 +40545,7 @@ pub(crate) mod tests {
         }
     }
 
-    fn employee_catalog_json(result: Result<CallToolResult, McpError>) -> Value {
+    fn managed_agent_catalog_json(result: Result<CallToolResult, McpError>) -> Value {
         let result = result.expect("the served catalog tool must succeed");
         assert!(!result.is_error.unwrap_or(false));
         assert_eq!(result.content.len(), 1);
@@ -40553,12 +40553,12 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn a_listed_employee_can_be_looked_up_by_slug() {
+    async fn a_listed_managed_agent_can_be_looked_up_by_slug() {
         let core = wiremock::MockServer::start().await;
-        mount_public_employee_catalog(&core).await;
+        mount_public_managed_agent_catalog(&core).await;
 
-        let listing = employee_catalog_json(
-            call_employee_catalog_tool(
+        let listing = managed_agent_catalog_json(
+            call_managed_agent_catalog_tool(
                 &core,
                 "get_seren_agent_template",
                 serde_json::json!({"slug": "camilla"}),
@@ -40566,7 +40566,7 @@ pub(crate) mod tests {
             .await,
         );
 
-        let catalog = public_employee_catalog();
+        let catalog = public_managed_agent_catalog();
         let camilla = &catalog["data"][0];
         assert_eq!(camilla["slug"], "camilla");
         assert_eq!(
@@ -40584,16 +40584,20 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn the_employee_catalog_lists_every_employee_as_core_sends_it() {
+    async fn the_managed_agent_catalog_preserves_every_listing() {
         let core = wiremock::MockServer::start().await;
-        mount_public_employee_catalog(&core).await;
+        mount_public_managed_agent_catalog(&core).await;
 
-        let listings = employee_catalog_json(
-            call_employee_catalog_tool(&core, "list_seren_agent_templates", serde_json::json!({}))
-                .await,
+        let listings = managed_agent_catalog_json(
+            call_managed_agent_catalog_tool(
+                &core,
+                "list_seren_agent_templates",
+                serde_json::json!({}),
+            )
+            .await,
         );
 
-        let catalog = public_employee_catalog();
+        let catalog = public_managed_agent_catalog();
         assert_eq!(listings, listings_as_the_snapshot_describes_them(&catalog));
         let slugs: Vec<&str> = listings
             .as_array()
@@ -40613,7 +40617,7 @@ pub(crate) mod tests {
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, ResponseTemplate};
 
-        let mut catalog = public_employee_catalog();
+        let mut catalog = public_managed_agent_catalog();
         for (listing, (has_captions, shape)) in catalog["data"]
             .as_array_mut()
             .unwrap()
@@ -40643,9 +40647,13 @@ pub(crate) mod tests {
             .mount(&core)
             .await;
 
-        let listings = employee_catalog_json(
-            call_employee_catalog_tool(&core, "list_seren_agent_templates", serde_json::json!({}))
-                .await,
+        let listings = managed_agent_catalog_json(
+            call_managed_agent_catalog_tool(
+                &core,
+                "list_seren_agent_templates",
+                serde_json::json!({}),
+            )
+            .await,
         );
 
         assert_eq!(listings, listings_as_the_snapshot_describes_them(&catalog));
@@ -40654,18 +40662,166 @@ pub(crate) mod tests {
         assert_eq!(listings[1]["intro_video"]["shape"], "2:3");
     }
 
+    /// Catalog measurements accept additional response fields.
     #[tokio::test]
-    async fn a_missing_employee_points_to_the_catalog_and_owner_tools() {
-        let core = wiremock::MockServer::start().await;
-        mount_public_employee_catalog(&core).await;
+    async fn the_managed_agent_catalog_decodes_additional_measured_cost_fields() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, ResponseTemplate};
 
-        let error = call_employee_catalog_tool(
+        let mut catalog = public_managed_agent_catalog();
+        let measured = &mut catalog["data"][0]["run_kinds"][0]["measured_cost"];
+        assert!(measured.is_object(), "fixture carries a measured cost");
+        measured["p90_task_atomic"] = serde_json::json!(812000);
+        measured["a_field_core_adds_later"] = serde_json::json!({"any": ["shape"]});
+        let core = wiremock::MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/templates"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&catalog))
+            .mount(&core)
+            .await;
+
+        let listings = managed_agent_catalog_json(
+            call_managed_agent_catalog_tool(
+                &core,
+                "list_seren_agent_templates",
+                serde_json::json!({}),
+            )
+            .await,
+        );
+
+        let slugs: Vec<&str> = listings
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|listing| listing["slug"].as_str().unwrap())
+            .collect();
+        assert_eq!(slugs, ["camilla", "vera-hale"]);
+        let decoded = &listings[0]["run_kinds"][0]["measured_cost"];
+        assert_eq!(decoded["p90_task_atomic"], 812000);
+        assert_eq!(decoded["p90_atomic"], 400350);
+    }
+
+    /// Response text is not constrained by the bundled request limits.
+    #[tokio::test]
+    async fn the_managed_agent_catalog_decodes_text_longer_than_the_bundled_limits() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, ResponseTemplate};
+
+        let capability = "c".repeat(121);
+        let tagline = "t".repeat(500);
+        let mut catalog = public_managed_agent_catalog();
+        catalog["data"][0]["capabilities"] = serde_json::json!([capability]);
+        catalog["data"][0]["tagline"] = serde_json::json!(tagline);
+        let core = wiremock::MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/templates"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&catalog))
+            .mount(&core)
+            .await;
+
+        let listings = managed_agent_catalog_json(
+            call_managed_agent_catalog_tool(
+                &core,
+                "list_seren_agent_templates",
+                serde_json::json!({}),
+            )
+            .await,
+        );
+
+        assert_eq!(listings[0]["slug"], "camilla");
+        assert_eq!(listings[0]["capabilities"], serde_json::json!([capability]));
+        assert_eq!(listings[0]["tagline"], tagline);
+    }
+
+    /// Catalog tool names remain open-ended in listings and similarity results.
+    #[tokio::test]
+    async fn the_managed_agent_catalog_decodes_tools_the_bundled_contract_does_not_list() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, ResponseTemplate};
+
+        let mut catalog = public_managed_agent_catalog();
+        catalog["data"][0]["works_in"] = serde_json::json!(["kraken", "a-tool-core-adds-later"]);
+        catalog["data"][0]["similar"] = serde_json::json!([{
+            "slug": "iris",
+            "score": 0.5,
+            "shared": {"skills": [], "tools": ["arkham"], "words": []},
+        }]);
+        let core = wiremock::MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/templates"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&catalog))
+            .mount(&core)
+            .await;
+
+        let listings = managed_agent_catalog_json(
+            call_managed_agent_catalog_tool(
+                &core,
+                "list_seren_agent_templates",
+                serde_json::json!({}),
+            )
+            .await,
+        );
+        assert_eq!(listings[0]["slug"], "camilla");
+        assert_eq!(
+            listings[0]["works_in"],
+            serde_json::json!(["kraken", "a-tool-core-adds-later"])
+        );
+
+        let listing = managed_agent_catalog_json(
+            call_managed_agent_catalog_tool(
+                &core,
+                "get_seren_agent_template",
+                serde_json::json!({"slug": "camilla"}),
+            )
+            .await,
+        );
+        assert_eq!(listing["works_in"][0], "kraken");
+        assert_eq!(
+            listing["similar"][0]["shared"]["tools"],
+            serde_json::json!(["arkham"])
+        );
+    }
+
+    /// Profile updates accept supported tools and reject unknown tools.
+    #[test]
+    fn a_profile_update_still_checks_its_tools() {
+        let request = |tools: Value| {
+            serde_json::from_value::<UpdateSerenAgentTemplateProfileParams>(serde_json::json!({
+                "organization_id": Uuid::nil(),
+                "slug": "example",
+                "request": {"works_in": tools},
+            }))
+        };
+        assert!(request(serde_json::json!(["arkham", "kraken"])).is_ok());
+        assert!(request(serde_json::json!(["a-tool-core-adds-later"])).is_err());
+    }
+
+    /// Profile updates enforce the capability length limit.
+    #[test]
+    fn a_profile_update_still_checks_capability_length() {
+        let request = |capability: String| {
+            serde_json::from_value::<UpdateSerenAgentTemplateProfileParams>(serde_json::json!({
+                "organization_id": Uuid::nil(),
+                "slug": "example",
+                "request": {"capabilities": [capability]},
+            }))
+        };
+        assert!(request("c".repeat(160)).is_ok());
+        assert!(request("c".repeat(161)).is_err());
+    }
+
+    #[tokio::test]
+    async fn a_missing_managed_agent_points_to_the_catalog_and_owner_tools() {
+        let core = wiremock::MockServer::start().await;
+        mount_public_managed_agent_catalog(&core).await;
+
+        let error = call_managed_agent_catalog_tool(
             &core,
             "get_seren_agent_template",
             serde_json::json!({"slug": "nobody"}),
         )
         .await
-        .expect_err("an Employee missing from the catalog must not be found");
+        .expect_err("a managed agent missing from the catalog must not be found");
 
         assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_PARAMS);
         assert!(error.message.contains("'nobody'"), "{}", error.message);
@@ -40687,7 +40843,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn a_malformed_employee_slug_never_reaches_core() {
+    async fn a_malformed_managed_agent_slug_never_reaches_the_server() {
         let core = wiremock::MockServer::start().await;
 
         for slug in [
@@ -40698,7 +40854,7 @@ pub(crate) mod tests {
             "camilla ",
             " camilla",
         ] {
-            let error = call_employee_catalog_tool(
+            let error = call_managed_agent_catalog_tool(
                 &core,
                 "get_seren_agent_template",
                 serde_json::json!({"slug": slug}),
@@ -40720,7 +40876,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn code_template_lookups_still_404_and_name_the_employee_catalog() {
+    async fn code_template_lookups_still_404_and_name_the_managed_agent_catalog() {
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, ResponseTemplate};
 
@@ -40749,7 +40905,7 @@ pub(crate) mod tests {
                 serde_json::json!({"slug": "camilla", "input": {}}),
             ),
         ] {
-            let error = call_employee_catalog_tool(&core, tool, arguments)
+            let error = call_managed_agent_catalog_tool(&core, tool, arguments)
                 .await
                 .expect_err("a missing code template must still fail");
             assert_eq!(error.code, rmcp::model::ErrorCode::INTERNAL_ERROR, "{tool}");
@@ -40763,9 +40919,9 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn tool_descriptions_tell_code_templates_and_employees_apart() {
+    async fn tool_descriptions_distinguish_code_templates_from_managed_agents() {
         let core = wiremock::MockServer::start().await;
-        let (client, server_task) = employee_catalog_client(&core).await;
+        let (client, server_task) = managed_agent_catalog_client(&core).await;
         let tools = client.list_all_tools().await.unwrap();
         client.cancel().await.unwrap();
         server_task.await.unwrap();
