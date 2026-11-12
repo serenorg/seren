@@ -1493,6 +1493,10 @@ pub struct EndpointDefinitionParam {
     /// reads, every other method changes state.
     #[serde(default)]
     pub operation_kind: Option<EndpointOperationKindParam>,
+    /// Whether the path's last `{value}` takes one or more remaining path
+    /// segments, such as a file path inside folders.
+    #[serde(default)]
+    pub rest_of_path: Option<bool>,
     /// Stable operation identifier. Required, and distinct, on every row when
     /// two endpoints share a method and path (for example Drive's upload rows);
     /// those rows must also share a required query parameter with distinct
@@ -1686,6 +1690,10 @@ fn endpoint_param_to_definition(
             EndpointOperationKindParam::Read => "read",
             EndpointOperationKindParam::Mutation => "mutation",
         });
+    }
+    // Sent only when declared, so an endpoint without one keeps Core's default.
+    if let Some(rest_of_path) = param.rest_of_path {
+        endpoint["rest_of_path"] = serde_json::Value::Bool(rest_of_path);
     }
     // Sent only when declared and exactly as given; Core decides whether rows
     // that share a method and path name distinct operations.
@@ -28022,6 +28030,7 @@ pub(crate) mod tests {
             request_content_type: None,
             access: None,
             operation_kind: None,
+            rest_of_path: None,
             operation_id: None,
             upstream_url: None,
             request_body: None,
