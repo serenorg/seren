@@ -1935,8 +1935,10 @@ enum DeliveryOutcome {
 fn accepted_delivery_outcome(
     response: &seren::SerenMemoryDataResponseExtractionResult,
 ) -> DeliveryOutcome {
-    match response.data.processing_status {
-        seren::SerenMemoryExtractionProcessingStatus::Queued => DeliveryOutcome::Queued,
+    match &response.data.processing_status {
+        // Core accepted the turn; a status this version doesn't know is still accepted.
+        seren::SerenMemoryExtractionProcessingStatus::Queued
+        | seren::SerenMemoryExtractionProcessingStatus::Other(_) => DeliveryOutcome::Queued,
         seren::SerenMemoryExtractionProcessingStatus::Completed => DeliveryOutcome::Completed,
     }
 }

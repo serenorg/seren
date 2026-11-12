@@ -234,6 +234,7 @@ fn managed_mutation_terminal_error(
 ) -> anyhow::Error {
     let reason = action
         .reason
+        .as_ref()
         .map(|reason| reason.to_string())
         .unwrap_or_else(|| "unspecified".to_string());
     anyhow::anyhow!(
@@ -289,7 +290,7 @@ where
         }
         anyhow::bail!("{operation} response omitted its runtime action");
     };
-    match action.state {
+    match &action.state {
         seren::ManagedRuntimeReconciliationState::Applied => return initial.to_json(),
         seren::ManagedRuntimeReconciliationState::Failed
         | seren::ManagedRuntimeReconciliationState::Superseded => {
@@ -297,7 +298,9 @@ where
                 operation, request_id, action,
             ));
         }
-        seren::ManagedRuntimeReconciliationState::Pending => {}
+        // A state this version doesn't know isn't final; keep polling.
+        seren::ManagedRuntimeReconciliationState::Pending
+        | seren::ManagedRuntimeReconciliationState::Other(_) => {}
     }
 
     let deadline = std::time::Instant::now() + MANAGED_MUTATION_POLL_TIMEOUT;
@@ -315,7 +318,7 @@ where
             Err(error) => return Err(error),
         };
         let action = &payload.data.reconciliation;
-        match action.state {
+        match &action.state {
             seren::ManagedRuntimeReconciliationState::Applied => {
                 return serde_json::to_value(payload).map_err(Into::into);
             }
@@ -325,7 +328,9 @@ where
                     operation, request_id, action,
                 ));
             }
-            seren::ManagedRuntimeReconciliationState::Pending => {}
+            // A state this version doesn't know isn't final; keep polling.
+            seren::ManagedRuntimeReconciliationState::Pending
+            | seren::ManagedRuntimeReconciliationState::Other(_) => {}
         }
     }
 }
@@ -6192,6 +6197,8 @@ pub async fn managed_reference_env_credential_proposal_create(
             "This idempotency key already produced an applied proposal. Review it with managed-reference-env-credential-proposal-get; use a new idempotency key for another change.".to_string(),
         seren::ManagedReferenceEnvCredentialProposalState::Superseded =>
             "This idempotency key belongs to a superseded proposal. Read the current proposal and use a new idempotency key for another change.".to_string(),
+        seren::ManagedReferenceEnvCredentialProposalState::Other(_) =>
+            "This proposal is in a state this version of Seren doesn't know. Review it with managed-reference-env-credential-proposal-get; use a new idempotency key for another change.".to_string(),
     };
     output::print_json(&serde_json::json!({
         "status": proposal.state,
