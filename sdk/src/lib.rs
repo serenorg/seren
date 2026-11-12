@@ -24,6 +24,33 @@ mod generated {
     include!(concat!(env!("OUT_DIR"), "/generated.rs"));
 }
 
+mod run_output_event_types {
+    include!(concat!(env!("OUT_DIR"), "/run_output_event_types.rs"));
+}
+
+/// A run event whose `type` this SDK doesn't list, kept exactly as Core sent it.
+/// A listed `type` never decodes here, so its branch's own checks still apply.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, schemars::JsonSchema)]
+#[serde(transparent)]
+pub struct UnknownRunOutputEvent(pub serde_json::Map<String, serde_json::Value>);
+
+impl<'de> serde::Deserialize<'de> for UnknownRunOutputEvent {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let event = serde_json::Map::<String, serde_json::Value>::deserialize(deserializer)?;
+        match event.get("type") {
+            Some(serde_json::Value::String(tag))
+                if !run_output_event_types::RUN_OUTPUT_EVENT_TYPES.contains(&tag.as_str()) =>
+            {
+                Ok(Self(event))
+            }
+            Some(serde_json::Value::String(_)) => Err(serde::de::Error::custom(
+                "run event does not match the branch its type names",
+            )),
+            _ => Err(serde::de::Error::custom("run event type must be a string")),
+        }
+    }
+}
+
 mod config;
 mod examples;
 mod models;
@@ -232,6 +259,63 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
+    use crate::{
+        CloudRunOutputEventEnvelope, CloudRunOutputEventEnvelopeVariant0Kind,
+        DataResponseVecCloudRunOutputEventEnvelope,
+    };
+
+    mod open_reply_enum_checks {
+        include!(concat!(env!("OUT_DIR"), "/open_reply_enum_checks.rs"));
+    }
+
+    /// Every reply-only enum the build opened decodes a value Core may add later.
+    #[test]
+    fn every_reply_only_enum_keeps_an_unlisted_value() {
+        assert!(open_reply_enum_checks::OPEN_REPLY_ENUMS.len() > 20);
+        assert!(
+            open_reply_enum_checks::OPEN_REPLY_ENUMS
+                .contains(&"CloudRunOutputEventEnvelopeVariant0Kind")
+        );
+        assert_eq!(
+            open_reply_enum_checks::unlisted_reply_value_refusals(),
+            Vec::<&str>::new()
+        );
+    }
+
+    /// #327's reply: new event kinds and types decode and re-encode unchanged.
+    #[test]
+    fn run_event_reply_with_new_kinds_decodes_every_event() {
+        let wire = serde_json::json!({"data": [
+            {"sequence_number": 1, "kind": "model_call_finished", "type": "future_model_call", "model": "x"},
+            {"sequence_number": 2, "kind": "brand_new_kind", "type": "text", "text": "hi"},
+            {"sequence_number": 3, "kind": "warning", "type": "warning", "tool": "search"},
+        ]});
+        let decoded: DataResponseVecCloudRunOutputEventEnvelope =
+            serde_json::from_value(wire.clone()).expect("reply decodes");
+        assert_eq!(decoded.data.len(), 3);
+        let encoded = serde_json::to_value(&decoded).unwrap();
+        assert_eq!(encoded["data"][0], wire["data"][0]);
+        assert_eq!(encoded["data"][1]["kind"], "brand_new_kind");
+        assert!(matches!(
+            decoded.data[0],
+            CloudRunOutputEventEnvelope::Other(_)
+        ));
+    }
+
+    /// Opened enums still refuse unlisted values when parsed for a request.
+    #[test]
+    fn opened_reply_enums_stay_strict_when_parsed() {
+        assert!(
+            "brand_new_kind"
+                .parse::<CloudRunOutputEventEnvelopeVariant0Kind>()
+                .is_err()
+        );
+        assert_eq!(
+            CloudRunOutputEventEnvelopeVariant0Kind::Other("brand_new_kind".into()).to_string(),
+            "brand_new_kind"
+        );
+    }
+
     use crate::{Client, ClientConfig, CloudRunErrorCode, PublisherCredentialProposalRequest};
     use serde_json::json;
     use uuid::Uuid;
@@ -2424,8 +2508,8 @@ mod tests {
 
     /// Run events carry `kind` as one scalar from the taxonomy or budget-action
     /// union, and budget actions keep their envelope metadata. Both event routes
-    /// decode and re-encode each event exactly, and refuse a value outside the
-    /// union, a non-string kind, a missing required field, or invalid metadata.
+    /// decode and re-encode each event exactly. An unlisted kind or type keeps its raw value, and a non-string
+    /// kind or type, a missing required field, or invalid metadata is refused.
     #[tokio::test]
     async fn run_events_preserve_scalar_kind_unions_and_refuse_invalid_kinds() {
         let run_id = Uuid::new_v4();
@@ -2461,8 +2545,13 @@ mod tests {
             (json!([{"type": "text", "text": "without a kind"}]), true),
             (
                 json!([{"type": "text", "kind": "future_unknown", "text": "unknown"}]),
-                false,
+                true,
             ),
+            (
+                json!([{"type": "future_event", "kind": "future_unknown", "detail": {"a": 1}}]),
+                true,
+            ),
+            (json!([{"type": ["text"], "text": "array type"}]), false),
             (
                 json!([{"type": "text", "kind": {"subtype_0": "text"}, "text": "object"}]),
                 false,
