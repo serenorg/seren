@@ -21014,6 +21014,7 @@ API endpoint: {endpoint}",
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string),
+            script: None,
             timezone: params
                 .timezone
                 .as_deref()

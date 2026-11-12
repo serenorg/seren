@@ -571,7 +571,10 @@ pub async fn execute(action: ManagedAction, ctx: &CommandContext) -> Result<()> 
                 grant_id,
                 redirect_origin,
             } => {
-                let request = seren::RevokeManagedAgentPublisherGrant { redirect_origin };
+                let request = seren::RevokeManagedAgentPublisherGrant {
+                    redirect_origin,
+                    update: None,
+                };
                 respond!(client.seren_agent_revoke_managed_agent_publisher_grant(
                     &deployment_id,
                     &grant_id,
