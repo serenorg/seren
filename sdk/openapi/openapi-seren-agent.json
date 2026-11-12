@@ -2135,6 +2135,196 @@
         ]
       }
     },
+    "/deployments/{id}/cardano-wallet": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Read the Cardano wallet linked to a managed agent. The managed agent's own runtime key and its owner may read it.",
+        "operationId": "seren_agent_get_managed_agent_cardano_wallet",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Linked wallet, addresses in bech32",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentCardanoWallet"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential is not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Deployment not found, or no wallet is linked (`cardano_wallet_not_linked`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Link the hirer's Cardano mainnet wallet to an owned managed agent, replacing any linked wallet. Addresses are CIP-30 hex; the stake address must be key-controlled and every used address a key-controlled base address carrying that stake key.",
+        "operationId": "seren_agent_link_managed_agent_cardano_wallet",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkCardanoWallet"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Linked wallet, addresses in bech32",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentCardanoWallet"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid wallet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Owner credential required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Deployment not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Unlink the Cardano wallet from an owned managed agent.",
+        "operationId": "seren_agent_unlink_managed_agent_cardano_wallet",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whether a wallet was linked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentCardanoWalletRemoval"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Owner credential required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Deployment not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/channels": {
       "get": {
         "tags": [
@@ -6455,6 +6645,59 @@
         ]
       }
     },
+    "/deployments/{id}/run-timeline": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Report a run's latest script error lines, or the stage its script says it\nis in, for the run's content-free timeline, for the deployment's runtime\nonly. The lines are the end of the script's error stream with personal\ndetails removed; they are cleaned again before they are kept. A stage and\nits counts are kept only when the run's release declares their names; any\nother stage report is counted as rejected. Only a malformed report is refused.",
+        "operationId": "seren_agent_report_managed_run_timeline",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunTimelineReport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Report handled"
+          },
+          "400": {
+            "description": "Invalid body, lines over 40 lines or 4,000 characters, or a stage or count name that is not a lowercase identifier of at most 40 characters, or more than 20 counts"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The credential is not a runtime key"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/script-requests": {
       "post": {
         "tags": [
@@ -6506,6 +6749,707 @@
           },
           "404": {
             "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/signing-requests": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "List a managed agent's signing requests, oldest first. Only the hirer receives each request's title, summary and amounts.",
+        "operationId": "seren_agent_list_managed_agent_signing_requests",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "description": "One of pending, preparing, prepared, submitted, confirmed, failed, superseded, declined or expired.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/SigningRequestState"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Signing requests, oldest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_ManagedAgentSigningRequest"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential is not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Signing request content is temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Propose a plan step for the hirer's signature. Proposing never pauses the run. A hire holds one open signing request at a time; a proposal replaces the pending one only when it names it in `supersedes`. A repeated Idempotency-Key returns the first request.",
+        "operationId": "seren_agent_propose_managed_agent_signing_request",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Replay key for this write, 1 to 255 visible ASCII characters",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SigningRequestProposal"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Proposed signing request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentSigningRequestReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential is not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another signing request is open, or the named one is no longer pending",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/signing-requests/{signing_request_id}": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Read one signing request. While it is prepared and its part can still be signed, the response carries that part's unsigned transaction and the time it stays valid until.",
+        "operationId": "seren_agent_get_managed_agent_signing_request",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "signing_request_id",
+            "in": "path",
+            "description": "Signing request ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Seren-Signing-Key",
+            "in": "header",
+            "description": "The key from a signing link, in place of a bearer token. It opens only the signing request it was sent for, until that request expires.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Signing request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentSigningRequest"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential is not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Signing request content is temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          },
+          {}
+        ]
+      }
+    },
+    "/deployments/{id}/signing-requests/{signing_request_id}/decline": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Decline a signing request none of whose parts has been sent.",
+        "operationId": "seren_agent_decline_managed_agent_signing_request",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "signing_request_id",
+            "in": "path",
+            "description": "Signing request ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Declined signing request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentSigningRequestReceipt"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential is not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A part of the request has been sent or it has ended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/signing-requests/{signing_request_id}/prepare": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Build the next part of a signing request for the hirer to sign. The managed agent builds the part now; poll the request until it is prepared, or pending again when the part could not be built in time or was refused.",
+        "operationId": "seren_agent_prepare_managed_agent_signing_request",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "signing_request_id",
+            "in": "path",
+            "description": "Signing request ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Seren-Signing-Key",
+            "in": "header",
+            "description": "The key from a signing link, in place of a bearer token. It opens only the signing request it was sent for, until that request expires.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The part is being built",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentSigningRequestReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The managed agent does not hold signing steps",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential is not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request is neither pending nor prepared past its signing time, or its release cannot build parts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          },
+          {}
+        ]
+      }
+    },
+    "/deployments/{id}/signing-requests/{signing_request_id}/signature": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Sign a prepared part of a signing request. The body carries the wallet's witness set for the part's transaction; Seren adds only those signatures to the prepared transaction and submits it once. The request then stays submitted until the part has landed, and returns to pending for the next part or becomes confirmed after the last one.",
+        "operationId": "seren_agent_sign_managed_agent_signing_request_part",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "signing_request_id",
+            "in": "path",
+            "description": "Signing request ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Seren-Signing-Key",
+            "in": "header",
+            "description": "The key from a signing link, in place of a bearer token. It opens only the signing request it was sent for, until that request expires.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagedAgentSigningPartSignature"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The part is submitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentSigningRequestReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential is not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The part is not prepared, its signing time has run out, or it was already signed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A signature is not the hirer's, does not sign this part, or a required signature is missing; or the chain refused the transaction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The chain is temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          },
+          {}
+        ]
+      }
+    },
+    "/deployments/{id}/signing-requests/{signing_request_id}/transaction": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Post the unsigned transaction built for a signing request's part. Core checks it against the step and the release's signing policy; a refused transaction returns the request to pending with the rule recorded.",
+        "operationId": "seren_agent_post_managed_agent_signing_part_transaction",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "signing_request_id",
+            "in": "path",
+            "description": "Signing request ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagedAgentSigningPartTransaction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The part is prepared",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentSigningPartReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential is not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request is not waiting for this part",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The transaction breaks a signing rule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The chain is temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -9871,7 +10815,7 @@
           "seren-agent"
         ],
         "summary": "Read one run's timeline of an Employee the caller's organization publishes.",
-        "description": "Returns one run of an Employee the caller's organization publishes, found by its run code, which is accepted with or without `R-` and in any letter case. The run shows its release, status, times, how it ended, the exit code of a failed script, and its model calls, tokens and cost, with the hire shown only as `Employer` and its number or as `Your organization`. Up to 500 of its steps follow `after`, oldest first: each step's kind, name, status, times, how many identical steps in a row it stands for, and a script's exit code or a failed step's Seren code. A tool the Employer added is named `Employer tool`. Read on by passing `next_after` as `after`; a page with no steps returns the same `next_after`. Nothing the Employer wrote or supplied is returned. Only the organization's built-in Owner or Admin can read this, on a session or a user API key; every other caller gets `404`.",
+        "description": "Returns one run of an Employee the caller's organization publishes, found by its run code, which is accepted with or without `R-` and in any letter case. The run shows its release, status, times, how it ended, the exit code of a failed script, the cleaned error lines of its latest script that printed any and when they were last reported, and its model calls, tokens and cost, with the hire shown only as `Employer` and its number or as `Your organization`. Up to 500 of its steps follow `after`, oldest first: each step's kind, name, status, times, how many identical steps in a row it stands for, and a script's exit code or a failed step's Seren code. A tool the Employer added is named `Employer tool`. Read on by passing `next_after` as `after`; a page with no steps returns the same `next_after`. Nothing the Employer wrote or supplied is returned. Only the organization's built-in Owner or Admin can read this, on a session or a user API key; every other caller gets `404`.",
         "operationId": "seren_agent_get_template_run",
         "parameters": [
           {
@@ -12953,6 +13897,35 @@
         "maxLength": 160,
         "minLength": 1
       },
+      "CardanoWallet": {
+        "type": "object",
+        "description": "A linked mainnet wallet, with every address in bech32.",
+        "required": [
+          "network_id",
+          "reward_address",
+          "used_addresses"
+        ],
+        "properties": {
+          "network_id": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Always 1 (mainnet).",
+            "minimum": 0
+          },
+          "reward_address": {
+            "type": "string",
+            "description": "The stake address, such as `stake1...`."
+          },
+          "used_addresses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Base addresses carrying the wallet's own stake key, such as `addr1...`."
+          }
+        },
+        "additionalProperties": false
+      },
       "CatalogAddonSource": {
         "type": "object",
         "description": "A public add-on's release, as `addon_search` names it.",
@@ -15009,6 +15982,78 @@
           }
         }
       },
+      "DataResponse_ManagedAgentCardanoWallet": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CardanoWallet"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "linked_at"
+                ],
+                "properties": {
+                  "linked_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            ],
+            "description": "A hire's linked Cardano wallet."
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentCardanoWalletRemoval": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Whether a wallet was linked when the hirer removed it.",
+            "required": [
+              "unlinked"
+            ],
+            "properties": {
+              "unlinked": {
+                "type": "boolean"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedAgentCheckinSettings": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -16201,9 +17246,9 @@
               "stages": {
                 "type": "array",
                 "items": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/ManagedAgentRunStage"
                 },
-                "description": "The stages the run reported from its release's stage list."
+                "description": "The stages the run's script reported from its release's stage list, oldest first, after the run's time before its first stage. Empty when it reported none."
               },
               "steps": {
                 "type": "array",
@@ -16431,6 +17476,231 @@
             "properties": {
               "recorded": {
                 "type": "boolean"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentSigningPartReceipt": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "signing_request_id",
+              "state",
+              "valid_until"
+            ],
+            "properties": {
+              "signing_request_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "state": {
+                "$ref": "#/components/schemas/SigningRequestState"
+              },
+              "valid_until": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Until when the hirer may sign the part."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentSigningRequest": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "step",
+              "state",
+              "parts",
+              "part_done",
+              "urgent",
+              "created_at",
+              "expires_at"
+            ],
+            "properties": {
+              "amounts": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SigningRequestAmounts",
+                    "description": "Returned only to the hirer."
+                  }
+                ]
+              },
+              "chain_started_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "declined_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "harvest_gain_atomic": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "Returned only to the hirer.",
+                "minimum": 0
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "part_done": {
+                "type": "integer",
+                "format": "int32",
+                "description": "How many parts have landed.",
+                "minimum": 0
+              },
+              "parts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SigningRequestPart"
+                },
+                "description": "Each part's transaction, in signing order."
+              },
+              "refused_rule": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The rule that refused the last built part; present while pending again."
+              },
+              "state": {
+                "$ref": "#/components/schemas/SigningRequestState"
+              },
+              "step": {
+                "$ref": "#/components/schemas/SigningRequestStep"
+              },
+              "summary": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Returned only to the hirer."
+              },
+              "supersedes": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "The earlier request this one replaced."
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Shown to the hirer; returned only to the hirer."
+              },
+              "transaction": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The prepared part's unsigned transaction as hex-encoded CBOR. Returned\nonly to the hirer reading one request, while the part is signable."
+              },
+              "urgent": {
+                "type": "boolean"
+              },
+              "valid_until": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time",
+                "description": "Until when the prepared part may be signed; present while prepared."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentSigningRequestReceipt": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "signing_request_id",
+              "state"
+            ],
+            "properties": {
+              "signing_request_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "state": {
+                "$ref": "#/components/schemas/SigningRequestState"
               }
             }
           },
@@ -19995,6 +21265,21 @@
                   ],
                   "description": "The Seren code the ending came from."
                 },
+                "error_lines": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The cleaned end of the error output of the run's latest script that printed any, at most 40 lines and 4,000 characters. Null when none was reported."
+                },
+                "error_lines_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time",
+                  "description": "When those lines were last reported. Null when none was reported."
+                },
                 "exit_code": {
                   "type": [
                     "integer",
@@ -20037,6 +21322,156 @@
                 "status": {
                   "type": "string",
                   "description": "The run's current status."
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_ManagedAgentSigningRequest": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "step",
+                "state",
+                "parts",
+                "part_done",
+                "urgent",
+                "created_at",
+                "expires_at"
+              ],
+              "properties": {
+                "amounts": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SigningRequestAmounts",
+                      "description": "Returned only to the hirer."
+                    }
+                  ]
+                },
+                "chain_started_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "declined_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "expires_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "harvest_gain_atomic": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64",
+                  "description": "Returned only to the hirer.",
+                  "minimum": 0
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "part_done": {
+                  "type": "integer",
+                  "format": "int32",
+                  "description": "How many parts have landed.",
+                  "minimum": 0
+                },
+                "parts": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SigningRequestPart"
+                  },
+                  "description": "Each part's transaction, in signing order."
+                },
+                "refused_rule": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The rule that refused the last built part; present while pending again."
+                },
+                "state": {
+                  "$ref": "#/components/schemas/SigningRequestState"
+                },
+                "step": {
+                  "$ref": "#/components/schemas/SigningRequestStep"
+                },
+                "summary": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Returned only to the hirer."
+                },
+                "supersedes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid",
+                  "description": "The earlier request this one replaced."
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Shown to the hirer; returned only to the hirer."
+                },
+                "transaction": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The prepared part's unsigned transaction as hex-encoded CBOR. Returned\nonly to the hirer reading one request, while the part is signable."
+                },
+                "urgent": {
+                  "type": "boolean"
+                },
+                "valid_until": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time",
+                  "description": "Until when the prepared part may be signed; present while prepared."
                 }
               }
             }
@@ -21506,6 +22941,35 @@
           }
         ]
       },
+      "LinkCardanoWallet": {
+        "type": "object",
+        "description": "What a wallet reports through CIP-30: its network, its stake address and\nits used payment addresses, each as hex address bytes.",
+        "required": [
+          "network_id",
+          "reward_address",
+          "used_addresses"
+        ],
+        "properties": {
+          "network_id": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The wallet's network ID. Must be 1 (mainnet).",
+            "minimum": 0
+          },
+          "reward_address": {
+            "type": "string",
+            "description": "The wallet's reward (stake) address as hex bytes."
+          },
+          "used_addresses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The wallet's used addresses as hex bytes. 1 to 100, unique."
+          }
+        },
+        "additionalProperties": false
+      },
       "LinkManagedAgentLineRequest": {
         "type": "object",
         "description": "A LINE Login sign-in to link to the hire.",
@@ -22089,6 +23553,38 @@
             "type": "boolean"
           },
           "workflows_enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ManagedAgentCardanoWallet": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CardanoWallet"
+          },
+          {
+            "type": "object",
+            "required": [
+              "linked_at"
+            ],
+            "properties": {
+              "linked_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        ],
+        "description": "A hire's linked Cardano wallet."
+      },
+      "ManagedAgentCardanoWalletRemoval": {
+        "type": "object",
+        "description": "Whether a wallet was linked when the hirer removed it.",
+        "required": [
+          "unlinked"
+        ],
+        "properties": {
+          "unlinked": {
             "type": "boolean"
           }
         }
@@ -25603,6 +27099,68 @@
         },
         "additionalProperties": false
       },
+      "ManagedAgentRunStage": {
+        "type": "object",
+        "description": "One stage a run's script reported, with the model use of the calls made\nwhile it was the run's stage.",
+        "required": [
+          "name",
+          "started_at",
+          "counts",
+          "model_calls",
+          "input_tokens",
+          "output_tokens",
+          "cost"
+        ],
+        "properties": {
+          "cost": {
+            "type": "string",
+            "description": "The model cost of those calls in USD."
+          },
+          "counts": {
+            "type": "object",
+            "description": "The counts the script reported with the stage, by their names from the release's count list.",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Null while the stage is the run's current one."
+          },
+          "input_tokens": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Input tokens of those calls, including cache reads and writes."
+          },
+          "model_calls": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Model calls made in the stage."
+          },
+          "name": {
+            "type": "string",
+            "description": "The stage's name from the release's stage list, or `no_stage_reported` for the run's time before its first stage."
+          },
+          "output_tokens": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Output tokens of those calls."
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "ManagedAgentRunStep": {
         "type": "object",
         "description": "One step of a run as its publisher sees it: no arguments, results or output.",
@@ -25708,6 +27266,21 @@
             ],
             "description": "The Seren code the ending came from."
           },
+          "error_lines": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The cleaned end of the error output of the run's latest script that printed any, at most 40 lines and 4,000 characters. Null when none was reported."
+          },
+          "error_lines_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When those lines were last reported. Null when none was reported."
+          },
           "exit_code": {
             "type": [
               "integer",
@@ -25776,9 +27349,9 @@
           "stages": {
             "type": "array",
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/ManagedAgentRunStage"
             },
-            "description": "The stages the run reported from its release's stage list."
+            "description": "The stages the run's script reported from its release's stage list, oldest first, after the run's time before its first stage. Empty when it reported none."
           },
           "steps": {
             "type": "array",
@@ -26641,6 +28214,213 @@
           }
         }
       },
+      "ManagedAgentSigningPartReceipt": {
+        "type": "object",
+        "required": [
+          "signing_request_id",
+          "state",
+          "valid_until"
+        ],
+        "properties": {
+          "signing_request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "$ref": "#/components/schemas/SigningRequestState"
+          },
+          "valid_until": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Until when the hirer may sign the part."
+          }
+        }
+      },
+      "ManagedAgentSigningPartSignature": {
+        "type": "object",
+        "description": "The hirer's wallet signatures for a prepared part.",
+        "required": [
+          "part",
+          "witness_set"
+        ],
+        "properties": {
+          "part": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The prepared part being signed, counting from 1.",
+            "minimum": 0
+          },
+          "witness_set": {
+            "type": "string",
+            "description": "The wallet's transaction witness set as hex-encoded CBOR, as CIP-30\n`signTx(transaction, true)` returns it."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentSigningPartTransaction": {
+        "type": "object",
+        "description": "A built part, posted by the hire's builder script.",
+        "required": [
+          "part",
+          "transaction"
+        ],
+        "properties": {
+          "part": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The part being built, counting from 1.",
+            "minimum": 0
+          },
+          "transaction": {
+            "type": "string",
+            "description": "The part's unsigned transaction as hex-encoded CBOR."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentSigningRequest": {
+        "type": "object",
+        "required": [
+          "id",
+          "step",
+          "state",
+          "parts",
+          "part_done",
+          "urgent",
+          "created_at",
+          "expires_at"
+        ],
+        "properties": {
+          "amounts": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SigningRequestAmounts",
+                "description": "Returned only to the hirer."
+              }
+            ]
+          },
+          "chain_started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "declined_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "harvest_gain_atomic": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Returned only to the hirer.",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "part_done": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many parts have landed.",
+            "minimum": 0
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SigningRequestPart"
+            },
+            "description": "Each part's transaction, in signing order."
+          },
+          "refused_rule": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The rule that refused the last built part; present while pending again."
+          },
+          "state": {
+            "$ref": "#/components/schemas/SigningRequestState"
+          },
+          "step": {
+            "$ref": "#/components/schemas/SigningRequestStep"
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Returned only to the hirer."
+          },
+          "supersedes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The earlier request this one replaced."
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Shown to the hirer; returned only to the hirer."
+          },
+          "transaction": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The prepared part's unsigned transaction as hex-encoded CBOR. Returned\nonly to the hirer reading one request, while the part is signable."
+          },
+          "urgent": {
+            "type": "boolean"
+          },
+          "valid_until": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Until when the prepared part may be signed; present while prepared."
+          }
+        }
+      },
+      "ManagedAgentSigningRequestReceipt": {
+        "type": "object",
+        "required": [
+          "signing_request_id",
+          "state"
+        ],
+        "properties": {
+          "signing_request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "$ref": "#/components/schemas/SigningRequestState"
+          }
+        }
+      },
       "ManagedAgentStateRecord": {
         "type": "object",
         "required": [
@@ -26912,6 +28692,86 @@
         },
         "additionalProperties": false
       },
+      "ManagedAgentTemplateCardanoSigning": {
+        "type": "object",
+        "description": "Contracts and limits Core checks before a hired copy's Cardano transaction\nreaches the hirer's wallet. Money may move only to the scripts listed here,\nthe hirer's own wallet, and Seren's fee address.",
+        "required": [
+          "lender_scripts",
+          "venue_scripts",
+          "swap_scripts",
+          "mint_policies",
+          "debt_asset",
+          "payout_assets",
+          "builder_script",
+          "max_borrow_ratio_bps",
+          "max_loan_rate_bps",
+          "max_lend_rate_bps"
+        ],
+        "properties": {
+          "builder_script": {
+            "type": "string",
+            "description": "Relative bundle path of the skill script that builds each transaction part."
+          },
+          "debt_asset": {
+            "type": "string",
+            "description": "The borrowed asset as a unit: its 56-hex-character policy ID followed by its hex asset name."
+          },
+          "lender_scripts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Lending contract script hashes, each a CIP-5 `script1...` hash. 1 to 32, unique."
+          },
+          "max_borrow_ratio_bps": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Highest borrowing ratio a step may leave, in basis points. 1 to 10000.",
+            "minimum": 0
+          },
+          "max_lend_rate_bps": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Highest yearly lending rate a declared gain may assume, in basis points. 1 to 10000.",
+            "minimum": 0
+          },
+          "max_loan_rate_bps": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Highest yearly loan rate a step may accept, in basis points. 1 to 10000.",
+            "minimum": 0
+          },
+          "mint_policies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Minting policy hashes, each a CIP-5 `script1...` hash. 1 to 32, unique."
+          },
+          "payout_assets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Assets that may be paid out to the hirer, each `lovelace` or a unit. 1 to 32, unique."
+          },
+          "swap_scripts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Swap contract script hashes, each a CIP-5 `script1...` hash. 1 to 32, unique."
+          },
+          "venue_scripts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Lending venue script hashes, each a CIP-5 `script1...` hash. 1 to 32, unique."
+          }
+        },
+        "additionalProperties": false
+      },
       "ManagedAgentTemplateCatalogFacts": {
         "type": "object",
         "description": "Facts Core computes about a listed template for the catalog. The counts,\nrank, choice and related templates are recomputed hourly; until the first\ncomputation the counts are zero, the rank is null and `updated_at` is null.",
@@ -27026,6 +28886,17 @@
         "properties": {
           "browser": {
             "$ref": "#/components/schemas/ManagedAgentTemplateBrowserDefaults"
+          },
+          "cardano_signing": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplateCardanoSigning",
+                "description": "Contracts and limits Core checks before a hired copy's Cardano\ntransaction reaches the hirer's wallet. Omit when the template signs\nnothing on Cardano."
+              }
+            ]
           },
           "cron_schedule": {
             "type": [
@@ -31837,6 +33708,79 @@
         },
         "additionalProperties": false
       },
+      "RunTimelineReport": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "The latest end of a running script's error stream, with the run's and\nthe hirer's values removed, never its standard output. `ended` marks\nthe script's last report; `exit_code` is present when the script exited.",
+            "required": [
+              "execution_id",
+              "lines",
+              "ended",
+              "kind"
+            ],
+            "properties": {
+              "ended": {
+                "type": "boolean"
+              },
+              "execution_id": {
+                "type": "string"
+              },
+              "exit_code": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "error_lines"
+                ]
+              },
+              "lines": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The stage a script says it is in, named from its release's stage\nlist, with counts named from the release's count list. A report naming\nanything else is counted as rejected and otherwise ignored.",
+            "required": [
+              "execution_id",
+              "name",
+              "kind"
+            ],
+            "properties": {
+              "counts": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 0
+                },
+                "propertyNames": {
+                  "type": "string"
+                }
+              },
+              "execution_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "stage"
+                ]
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "description": "One report about a run, identified by the run's execution ID."
+      },
       "RuntimeReconcileRejectionKind": {
         "type": "string",
         "enum": [
@@ -32090,6 +34034,132 @@
             "type": "boolean"
           }
         }
+      },
+      "SigningRequestAmounts": {
+        "type": "object",
+        "description": "What a signing step moves, in dollar atomic units and whole yen.",
+        "required": [
+          "usd_atomic",
+          "jpy"
+        ],
+        "properties": {
+          "jpy": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "usd_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "SigningRequestPart": {
+        "type": "object",
+        "description": "When one part was signed and when it landed.",
+        "properties": {
+          "confirmed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "signed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "SigningRequestProposal": {
+        "type": "object",
+        "description": "A plan step the runtime proposes for its hirer's signature.",
+        "required": [
+          "step",
+          "parts",
+          "title",
+          "summary",
+          "amounts",
+          "execution_id"
+        ],
+        "properties": {
+          "amounts": {
+            "$ref": "#/components/schemas/SigningRequestAmounts"
+          },
+          "execution_id": {
+            "type": "string",
+            "description": "Execution identity of the running run that proposes the step, supplied by the runtime."
+          },
+          "harvest_gain_atomic": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Gain above staking a harvest declares, in dollar atomic units.",
+            "minimum": 0
+          },
+          "parts": {
+            "type": "integer",
+            "format": "int32",
+            "description": "One to 3 transactions, signed one after another.",
+            "minimum": 0
+          },
+          "step": {
+            "$ref": "#/components/schemas/SigningRequestStep"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Shown to the hirer in their language, at most 600 characters."
+          },
+          "supersedes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The hire's pending signing request this one replaces."
+          },
+          "title": {
+            "type": "string",
+            "description": "Shown to the hirer, at most 120 characters."
+          },
+          "urgent": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SigningRequestState": {
+        "type": "string",
+        "description": "The request's current state, including expiry.",
+        "enum": [
+          "pending",
+          "preparing",
+          "prepared",
+          "submitted",
+          "confirmed",
+          "failed",
+          "superseded",
+          "declined",
+          "expired"
+        ]
+      },
+      "SigningRequestStep": {
+        "type": "string",
+        "description": "One plan step a hire asks its hirer to sign. Each of its parts is one\ntransaction, built when the hirer signs that part.",
+        "enum": [
+          "start",
+          "harvest",
+          "pay_down",
+          "unwind",
+          "rewards_to_dollars"
+        ]
       },
       "SimilarityScore": {
         "type": "number",
@@ -32806,7 +34876,8 @@
           "fr",
           "it",
           "es",
-          "pl"
+          "pl",
+          "ja"
         ]
       },
       "StartAddonBuildRequest": {
@@ -33052,6 +35123,41 @@
                 "type": "string",
                 "enum": [
                   "guarded_purchases_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The contracts and limits Core checks before a Cardano transaction reaches the hirer's wallet.",
+            "required": [
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateCardanoSigning"
+                  }
+                ]
+              },
+              "before": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateCardanoSigning"
+                  }
+                ]
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "cardano_signing_changed"
                 ]
               }
             }

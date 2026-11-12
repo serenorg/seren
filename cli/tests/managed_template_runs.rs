@@ -6,6 +6,14 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const TEMPLATE: &str = "release-notes-writer";
 const RUN_CODE: &str = "R-7F3K";
+const ERROR_LINES: &str = "Traceback (most recent call last):\nValueError: release notes are empty";
+const ERROR_LINES_AT: &str = "2026-11-11T10:04:58Z";
+
+/// An ended run's printed summary carries both error-line fields as served.
+fn assert_error_lines(run: &Value) {
+    assert_eq!(run["error_lines"], ERROR_LINES, "{run}");
+    assert_eq!(run["error_lines_at"], ERROR_LINES_AT, "{run}");
+}
 
 // Fixtures follow the bundled `ManagedAgentRunSummary` and `ManagedAgentRunTimeline` schemas.
 fn run(ended: bool) -> Value {
@@ -19,6 +27,8 @@ fn run(ended: bool) -> Value {
         "ending": if ended { json!("script_failed") } else { Value::Null },
         "ending_code": if ended { json!("script_exit_nonzero") } else { Value::Null },
         "exit_code": if ended { json!(2) } else { Value::Null },
+        "error_lines": if ended { json!(ERROR_LINES) } else { Value::Null },
+        "error_lines_at": if ended { json!(ERROR_LINES_AT) } else { Value::Null },
         "model_calls": 388,
         "input_tokens": 120000,
         "output_tokens": 9000,
@@ -166,10 +176,38 @@ async fn managed_template_runs_prints_the_listed_runs_as_json() {
     )
     .await;
     assert_clean_success(&output);
-    assert_eq!(
-        json_documents(&output.stdout),
-        vec![without_nulls(response)]
-    );
+    let documents = json_documents(&output.stdout);
+    assert_error_lines(&documents[0]["data"][0]);
+    assert_eq!(documents, vec![without_nulls(response)]);
+    server.verify().await;
+}
+
+#[tokio::test]
+async fn reading_an_ended_run_prints_its_error_lines() {
+    let server = MockServer::start().await;
+    let response = timeline(true, vec![step(913, "daytona.delete_session")], 913);
+    Mock::given(method("GET"))
+        .and(path(format!(
+            "/publishers/seren-agent/templates/{TEMPLATE}/runs/{RUN_CODE}"
+        )))
+        .and(header("authorization", "Bearer run-timeline-test"))
+        .and(query_param_is_missing("after"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&response))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let home = tempfile::tempdir().unwrap();
+    let output = seren(
+        &server,
+        home.path(),
+        &["agent", "managed-template-run", TEMPLATE, RUN_CODE],
+    )
+    .await;
+    assert_clean_success(&output);
+    let documents = json_documents(&output.stdout);
+    assert_error_lines(&documents[0]["data"]["run"]);
+    assert_eq!(documents, vec![without_nulls(response)]);
     server.verify().await;
 }
 
@@ -216,12 +254,14 @@ async fn following_a_run_stops_once_a_read_shows_it_ended() {
     )
     .await;
     assert_clean_success(&output);
+    let documents = json_documents(&output.stdout);
+    assert_error_lines(&documents[2]["data"]);
     assert!(
         started.elapsed() >= Duration::from_secs(5),
         "the second read waits for the follow interval"
     );
     assert_eq!(
-        json_documents(&output.stdout),
+        documents,
         [
             first,
             json!({"data": [step(913, "daytona.delete_session")]}),

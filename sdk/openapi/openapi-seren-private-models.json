@@ -336,7 +336,7 @@
             }
           },
           "400": {
-            "description": "The request is invalid; the model's refusal text is returned unchanged (`invalid_request_error`)"
+            "description": "The request is invalid; the model's reason for refusing it is returned (`invalid_request_error`)"
           },
           "401": {
             "description": "Authentication required (`authentication_error`)"

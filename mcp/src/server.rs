@@ -19846,7 +19846,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "List the runs of a managed agent your organization publishes, newest first, including runs of hires by other organizations. Each run shows its run code, release, status, times, how it ended, and its model calls, tokens and cost. A hire outside your organization is shown only as `Employer` and a stable number. Filter by ending, start time, Employer number (or `yours`) and release. Only the organization's Owner or Admin can read this; read one run's steps with get_seren_agent_template_run.",
+        description = "List the runs of a managed agent your organization publishes, newest first, including runs of hires by other organizations. Each run shows its run code, release, status, times, how it ended, the most recently reported cleaned script error output and its timestamp, and its model calls, tokens and cost. A hire outside your organization is shown only as `Employer` and a stable number. Filter by ending, start time, Employer number (or `yours`) and release. Only the organization's Owner or Admin can read this; read one run's steps with get_seren_agent_template_run.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -19892,7 +19892,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Read one run of a managed agent your organization publishes by its run code (with or without `R-`, any letter case): its release, status, times, how it ended, a failed script's exit code, its model calls, tokens and cost, and up to 500 of its steps after `after`, oldest first. To follow a running run, call again with `after` set to the returned `next_after` until `ended_at` is set. Nothing the Employer wrote or supplied is returned. Only the organization's Owner or Admin can read this.",
+        description = "Read one run of a managed agent your organization publishes by its run code (with or without `R-`, any letter case): its release, status, times, how it ended, a failed script's exit code, the most recently reported cleaned script error output and its timestamp, its model calls, tokens and cost, and up to 500 of its steps after `after`, oldest first. To follow a running run, call again with `after` set to the returned `next_after` until `ended_at` is set. Nothing the Employer wrote or supplied is returned. Only the organization's Owner or Admin can read this.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -37261,6 +37261,83 @@ pub(crate) mod tests {
                 .iter()
                 .any(|tool| tool.name == "cancel_seren_agent_passwords_setup")
         );
+    }
+
+    #[tokio::test]
+    async fn template_run_tools_preserve_cleaned_error_lines() {
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{header, method, path, query_param_is_missing},
+        };
+        let run = serde_json::json!({
+            "run_code": "R-7F3K", "employer": "Employer 14", "release": 40,
+            "status": "failed", "started_at": "2026-11-11T10:00:00Z",
+            "ended_at": "2026-11-11T10:05:00Z", "ending": "script_failed",
+            "ending_code": "script_exit_nonzero", "exit_code": 2,
+            "error_lines": "Traceback (most recent call last):\nValueError: release notes are empty",
+            "error_lines_at": "2026-11-11T10:04:58Z",
+            "model_calls": 388, "input_tokens": 120000, "output_tokens": 9000, "cost": "1.25"
+        });
+        let timeline = serde_json::json!({"data": {
+            "run": run, "stages": [], "steps": [], "next_after": 0
+        }});
+        let runs = serde_json::json!({"data": [run]});
+        let proxy = MockServer::start().await;
+        let route = "/publishers/seren-agent/templates/release-notes-writer/runs";
+        Mock::given(method("GET"))
+            .and(path(format!("{route}/R-7F3K")))
+            .and(header("authorization", "Bearer run-owner-key"))
+            .and(query_param_is_missing("after"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&timeline))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(route))
+            .and(header("authorization", "Bearer run-owner-key"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&runs))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let server = SerenMcpServer::new("run-owner-key", &proxy.uri()).unwrap();
+
+        let result = server
+            .get_seren_agent_template_run(
+                Parameters(
+                    serde_json::from_value(serde_json::json!({
+                        "template_slug": "release-notes-writer", "run_code": "R-7F3K"
+                    }))
+                    .unwrap(),
+                ),
+                Extensions::default(),
+            )
+            .await
+            .unwrap();
+        let returned = template_catalog_result_json(result);
+        assert_eq!(returned["data"]["run"]["error_lines"], run["error_lines"]);
+        assert_eq!(
+            returned["data"]["run"]["error_lines_at"],
+            run["error_lines_at"]
+        );
+        assert_eq!(returned, timeline);
+
+        let result = server
+            .list_seren_agent_template_runs(
+                Parameters(
+                    serde_json::from_value(
+                        serde_json::json!({"template_slug": "release-notes-writer"}),
+                    )
+                    .unwrap(),
+                ),
+                Extensions::default(),
+            )
+            .await
+            .unwrap();
+        let returned = template_catalog_result_json(result);
+        assert_eq!(returned["data"][0]["error_lines"], run["error_lines"]);
+        assert_eq!(returned["data"][0]["error_lines_at"], run["error_lines_at"]);
+        assert_eq!(returned, runs);
+        proxy.verify().await;
     }
 
     #[test]
