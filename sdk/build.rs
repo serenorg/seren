@@ -210,6 +210,19 @@ fn remove_unsupported_operations(value: &mut serde_json::Value) -> anyhow::Resul
         "seren_cloud_upload_run_file",
         "seren_cloud_upload_folder_file",
     ];
+    // Add-on revision archives travel as `application/x-tar`, a media type
+    // Progenitor can't send or decode.
+    const TAR_ARCHIVE_OPERATIONS: &[&str] = &[
+        "seren_cloud_runtime_save_addon_revision",
+        "seren_cloud_runtime_download_addon_revision",
+        "seren_agent_download_managed_agent_addon_revision",
+    ];
+    // OpenAI- and Claude-format model passthroughs whose replies carry no
+    // schema; model clients call them, not this SDK.
+    const SCHEMALESS_REPLY_OPERATIONS: &[&str] =
+        &["post_chat_completions_native", "post_claude_messages"];
+    // Omit this operation while its path template and declared parameters disagree.
+    const MISDECLARED_PATH_PARAMETER_OPERATIONS: &[&str] = &["list_managed_agent_template_bundles"];
     const METHODS: [&str; 8] = [
         "get", "put", "post", "delete", "options", "head", "patch", "trace",
     ];
@@ -236,16 +249,25 @@ fn remove_unsupported_operations(value: &mut serde_json::Value) -> anyhow::Resul
         }
     }
 
-    for path_item in paths.values_mut() {
+    for (path, path_item) in paths.iter_mut() {
         let Some(path_item) = path_item.as_object_mut() else {
             continue;
         };
         for method in METHODS {
             let omitted = path_item.get(method).is_some_and(|operation| {
-                operation["operationId"]
-                    .as_str()
-                    .is_some_and(|id| MULTIPLE_MEDIA_TYPE_OPERATIONS.contains(&id))
+                let id = operation["operationId"].as_str();
+                id.is_some_and(|id| MULTIPLE_MEDIA_TYPE_OPERATIONS.contains(&id))
                     && request_media_type_count(operation) > 1
+                    || id.is_some_and(|id| MISDECLARED_PATH_PARAMETER_OPERATIONS.contains(&id))
+                        && !unmatched_path_parameters(path, operation).is_empty()
+                    || id.is_some_and(|id| SCHEMALESS_REPLY_OPERATIONS.contains(&id))
+                        && operation["responses"]["200"]["content"]
+                            .as_object()
+                            .is_some_and(|content| {
+                                content.values().any(|media| media.get("schema").is_none())
+                            })
+                    || id.is_some_and(|id| TAR_ARCHIVE_OPERATIONS.contains(&id))
+                        && operation.to_string().contains("\"application/x-tar\"")
             });
             if omitted {
                 path_item.remove(method);
@@ -269,6 +291,13 @@ fn remove_unsupported_operations(value: &mut serde_json::Value) -> anyhow::Resul
                     "Rust SDK generation does not support multipart operation {method} {path}"
                 );
             }
+            let undeclared = unmatched_path_parameters(path, operation);
+            if !undeclared.is_empty() {
+                anyhow::bail!(
+                    "Rust SDK generation needs every path parameter of {method} {path} in its path; missing {}",
+                    undeclared.join(", ")
+                );
+            }
             if request_media_type_count(operation) > 1 {
                 anyhow::bail!(
                     "Rust SDK generation does not support multiple request media types for {method} {path}; omit it explicitly or narrow the contract"
@@ -278,6 +307,18 @@ fn remove_unsupported_operations(value: &mut serde_json::Value) -> anyhow::Resul
     }
 
     Ok(())
+}
+
+/// Path parameters an operation declares that its path template doesn't name.
+fn unmatched_path_parameters<'a>(path: &str, operation: &'a serde_json::Value) -> Vec<&'a str> {
+    operation["parameters"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|parameter| parameter["in"].as_str() == Some("path"))
+        .filter_map(|parameter| parameter["name"].as_str())
+        .filter(|name| !path.contains(&format!("{{{name}}}")))
+        .collect()
 }
 
 fn request_media_type_count(operation: &serde_json::Value) -> usize {

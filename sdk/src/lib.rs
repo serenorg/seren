@@ -1864,7 +1864,7 @@ mod tests {
                 "owner_connection": "mail_and_files",
                 "spend_limit_defaults": {"per_task_atomic":2000000,"per_day_atomic":10000000},
                 "published_at": "2026-10-07T12:34:56Z",
-                "capabilities": ["Research"], "example_tasks": ["Summarize the latest report"],
+                "skill_slugs": [], "capabilities": ["Research"], "example_tasks": ["Summarize the latest report"],
                 "works_in": ["1password", "google-drive", "slack"], "pronouns": "they/them",
                 "job_title": "Researcher", "tagline": "Research made clear",
                 "description": "Find primary sources.", "activity_url": "https://example.com/activity",
@@ -1947,7 +1947,7 @@ mod tests {
     }
 
     fn template_profile_wire() -> serde_json::Value {
-        json!({"avatar_url": "https://example.com/avatar.png", "capabilities": ["Research"],
+        json!({"avatar_url": "https://example.com/avatar.png", "skill_slugs": [], "capabilities": ["Research"],
             "description": "Find primary sources.", "example_tasks": ["Summarize a report"],
             "job_title": "Researcher", "pronouns": "they/them", "tagline": "Research made clear",
             "works_in": ["1password", "google-drive", "slack"]})
@@ -2693,7 +2693,7 @@ mod tests {
             let payload = json!({
                 "data": {
                     "avatar_url": "https://example.com/avatar.png",
-                    "capabilities": ["Research"], "example_tasks": [], "works_in": [], "pronouns": "they/them"
+                    "skill_slugs": [], "capabilities": ["Research"], "example_tasks": [], "works_in": [], "pronouns": "they/them"
                 }
             });
             Mock::given(method("POST"))
@@ -2746,7 +2746,7 @@ mod tests {
                 "/organizations/{organization_id}/templates/team%2Fresearch%3F%23/avatar"
             )))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "data": {"capabilities": [], "example_tasks": [], "works_in": [], "pronouns": "they/them"}
+                "data": {"skill_slugs": [], "capabilities": [], "example_tasks": [], "works_in": [], "pronouns": "they/them"}
             })))
             .expect(1)
             .mount(&server)

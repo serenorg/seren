@@ -10046,6 +10046,7 @@ pub async fn cloud_agent_schedule_create(
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string),
+        script: None,
         timezone: options
             .timezone
             .map(str::trim)

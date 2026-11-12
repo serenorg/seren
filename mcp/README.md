@@ -235,6 +235,7 @@ Use `create_seren_agent_template_deployment` to create a managed agent deploymen
 | Standing approvals | `list_seren_agent_publisher_allowances`, `revoke_seren_agent_publisher_allowance` |
 | Browser sign-in | `get_active_seren_agent_browser_handoff`, `create_seren_agent_browser_handoff_ticket` |
 | Inspect owned templates and profiles | `list_organization_seren_agent_templates`, `get_seren_agent_template_profile` |
+| Read an owned managed agent's run timelines | `list_seren_agent_template_runs`, `get_seren_agent_template_run` |
 | Edit the catalog profile, rename the Employee, or change the listing preference | `update_seren_agent_template_profile`, `update_seren_agent_template_listing` |
 | Upload, replace or remove the full-length picture | `upload_seren_agent_template_avatar`, `delete_seren_agent_template_avatar` |
 | Start and complete a signed intro video upload | `create_seren_agent_template_intro_video_upload`, `complete_seren_agent_template_intro_video_upload` |
