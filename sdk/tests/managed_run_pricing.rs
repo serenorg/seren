@@ -81,7 +81,7 @@ async fn managed_pricing_success_bodies_preserve_fee_and_cost_contracts() {
                 "publisher": {"organization_id": Uuid::from_u128(1), "name": "Studio",
                     "made_by_seren": false, "verified": false},
                 "owner_connection": "sign_in_only", "published_at": "2026-10-23T00:00:00Z",
-                "capabilities": [], "example_tasks": ["Run a pricing task"],
+                "capabilities": [], "skill_slugs": [], "example_tasks": ["Run a pricing task"],
                 "works_in": ["slack"], "pronouns": "they/them", "intro_videos": [],
                 "run_kinds": run_kinds.clone(),
                 "spend_limit_defaults": {"per_task_atomic": 2000000, "per_day_atomic": 10000000},

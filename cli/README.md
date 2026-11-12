@@ -403,6 +403,8 @@ Use `seren agent` to deploy managed agents from published templates, replace con
 ```bash
 seren agent managed-deploy-template <template-slug> --provider google --connection-id <connection-id> --timezone America/New_York
 seren agent managed-template-stats <template-slug>
+seren agent managed-template-runs <template-slug> --ending script_failed --employer yours --limit 20
+seren agent managed-template-run <template-slug> <run-code> --follow
 seren agent managed-list
 seren agent managed-get <deployment-id>
 seren agent managed-rebind <deployment-id> --connection-id <connection-id>
@@ -426,7 +428,7 @@ seren agent managed-handoff active <deployment-id>
 seren -o json agent managed-handoff ticket <deployment-id> <handoff-id>
 ```
 
-`managed-template-stats` returns aggregate work hours, skill count, and the latest update time. `managed-feedback` creates a feedback record for the selected work revision; its optional replay key prevents duplicate submissions.
+`managed-template-stats` returns aggregate work hours, skill count, and the latest update time. `managed-template-runs` lists the runs of a managed agent your organization publishes, newest first, filtered by `--ending`, `--since`, `--until`, `--employer` (an Employer number, or `yours`), `--release`, `--limit` and `--offset`. `managed-template-run` prints one run's timeline: its release, status, ending, model calls, tokens, cost and steps, with the hire shown only as `Employer` and its number. Nothing the Employer wrote is shown. `--follow` reads the run every 5 seconds, prints only new steps, and prints the run once it has ended; Ctrl-C stops it. Only the publishing organization's built-in Owner or Admin can read runs; other callers receive not found. `managed-feedback` creates a feedback record for the selected work revision; its optional replay key prevents duplicate submissions.
 
 Adding publisher grants and confirming sign-in consent require browser-login OAuth authentication. Approving an API-key access request also requires a user session and `--redirect-origin`; omit `--redirect-origin` when approving a sign-in access request. Grant commands start or complete reviewed browser consent; they never accept secret values. An approved access request can return another consent action that must finish before access becomes active. Other owner operations accept the owner's session or user API key. Browser handoff tickets are single-use credentials for the viewer WebSocket and expire after 60 seconds.
 

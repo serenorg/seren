@@ -3128,6 +3128,48 @@ pub struct ListSerenAgentIncidentsParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ListSerenAgentTemplateRunsParams {
+    /// Slug of a managed agent your organization publishes
+    pub template_slug: String,
+    /// Only runs that ended this way, such as `completed` or `script_failed`
+    #[serde(default)]
+    pub ending: Option<String>,
+    /// Only runs started at or after this RFC 3339 time
+    #[serde(default)]
+    pub since: Option<String>,
+    /// Only runs started before this RFC 3339 time
+    #[serde(default)]
+    pub until: Option<String>,
+    /// Only runs of this Employer number, or `yours` for your organization's runs
+    #[serde(default)]
+    pub employer: Option<String>,
+    /// Only runs of this release
+    #[serde(default)]
+    pub release: Option<i64>,
+    /// Maximum runs to return, 20 by default and at most 100
+    #[serde(default)]
+    #[schemars(range(min = 1, max = 100))]
+    pub limit: Option<i64>,
+    /// Runs to skip
+    #[serde(default)]
+    #[schemars(range(min = 0))]
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GetSerenAgentTemplateRunParams {
+    /// Slug of a managed agent your organization publishes
+    pub template_slug: String,
+    /// Run code, such as `R-7F3K`
+    pub run_code: String,
+    /// Return only steps after this step ID; pass the previous read's `next_after` to read new steps
+    #[serde(default)]
+    pub after: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct PatchSerenAgentDeploymentFilesParams {
     /// Managed deployment UUID
     pub deployment_id: Uuid,
@@ -19790,6 +19832,75 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "List the runs of a managed agent your organization publishes, newest first, including runs of hires by other organizations. Each run shows its run code, release, status, times, how it ended, and its model calls, tokens and cost. A hire outside your organization is shown only as `Employer` and a stable number. Filter by ending, start time, Employer number (or `yours`) and release. Only the organization's Owner or Admin can read this; read one run's steps with get_seren_agent_template_run.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn list_seren_agent_template_runs(
+        &self,
+        Parameters(params): Parameters<ListSerenAgentTemplateRunsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        validate_slug(&params.template_slug, "Employee template slug")?;
+        if let Some(limit) = params.limit
+            && !(1..=100).contains(&limit)
+        {
+            return Err(McpError::invalid_params(
+                "limit must be between 1 and 100",
+                None,
+            ));
+        }
+        if params.offset.is_some_and(|offset| offset < 0) {
+            return Err(McpError::invalid_params(
+                "offset must not be negative",
+                None,
+            ));
+        }
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_list_template_runs(
+                &params.template_slug,
+                params.employer.as_deref(),
+                params.ending.as_deref(),
+                params.limit,
+                params.offset,
+                params.release,
+                params.since.as_deref(),
+                params.until.as_deref(),
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Read one run of a managed agent your organization publishes by its run code (with or without `R-`, any letter case): its release, status, times, how it ended, a failed script's exit code, its model calls, tokens and cost, and up to 500 of its steps after `after`, oldest first. To follow a running run, call again with `after` set to the returned `next_after` until `ended_at` is set. Nothing the Employer wrote or supplied is returned. Only the organization's Owner or Admin can read this.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn get_seren_agent_template_run(
+        &self,
+        Parameters(params): Parameters<GetSerenAgentTemplateRunParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        validate_slug(&params.template_slug, "Employee template slug")?;
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_get_template_run(&params.template_slug, &params.run_code, params.after)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
         description = "Apply a targeted instruction or asset file patch to a managed seren-agent deployment. Inline upsert_instructions/upsert_assets suit small edits; for a whole serialized bundle set patch.deployment_bundle_id to an id from register_agent_bundle and complete_agent_bundle_upload. The response may report a pending runtime action: poll get_seren_agent_deployment_action with its reconciliation request_id until the action is applied, failed, or superseded.",
         annotations(
             read_only_hint = false,
@@ -21012,6 +21123,7 @@ API endpoint: {endpoint}",
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string),
+            script: None,
             timezone: params
                 .timezone
                 .as_deref()
@@ -29067,7 +29179,7 @@ pub(crate) mod tests {
         let prefix = format!("/organizations/{id}/templates");
         let rejected = serde_json::json!({"slug": "example", "display_name": "Example", "active": true, "listed": false, "current_revision": 3, "review_state": "rejected", "review_reason": "Update the description"});
         let pending = serde_json::json!({"slug": "example", "display_name": "Example", "active": true, "listed": false, "current_revision": 3, "review_state": "pending"});
-        let profile = serde_json::json!({"capabilities": [], "example_tasks": [], "works_in": ["google-drive"], "pronouns": "she/her"});
+        let profile = serde_json::json!({"skill_slugs": [], "capabilities": [], "example_tasks": [], "works_in": ["google-drive"], "pronouns": "she/her"});
         let organization = serde_json::json!({"id": id, "name": "Example", "slug": "example", "created_by": id, "is_personal": false, "public_handle": "example-store", "created_at": "2026-10-25T00:00:00Z", "updated_at": "2026-10-25T00:00:00Z"});
         for (verb, route, request, response) in [
             (
@@ -29384,7 +29496,7 @@ pub(crate) mod tests {
             .and(path(route.as_str()))
             .and(body_json(serde_json::json!({"display_name": "Research Partner"})))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {
-                "avatar_url": null, "capabilities": [], "description": null, "example_tasks": [],
+                "avatar_url": null, "skill_slugs": [], "capabilities": [], "description": null, "example_tasks": [],
                 "job_title": null, "pronouns": "they/them", "tagline": null, "works_in": [],
                 "rename": {"previous_display_name": "Researcher", "display_name": "Research Partner",
                     "charge": {"amount_atomic": 1000000, "transaction_ids": [transaction]}}
@@ -37153,6 +37265,19 @@ pub(crate) mod tests {
             Some(true)
         );
 
+        for name in [
+            "list_seren_agent_template_runs",
+            "get_seren_agent_template_run",
+        ] {
+            let tool = tools
+                .iter()
+                .find(|tool| tool.name == name)
+                .unwrap_or_else(|| panic!("missing run timeline tool {name}"));
+            let annotations = tool.annotations.as_ref().expect("tool annotations");
+            assert_eq!(annotations.read_only_hint, Some(true), "{name}");
+            assert_eq!(annotations.destructive_hint, Some(false), "{name}");
+        }
+
         let files = tools
             .iter()
             .find(|tool| tool.name == "patch_seren_agent_deployment_files")
@@ -40342,6 +40467,7 @@ pub(crate) mod tests {
                         "rating": null,
                         "updated_at": "2026-11-01T04:00:03.759627Z"
                     },
+                    "skill_slugs": [],
                     "similar": []
                 },
                 {
@@ -40461,6 +40587,7 @@ pub(crate) mod tests {
                         "rating": null,
                         "updated_at": "2026-11-01T04:00:03.759627Z"
                     },
+                    "skill_slugs": [],
                     "similar": []
                 }
             ]
@@ -41154,7 +41281,7 @@ mod template_media_tests {
 
     fn profile_fixture(avatar: bool) -> Value {
         json!({"data": {"avatar_url": if avatar { json!("https://api.serendb.com/agents/templates/anya/avatar") } else { Value::Null },
-            "capabilities": [], "example_tasks": [], "works_in": [], "pronouns": "she/her"}})
+            "skill_slugs": [], "capabilities": [], "example_tasks": [], "works_in": [], "pronouns": "she/her"}})
     }
 
     fn video_fixture(state: &str, live: bool) -> Value {
