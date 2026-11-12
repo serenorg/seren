@@ -37216,6 +37216,86 @@
           }
         }
       },
+      "ManagedAgentTemplateCardanoSigning": {
+        "type": "object",
+        "description": "Contracts and limits Core checks before a hired copy's Cardano transaction\nreaches the hirer's wallet. Money may move only to the scripts listed here,\nthe hirer's own wallet, and Seren's fee address.",
+        "required": [
+          "lender_scripts",
+          "venue_scripts",
+          "swap_scripts",
+          "mint_policies",
+          "debt_asset",
+          "payout_assets",
+          "builder_script",
+          "max_borrow_ratio_bps",
+          "max_loan_rate_bps",
+          "max_lend_rate_bps"
+        ],
+        "properties": {
+          "builder_script": {
+            "type": "string",
+            "description": "Relative bundle path of the skill script that builds each transaction part."
+          },
+          "debt_asset": {
+            "type": "string",
+            "description": "The borrowed asset as a unit: its 56-hex-character policy ID followed by its hex asset name."
+          },
+          "lender_scripts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Lending contract script hashes, each a CIP-5 `script1...` hash. 1 to 32, unique."
+          },
+          "max_borrow_ratio_bps": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Highest borrowing ratio a step may leave, in basis points. 1 to 10000.",
+            "minimum": 0
+          },
+          "max_lend_rate_bps": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Highest yearly lending rate a declared gain may assume, in basis points. 1 to 10000.",
+            "minimum": 0
+          },
+          "max_loan_rate_bps": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Highest yearly loan rate a step may accept, in basis points. 1 to 10000.",
+            "minimum": 0
+          },
+          "mint_policies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Minting policy hashes, each a CIP-5 `script1...` hash. 1 to 32, unique."
+          },
+          "payout_assets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Assets that may be paid out to the hirer, each `lovelace` or a unit. 1 to 32, unique."
+          },
+          "swap_scripts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Swap contract script hashes, each a CIP-5 `script1...` hash. 1 to 32, unique."
+          },
+          "venue_scripts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Lending venue script hashes, each a CIP-5 `script1...` hash. 1 to 32, unique."
+          }
+        },
+        "additionalProperties": false
+      },
       "ManagedAgentTemplateColors": {
         "type": "object",
         "description": "The colors of an Employee's catalog card and page.",
@@ -37251,6 +37331,17 @@
         "properties": {
           "browser": {
             "$ref": "#/components/schemas/ManagedAgentTemplateBrowserDefaults"
+          },
+          "cardano_signing": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplateCardanoSigning",
+                "description": "Contracts and limits Core checks before a hired copy's Cardano\ntransaction reaches the hirer's wallet. Omit when the template signs\nnothing on Cardano."
+              }
+            ]
           },
           "cron_schedule": {
             "type": [
@@ -44950,7 +45041,8 @@
           "fr",
           "it",
           "es",
-          "pl"
+          "pl",
+          "ja"
         ]
       },
       "StartManagedAgentTemplateTestRunRequest": {
