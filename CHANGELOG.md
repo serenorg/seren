@@ -8,7 +8,7 @@ Employee run events and run timelines work with Core's current managed runtime, 
 
 ### Added
 
-- `seren agent managed-template-runs` and `managed-template-run` list the runs of an Employee your organization publishes and read one run's timeline, with `--follow` to print new steps until the run ends. MCP adds `list_seren_agent_template_runs` and `get_seren_agent_template_run`.
+- `seren agent managed-template-runs` and `managed-template-run` list the runs of an Employee your organization publishes and read one run's timeline, with `--follow` to print new steps until the run ends. A run shows a failed script's exit code and its latest cleaned error lines, with the time they were last reported. MCP adds `list_seren_agent_template_runs` and `get_seren_agent_template_run`.
 - Add-on management in MCP: list published add-ons with price, buyers and earnings, update a listing, set a price, upload a picture, read price history, publish a release, and show or hide public add-ons on an Employee you own.
 - Publisher endpoints in MCP can declare that their last path value takes the remaining path segments, such as a file path inside folders.
 
