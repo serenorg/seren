@@ -198,7 +198,7 @@ async fn storage_object_status_http_rejects_invalid_response_contracts() {
         if invalid == "missing_upload_expires_at" {
             wire.as_object_mut().unwrap().remove("upload_expires_at");
         } else {
-            wire["status"] = json!("invented_status");
+            wire["status"] = json!(["invented_status"]);
         }
         Mock::given(method("GET"))
             .and(path(object_path()))

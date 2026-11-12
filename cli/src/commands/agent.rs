@@ -14106,6 +14106,30 @@ mod tests {
     }
 
     #[test]
+    fn cloud_run_output_event_formatter_prints_unlisted_kinds_and_types() {
+        let wire = serde_json::json!({
+            "sequence_number": 7,
+            "kind": "model_call_finished",
+            "type": "future_model_call",
+            "item_id": "model_1",
+            "model": "anthropic/claude-opus-5-5"
+        });
+        let envelope = decoded_cloud_run_output_event(wire.clone());
+        assert_eq!(envelope, wire);
+        let row = format_cloud_run_output_event(&envelope);
+        assert!(row.contains("#7"), "{row}");
+        assert!(row.contains("model_call_finished"), "{row}");
+        assert!(row.contains("item=model_1"), "{row}");
+
+        let wire = serde_json::json!({
+            "sequence_number": 8, "kind": "brand_new_kind", "type": "text", "text": "hi"
+        });
+        let envelope = decoded_cloud_run_output_event(wire.clone());
+        assert_eq!(envelope, wire);
+        assert!(format_cloud_run_output_event(&envelope).contains("brand_new_kind"));
+    }
+
+    #[test]
     fn cloud_run_output_event_formatter_shows_tool_result_error_code() {
         let envelope = decoded_cloud_run_output_event(serde_json::json!({
             "sequence_number": 4,

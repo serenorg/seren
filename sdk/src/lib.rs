@@ -631,7 +631,7 @@ mod tests {
             let mut invalid = Vec::new();
             for (pointer, value) in [
                 ("/data/snapshot/object/checksum/algorithm", json!("md5")),
-                ("/data/snapshot/status", json!("deleted")),
+                ("/data/snapshot/status", json!(["deleted"])),
                 ("/data/download_expires_at", json!("not-a-timestamp")),
             ] {
                 let mut body = expected.clone();
@@ -817,8 +817,13 @@ mod tests {
             assert_eq!(serde_json::to_value(task).unwrap(), wire);
             for pointer in ["/hold_reason", "/queue_state/reason"] {
                 let mut invalid = wire.clone();
-                *invalid.pointer_mut(pointer).unwrap() = json!("setup_unknown");
+                *invalid.pointer_mut(pointer).unwrap() = json!(["setup_pending"]);
                 assert!(serde_json::from_value::<crate::CloudConversationTask>(invalid).is_err());
+                let mut unlisted = wire.clone();
+                *unlisted.pointer_mut(pointer).unwrap() = json!("setup_unknown");
+                let task: crate::CloudConversationTask =
+                    serde_json::from_value(unlisted.clone()).unwrap();
+                assert_eq!(serde_json::to_value(task).unwrap(), unlisted);
             }
         }
     }
@@ -838,7 +843,7 @@ mod tests {
             assert_eq!(serde_json::to_value(task).unwrap(), wire);
             for (field, value) in [
                 ("activation", json!(null)),
-                ("end_reason", json!("unknown")),
+                ("end_reason", json!(1)),
                 ("retry_refusal", json!("unknown")),
                 ("retry_refused_at", json!("not-a-timestamp")),
                 ("serving_fallback", json!(null)),
@@ -846,6 +851,15 @@ mod tests {
                 let mut malformed = wire.clone();
                 malformed[field] = value;
                 assert!(serde_json::from_value::<crate::CloudConversationTask>(malformed).is_err());
+            }
+            // `retry_refusal` has one listed value, so it stays a closed tag.
+            {
+                let field = "end_reason";
+                let mut unlisted = wire.clone();
+                unlisted[field] = json!("unknown");
+                let task: crate::CloudConversationTask =
+                    serde_json::from_value(unlisted.clone()).unwrap();
+                assert_eq!(serde_json::to_value(task).unwrap(), unlisted);
             }
             for field in ["activation", "serving_fallback"] {
                 let mut missing = wire.clone();
@@ -891,11 +905,16 @@ mod tests {
                 serde_json::from_value(json!(state)).unwrap();
             assert_eq!(serde_json::to_value(decoded).unwrap(), state);
         }
-        assert!(
+        assert_eq!(
             serde_json::from_value::<crate::ManagedAgentHealthIncidentDeliveryState>(json!(
                 "unknown"
             ))
-            .is_err()
+            .unwrap(),
+            crate::ManagedAgentHealthIncidentDeliveryState::Other("unknown".into())
+        );
+        assert!(
+            serde_json::from_value::<crate::ManagedAgentHealthIncidentDeliveryState>(json!(1))
+                .is_err()
         );
     }
 
@@ -1149,6 +1168,25 @@ mod tests {
             ("obstruction", json!("unknown")),
             ("failure", json!("unknown")),
             ("controller_refusal_kind", json!("future_kind")),
+        ] {
+            let mut activation = json!({"progress": "unverified", "availability": "unverified",
+                "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"});
+            activation[field] = value.clone();
+            let decoded: crate::ManagedAgentTemplateUpdate =
+                serde_json::from_value(template_update_with_activation(activation))
+                    .unwrap_or_else(|error| panic!("unlisted {field} decodes: {error}"));
+            assert_eq!(
+                serde_json::to_value(decoded).unwrap()["activation"][field],
+                value,
+                "{field}"
+            );
+        }
+        for (field, value) in [
+            ("progress", json!(["ready"])),
+            ("availability", json!(1)),
+            ("obstruction", json!({"kind": "unknown"})),
+            ("failure", json!(true)),
+            ("controller_refusal_kind", json!(["future_kind"])),
             ("revision_id", json!("not-a-uuid")),
             ("action_id", json!("not-a-uuid")),
             ("is_current_revision", json!("false")),
@@ -1233,8 +1271,14 @@ mod tests {
                 serde_json::from_value(absent).unwrap();
             assert_eq!(serde_json::to_value(action).unwrap(), wire);
         }
+        let mut unlisted = wire.clone();
+        unlisted["controller_refusal"] =
+            json!({"code": "workload_not_admitted", "kind": "future_kind"});
+        let action: crate::ManagedRuntimeReconciliationSummary =
+            serde_json::from_value(unlisted.clone()).unwrap();
+        assert_eq!(serde_json::to_value(action).unwrap(), unlisted);
         for refusal in [
-            json!({"code": "workload_not_admitted", "kind": "future_kind"}),
+            json!({"code": "workload_not_admitted", "kind": ["future_kind"]}),
             json!({"code": "workload_not_admitted", "kind": null}),
             json!({"code": null, "kind": "workload_rejected"}),
             json!({"code": "workload_not_admitted"}),
@@ -1284,14 +1328,18 @@ mod tests {
     }
 
     #[test]
-    fn script_approval_rejects_an_unknown_reviewed_purpose() {
-        let wire = json!({
+    fn script_approval_keeps_an_unlisted_reviewed_purpose() {
+        let mut wire = json!({
             "publisher_slug": "slack",
             "operation_id": "post_messages",
             "operation_binding": {"kind": "reviewed", "binding_sha256": "a".repeat(64)},
             "payload_digest": format!("sha256:{}", "b".repeat(64)),
             "purpose": "unreviewed"
         });
+        let approval: crate::CloudRunScriptPublisherApproval =
+            serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(approval).unwrap(), wire);
+        wire["purpose"] = json!(["unreviewed"]);
         assert!(serde_json::from_value::<crate::CloudRunScriptPublisherApproval>(wire).is_err());
     }
 
@@ -1523,7 +1571,7 @@ mod tests {
         server.verify().await;
         let server = MockServer::start().await;
         let mut wire = run_fee_history_fixture();
-        wire["data"][0]["reason"] = json!("unknown_reason");
+        wire["data"][0]["reason"] = json!(["unknown_reason"]);
         Mock::given(method("GET"))
             .and(path(format!("{route}/history")))
             .respond_with(ResponseTemplate::new(200).set_body_json(wire))
@@ -1796,8 +1844,24 @@ mod tests {
 
     #[test]
     fn template_release_requires_listing_and_review_evidence() {
+        let mut unlisted = json!({"slug": "research", "revision": 7, "created": false,
+            "revision_added": false, "active": true, "listed": false,
+            "review_state": "future_review", "review_reason": "Clarify the description.", "providers": []});
+        let release: crate::ManagedAgentTemplateRelease =
+            serde_json::from_value(unlisted.clone()).unwrap();
+        assert_eq!(
+            serde_json::to_value(release).unwrap()["review_state"],
+            "future_review"
+        );
+        unlisted["review_state"] = json!(["rejected"]);
+        assert!(serde_json::from_value::<crate::ManagedAgentTemplateRelease>(unlisted).is_err());
         for field in ["listed", "review_state"] {
-            for value in [None, Some(json!(null)), Some(json!("unknown"))] {
+            let unknown = if field == "listed" {
+                json!("unknown")
+            } else {
+                json!(1)
+            };
+            for value in [None, Some(json!(null)), Some(unknown)] {
                 let mut wire = json!({"slug": "research", "revision": 7, "created": false,
                     "revision_added": false, "active": true, "listed": false,
                     "review_state": "rejected", "review_reason": "Clarify the description.", "providers": []});
@@ -1820,7 +1884,7 @@ mod tests {
     }
 
     #[test]
-    fn template_rollout_rejects_unknown_outcomes_and_failures() {
+    fn template_rollout_keeps_unknown_outcomes_and_failures() {
         for outcome in [
             "updated",
             "applying",
@@ -1855,13 +1919,29 @@ mod tests {
                 serde_json::from_value(json!(failure)).unwrap();
             assert_eq!(serde_json::to_value(decoded).unwrap(), json!(failure));
         }
-        assert!(
-            serde_json::from_value::<crate::TemplateRevisionOutcome>(json!("pending")).is_err()
+        assert_eq!(
+            serde_json::from_value::<crate::TemplateRevisionOutcome>(json!("pending")).unwrap(),
+            crate::TemplateRevisionOutcome::Other("pending".into())
         );
-        assert!(
-            serde_json::from_value::<crate::TemplateRevisionFailure>(json!("unknown")).is_err()
+        assert_eq!(
+            serde_json::from_value::<crate::TemplateRevisionFailure>(json!("unknown")).unwrap(),
+            crate::TemplateRevisionFailure::Other("unknown".into())
         );
         for (outcome, failure) in [("pending", "internal"), ("failed", "unknown")] {
+            let report = json!({"template_slug": "release-test", "template_revision": 8,
+                "deployments": [{"deployment_id": Uuid::new_v4(), "outcome": outcome, "failure": failure}]
+            });
+            let decoded: crate::AdminTemplateRevisionApplication =
+                serde_json::from_value(report.clone()).unwrap();
+            assert_eq!(
+                serde_json::to_value(decoded).unwrap()["deployments"],
+                report["deployments"]
+            );
+        }
+        for (outcome, failure) in [
+            (json!(["pending"]), json!("internal")),
+            (json!("failed"), json!(1)),
+        ] {
             let report = json!({"template_slug": "release-test", "template_revision": 8,
                 "deployments": [{"deployment_id": Uuid::new_v4(), "outcome": outcome, "failure": failure}]
             });
@@ -1875,6 +1955,18 @@ mod tests {
                     "revision_id": Uuid::new_v4(), "activation": activation}]
             })
         };
+        for (progress, availability) in [("ready", "ready"), ("applied", "applied")] {
+            let unlisted = report_with_activation(
+                json!({"progress": progress, "availability": availability,
+                "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"}),
+            );
+            let decoded: crate::AdminTemplateRevisionApplication =
+                serde_json::from_value(unlisted.clone()).unwrap();
+            assert_eq!(
+                serde_json::to_value(decoded).unwrap()["deployments"][0]["activation"],
+                unlisted["deployments"][0]["activation"]
+            );
+        }
         let valid = report_with_activation(json!({"progress": "applied", "availability": "ready",
             "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"}));
         let decoded: crate::AdminTemplateRevisionApplication =
@@ -1882,8 +1974,8 @@ mod tests {
         assert_eq!(serde_json::to_value(decoded).unwrap(), valid);
         // Malformed activation fields retain complete recovery evidence to isolate their failures.
         for activation in [
-            json!({"progress": "ready", "availability": "ready", "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"}),
-            json!({"progress": "applied", "availability": "applied", "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"}),
+            json!({"progress": ["ready"], "availability": "ready", "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"}),
+            json!({"progress": "applied", "availability": 1, "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"}),
             json!({"progress": "applied", "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"}),
             json!({"availability": "ready", "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"}),
             json!({"progress": "applied", "availability": "ready", "revision_id": "not-a-uuid", "recovering_automatically": false, "attempts": 0, "last_refusal_permanence": "unknown"}),
@@ -2216,8 +2308,21 @@ mod tests {
             assert_eq!(serde_json::to_value(review).unwrap(), review_wire);
             server.verify().await;
         }
+        let mut unlisted = organization_template_wire("pending");
+        unlisted["review_state"] = json!("future_review");
+        let template: crate::OrganizationManagedAgentTemplate =
+            serde_json::from_value(unlisted).unwrap();
+        assert_eq!(
+            serde_json::to_value(template).unwrap()["review_state"],
+            "future_review"
+        );
         for field in ["listed", "review_state"] {
-            for malformed in [None, Some(json!(null)), Some(json!("unknown"))] {
+            let unknown = if field == "listed" {
+                json!("unknown")
+            } else {
+                json!(1)
+            };
+            for malformed in [None, Some(json!(null)), Some(unknown)] {
                 let mut wire = organization_template_wire("pending");
                 if let Some(value) = malformed {
                     wire[field] = value;
@@ -2388,7 +2493,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn template_publication_rejects_unknown_rollout_wire_values() {
+    async fn template_publication_keeps_unknown_rollout_wire_values() {
         for (outcome, failure) in [("pending", "internal"), ("failed", "unknown")] {
             let server = MockServer::start().await;
             let organization_id = Uuid::new_v4();
@@ -2412,19 +2517,20 @@ mod tests {
                 .mount(&server)
                 .await;
             let client = Client::new(&server.uri());
-            let error = client
+            let release = client
                 .publish_managed_agent_template_release(&organization_id, "release-test", &request)
                 .await
-                .expect_err("unknown rollout wire values must reject the response");
-            assert!(
-                matches!(error, crate::Error::InvalidResponsePayload(_, _)),
-                "{error:?}"
-            );
+                .expect("unknown rollout wire values decode")
+                .into_inner();
+            let deployment =
+                &serde_json::to_value(release).unwrap()["data"]["rollout"]["deployments"][0];
+            assert_eq!(deployment["outcome"], outcome);
+            assert_eq!(deployment["failure"], failure);
         }
     }
 
     #[tokio::test]
-    async fn run_events_decode_conversation_refusals_and_reject_unknown_codes() {
+    async fn run_events_decode_conversation_refusals_and_keep_unknown_codes() {
         let run_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
         for (code, expected, retryable) in [
@@ -2443,7 +2549,11 @@ mod tests {
                 Some(CloudRunErrorCode::ConversationPersistenceFailed),
                 true,
             ),
-            ("conversation_unrecognized", None, false),
+            (
+                "conversation_unrecognized",
+                Some(CloudRunErrorCode::Other("conversation_unrecognized".into())),
+                false,
+            ),
         ] {
             assert_eq!(
                 serde_json::from_value::<CloudRunErrorCode>(json!(code)).ok(),
@@ -3066,7 +3176,11 @@ mod tests {
             let parsed: crate::UploadState = serde_json::from_value(json!(state)).unwrap();
             assert_eq!(serde_json::to_value(parsed).unwrap(), json!(state));
         }
-        assert!(serde_json::from_value::<crate::UploadState>(json!("unknown")).is_err());
+        assert_eq!(
+            serde_json::from_value::<crate::UploadState>(json!("unknown")).unwrap(),
+            crate::UploadState::Other("unknown".into())
+        );
+        assert!(serde_json::from_value::<crate::UploadState>(json!(["ready"])).is_err());
     }
 
     #[test]
