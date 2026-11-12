@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Seren Private Models",
-    "description": "List and run organization private models through seren-private-models.",
+    "description": "List and run organization private models through seren-private-models. OpenAI-compatible clients can use https://api.serendb.com/publishers/seren-private-models/v1 as their Base URL for GET /models and POST /chat/completions; that address returns plain OpenAI JSON and errors and keeps payment headers. Claude-compatible clients use https://api.serendb.com/publishers/seren-private-models as their Base URL for GET /v1/models and POST /v1/messages. GET /models and POST /chat/completions keep their billing response envelopes.",
     "contact": {
       "name": "SerenAI",
       "email": "hello@serendb.com"
@@ -37,20 +37,73 @@
         },
         "responses": {
           "200": {
-            "description": "Publisher chat completion response. Budgeted runs include task, day, and balance observations",
+            "description": "Chat completion as JSON, or server-sent events when stream is true. Budgeted runs include task, day, and balance observations. Streaming payment details are returned in response headers. A request that names a model is answered by that model, or by a configured fallback only while the named model is temporarily unavailable. A request that names no model uses the organization's ordered models, moving to the next when one is unavailable. A per-call request never falls back to a model that costs more per input or output token, or whose price is unknown, and a request with images never falls back. When another model answers, the completion body and the first stream event carry `seren_fallback` with `requested_model`, `answered_model` and `reason` (`temporary_outage` or `model_unavailable`), and the call is charged at the answering model's price.",
+            "headers": {
+              "X-Seren-Answered-Model": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "The model that answered, present only when it differs from the requested model."
+              },
+              "X-Seren-Ignored-Parameters": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "The request fields Seren left out, comma-separated, such as `temperature, stream_options`; present only when a field was left out."
+              },
+              "X-Seren-Model-First-Token-Seconds": {
+                "schema": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "description": "Time from provider request to first generated output, in seconds, when observed."
+              },
+              "X-Seren-Requested-Model": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "The requested model, present only when another model answered."
+              },
+              "X-Seren-Schema-Check": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Present as `failed; <first violation>` when a constraint omitted from structured output was violated. The answer is returned without an automatic retry; callers can validate and repair it."
+              },
+              "X-Seren-Schema-Relaxed": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "JSON Schema keywords the answering Claude model could not enforce; present only when the schema was adapted. The original constraints remain instructions."
+              },
+              "X-Seren-Tool-Choice": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Set to not-honored when a model that cannot force tool calls still misses a required or named tool after one retry. Usage includes both attempts."
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DataResponse_ApiResultResponse"
                 }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
               }
             }
+          },
+          "400": {
+            "description": "The request is invalid. A field Seren does not take is refused with `unsupported_request_field`, and the message names the field and what to send instead."
           },
           "401": {
             "description": "Authentication required"
           },
           "402": {
-            "description": "Insufficient SerenBucks (x402), or a managed run refusal with code budget_reached (scope, limit_atomic, used_atomic, suggested_increase_atomic) or balance_exhausted (balance_atomic)",
+            "description": "Insufficient SerenBucks (x402), or a bare managed run refusal with code budget_reached (scope, limit_atomic, used_atomic, suggested_increase_atomic) or balance_exhausted (balance_atomic). Refusals before generation remain JSON for streaming requests too.",
             "content": {
               "application/json": {
                 "schema": {
@@ -61,6 +114,9 @@
           },
           "403": {
             "description": "Private models are not configured for this organization, the deployment key lacks Private Models access (`private_models_deployment_key_missing_scope`), a hired managed agent's deployment key named no run in `X-Seren-Run-Id` (`run_required`), named a run of another deployment (`run_not_in_deployment`), or named a run with no model-call funding (`run_funding_required`)"
+          },
+          "404": {
+            "description": "No private model provider serves the requested model (`model_not_found`). Nothing is charged."
           },
           "409": {
             "description": "The run named in `X-Seren-Run-Id` has ended or is being cancelled (`run_not_active`)"
@@ -81,6 +137,26 @@
           }
         ],
         "x-seren-operation-kind": "read"
+      }
+    },
+    "/check.py": {
+      "get": {
+        "tags": [
+          "publishers"
+        ],
+        "operationId": "get_model_check_script",
+        "responses": {
+          "200": {
+            "description": "A Python 3.9+ script, with no dependencies outside Python's standard library, that sends this service the requests common OpenAI- and Claude-format tools send and prints, for each, whether it passed, the HTTP status, the parameters Seren left out, Seren's message and what to do. It exits non-zero when any request fails. It reads the key from `SEREN_MODEL_KEY` or `OPENAI_API_KEY` and never prints it; `--base-url` and `--model` (default `$SEREN_MODEL`, then `opus-5-5`) choose what it checks. Downloading it needs no key.",
+            "content": {
+              "text/x-python": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/models": {
@@ -105,6 +181,218 @@
           },
           "403": {
             "description": "Private models are not configured for this organization, or the deployment key lacks Private Models access (`private_models_deployment_key_missing_scope`)"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/v1/chat/completions": {
+      "post": {
+        "tags": [
+          "publishers"
+        ],
+        "operationId": "post_chat_completions_native",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrivateModelsChatCompletionsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The same call as `POST /chat/completions`, with the same models, fallbacks, charges, run limits and headers. A reply that is not streamed is the chat completion as plain OpenAI JSON; when stream is true, OpenAI's server-sent events.",
+            "headers": {
+              "X-Seren-Answered-Model": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "The model that answered, present only when it differs from the requested model."
+              },
+              "X-Seren-Ignored-Parameters": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "The request fields Seren left out, comma-separated, such as `temperature, stream_options`; present only when a field was left out."
+              },
+              "X-Seren-Model-First-Token-Seconds": {
+                "schema": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "description": "Time from provider request to first generated output, in seconds, when observed."
+              },
+              "X-Seren-Requested-Model": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "The requested model, present only when another model answered."
+              },
+              "X-Seren-Schema-Check": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Present as `failed; <first violation>` when a constraint omitted from structured output was violated. The answer is returned without an automatic retry; callers can validate and repair it."
+              },
+              "X-Seren-Schema-Relaxed": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "JSON Schema keywords the answering Claude model could not enforce; present only when the schema was adapted. The original constraints remain instructions."
+              },
+              "X-Seren-Tool-Choice": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Set to not-honored when a model that cannot force tool calls still misses a required or named tool after one retry. Usage includes both attempts."
+              }
+            },
+            "content": {
+              "application/json": {},
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is invalid. A field Seren does not take is refused with `unsupported_request_field`. Errors use OpenAI's shape, `{\"error\": {\"message\", \"code\", \"type\"}}`, with Seren's code in `code`."
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "402": {
+            "description": "OpenAI error JSON, including for streaming requests refused before generation. `error.code` is `budget_reached` with `scope`, `limit_atomic`, `used_atomic`, and `suggested_increase_atomic`, or `balance_exhausted` with `balance_atomic`. `error.message` explains the amounts and how to continue. Other payment refusals retain their code and details. The shared-model OpenAI address, `/publishers/seren-models/v1/chat/completions`, uses the same refusal format."
+          },
+          "403": {
+            "description": "Private models are not configured for this organization, or the key cannot call them on this run (`private_models_deployment_key_missing_scope`, `run_required`, `run_not_in_deployment` or `run_funding_required`)"
+          },
+          "404": {
+            "description": "No private model provider serves the requested model (`model_not_found`). Nothing is charged."
+          },
+          "409": {
+            "description": "The run named in `X-Seren-Run-Id` has ended or is being cancelled (`run_not_active`)"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
+          "502": {
+            "description": "The model provider failed or its outcome is unknown"
+          },
+          "503": {
+            "description": "An earlier model request of the run awaits usage reconciliation"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-seren-operation-kind": "read"
+      }
+    },
+    "/v1/messages": {
+      "post": {
+        "tags": [
+          "publishers"
+        ],
+        "operationId": "post_claude_messages",
+        "requestBody": {
+          "description": "An Anthropic Messages request. `model` names a Claude model, by Anthropic's name (for example `claude-opus-5-5`) or Seren's (`opus-5-5`). Every other Messages field is passed to the model unchanged, except that `temperature`, `top_p` and `top_k` are left out for a model that does not take them, `temperature` and `top_p` are left out when `thinking` is not disabled, and a Claude Fable 5 `temperature` other than 1.0 is left out; the reply's `X-Seren-Ignored-Parameters` header names each field left out. The values of each `anthropic-beta` header are added to `anthropic_beta`. Sign in with `Authorization: Bearer <key>` or `x-api-key: <key>`.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Claude's reply in the Messages format, or, when `stream` is true, the Messages server-sent events as the model produces them, with a `ping` event at least every 15 seconds while none arrive. A non-streamed reply carries payment details in response headers. The call is charged from the reply's usage, including cached input; a request is never answered by another model.",
+            "headers": {
+              "X-Seren-Ignored-Parameters": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "The request fields Seren left out, comma-separated, such as `temperature`; present only when a field was left out."
+              }
+            },
+            "content": {
+              "application/json": {},
+              "text/event-stream": {}
+            }
+          },
+          "400": {
+            "description": "The request is invalid; the model's refusal text is returned unchanged (`invalid_request_error`)"
+          },
+          "401": {
+            "description": "Authentication required (`authentication_error`)"
+          },
+          "402": {
+            "description": "Insufficient SerenBucks, or a managed run's spending stop; the message starts with Seren's code, such as `budget_reached` (`billing_error`)"
+          },
+          "403": {
+            "description": "The caller lacks Private Models access; the message starts with Seren's code (`permission_error`)"
+          },
+          "404": {
+            "description": "The model is not a Claude model this caller can use; the message lists the Claude models available. Nothing is charged (`not_found_error`)"
+          },
+          "409": {
+            "description": "The run named in `X-Seren-Run-Id` has ended or is being cancelled (`run_not_active`)"
+          },
+          "429": {
+            "description": "The model is temporarily unavailable; retry after the `retry-after` seconds (`rate_limit_error`)"
+          },
+          "502": {
+            "description": "The model provider failed or its outcome is unknown (`api_error`)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-seren-operation-kind": "read"
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "tags": [
+          "publishers"
+        ],
+        "operationId": "get_private_models_native",
+        "responses": {
+          "200": {
+            "description": "The models `GET /models` lists, as a plain list in OpenAI's shape that also carries the fields of Anthropic's model list, so a client whose OpenAI-format Base URL ends in `/v1`, or whose Claude-format Base URL is the publisher's address, can read it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateModelsNativeListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required. Sign in with `Authorization: Bearer <key>` or `x-api-key: <key>`. Errors use OpenAI's shape, `{\"error\": {\"message\", \"code\", \"type\"}}`."
+          },
+          "403": {
+            "description": "Private models are not configured for this organization, or the deployment key lacks Private Models access (`private_models_deployment_key_missing_scope`)"
+          },
+          "409": {
+            "description": "The run named by a run model key has ended (`run_not_active`)"
           },
           "500": {
             "description": "Internal server error"
@@ -262,7 +550,7 @@
       },
       "DataResponse_ApiResultResponse": {
         "type": "object",
-        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
         "required": [
           "data"
         ],
@@ -354,7 +642,7 @@
       },
       "DataResponse_PrivateModelsListResponse": {
         "type": "object",
-        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
         "required": [
           "data"
         ],
@@ -501,6 +789,34 @@
           "day"
         ]
       },
+      "ManagedAgentBudgetShortfall": {
+        "type": "object",
+        "description": "The other limit that cannot cover the amount a stop's suggested raise is sized for.",
+        "required": [
+          "scope",
+          "limit_atomic",
+          "used_atomic",
+          "suggested_increase_atomic"
+        ],
+        "properties": {
+          "limit_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ManagedAgentBudgetScope"
+          },
+          "suggested_increase_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "used_atomic": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
       "ManagedAgentBudgetStop": {
         "oneOf": [
           {
@@ -513,11 +829,30 @@
               "code"
             ],
             "properties": {
+              "also": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentBudgetShortfall",
+                    "description": "The other limit, when it is also too short for suggested_increase_atomic to let the task finish."
+                  }
+                ]
+              },
               "code": {
                 "type": "string",
                 "enum": [
                   "budget_reached"
                 ]
+              },
+              "held_atomic": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "Included in used_atomic; absent on stops recorded by older runtimes."
               },
               "limit_atomic": {
                 "type": "integer",
@@ -525,6 +860,14 @@
               },
               "scope": {
                 "$ref": "#/components/schemas/ManagedAgentBudgetScope"
+              },
+              "step_increase_atomic": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "Additional allowance for one step; zero when the existing allowance covers it."
               },
               "suggested_increase_atomic": {
                 "type": "integer",
@@ -750,10 +1093,34 @@
       },
       "PrivateModelsChatCompletionsRequest": {
         "type": "object",
+        "description": "The chat completion request body as callers send it. Fields that change nothing Seren does (`user`, `metadata`, `store`, `service_tier`, `prompt_cache_key`, `safety_identifier`, `parallel_tool_calls`, `stream_options`, `n` of 1, `logprobs` false and `modalities` of text only) are accepted and left out. `n` above 1, `logprobs` true, `top_logprobs`, `audio`, other `modalities`, `prediction`, `functions`, `function_call` and any field not listed here are refused with `unsupported_request_field`. A null field is the same as an absent one.",
         "required": [
           "messages"
         ],
         "properties": {
+          "frequency_penalty": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "Sent to models that take it; left out, and named in `X-Seren-Ignored-Parameters`, for the others."
+          },
+          "logit_bias": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Sent to models that take it; left out, and named in `X-Seren-Ignored-Parameters`, for the others."
+          },
+          "max_completion_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "OpenAI's name for `max_tokens`. When both fields are sent they must be equal."
+          },
           "max_tokens": {
             "type": [
               "integer",
@@ -773,21 +1140,64 @@
               "null"
             ]
           },
+          "presence_penalty": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "Sent to models that take it; left out, and named in `X-Seren-Ignored-Parameters`, for the others."
+          },
           "reasoning": {
             "oneOf": [
               {
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/PrivateModelsReasoning"
+                "$ref": "#/components/schemas/PrivateModelsReasoning",
+                "description": "How much the model thinks before it answers. Omit it for no thinking."
               }
             ]
+          },
+          "reasoning_effort": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PrivateModelsReasoningEffortSetting",
+                "description": "OpenAI's name for `reasoning.effort`, and another way to set it. `none` means no thinking, the same as omitting both fields; every other value means the same as in `reasoning.effort`. When both fields are sent they must name the same effort."
+              }
+            ]
+          },
+          "response_format": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "OpenAI's way to set `response_schema`: `{\"type\":\"json_schema\",\"json_schema\":{\"schema\":...}}` sets that schema, `{\"type\":\"json_object\"}` asks for a JSON object, and `{\"type\":\"text\"}` asks for plain text. Send it or `response_schema`, not both."
           },
           "response_schema": {
             "type": [
               "object",
               "null"
-            ]
+            ],
+            "description": "A JSON schema the reply must follow."
+          },
+          "seed": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Sent to models that take it; left out, and named in `X-Seren-Ignored-Parameters`, for the others."
+          },
+          "stop": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "One sequence, or a list of them, at which the model stops."
           },
           "stream": {
             "type": "boolean"
@@ -797,17 +1207,15 @@
               "number",
               "null"
             ],
-            "format": "float"
+            "format": "float",
+            "description": "Left out, and named in `X-Seren-Ignored-Parameters`, for a model that does not take it, when reasoning is set, and for a Claude Fable 5 value other than 1.0."
           },
           "tool_choice": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/PrivateModelsToolChoice"
-              }
-            ]
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "`auto` (the default), `none` (the model is sent no tools), `required` (the model must call a tool), or `{\"type\":\"function\",\"function\":{\"name\":...}}` (the model must call that tool, which must be in `tools`).\nModels that cannot force a tool call use an instruction and one retry; a second miss sets X-Seren-Tool-Choice: not-honored. Both attempts count toward usage. Converted turns omit signed reasoning while preserving text and tool history; ordinary signed replay with tools is unchanged."
           },
           "tools": {
             "type": [
@@ -823,14 +1231,16 @@
               "integer",
               "null"
             ],
-            "format": "int32"
+            "format": "int32",
+            "description": "Left out, and named in `X-Seren-Ignored-Parameters`, for a model that does not take it."
           },
           "top_p": {
             "type": [
               "number",
               "null"
             ],
-            "format": "float"
+            "format": "float",
+            "description": "Left out, and named in `X-Seren-Ignored-Parameters`, for a model that does not take it and when reasoning is set."
           }
         },
         "additionalProperties": false
@@ -894,6 +1304,70 @@
           }
         }
       },
+      "PrivateModelsNativeListResponse": {
+        "type": "object",
+        "description": "The model list in OpenAI's and Anthropic's list shapes, without Seren's\nresponse envelope.",
+        "required": [
+          "object",
+          "data",
+          "has_more"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PrivateModelsNativeModelInfo"
+            }
+          },
+          "first_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The first model's ID, or null when the list is empty."
+          },
+          "has_more": {
+            "type": "boolean",
+            "description": "Always false: every model is in one page."
+          },
+          "last_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The last model's ID, or null when the list is empty."
+          },
+          "object": {
+            "type": "string",
+            "description": "Always `list`."
+          }
+        }
+      },
+      "PrivateModelsNativeModelInfo": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PrivateModelsModelInfo"
+          },
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "created_at"
+            ],
+            "properties": {
+              "created_at": {
+                "type": "string",
+                "description": "When the list was made, in RFC 3339."
+              },
+              "type": {
+                "type": "string",
+                "description": "Always `model`."
+              }
+            }
+          }
+        ],
+        "description": "A model in the plain list, with the fields both OpenAI's and Anthropic's\nmodel lists carry."
+      },
       "PrivateModelsPaymentRequired": {
         "oneOf": [
           {
@@ -927,10 +1401,17 @@
           "max"
         ]
       },
-      "PrivateModelsToolChoice": {
+      "PrivateModelsReasoningEffortSetting": {
         "type": "string",
+        "description": "The accepted values of `reasoning_effort`.",
         "enum": [
-          "auto"
+          "none",
+          "minimal",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
         ]
       },
       "ResourceInfo": {
