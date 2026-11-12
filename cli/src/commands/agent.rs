@@ -234,6 +234,7 @@ fn managed_mutation_terminal_error(
 ) -> anyhow::Error {
     let reason = action
         .reason
+        .as_ref()
         .map(|reason| reason.to_string())
         .unwrap_or_else(|| "unspecified".to_string());
     anyhow::anyhow!(
@@ -289,7 +290,7 @@ where
         }
         anyhow::bail!("{operation} response omitted its runtime action");
     };
-    match action.state {
+    match &action.state {
         seren::ManagedRuntimeReconciliationState::Applied => return initial.to_json(),
         seren::ManagedRuntimeReconciliationState::Failed
         | seren::ManagedRuntimeReconciliationState::Superseded => {
@@ -297,7 +298,9 @@ where
                 operation, request_id, action,
             ));
         }
-        seren::ManagedRuntimeReconciliationState::Pending => {}
+        // Only recognized terminal states end polling.
+        seren::ManagedRuntimeReconciliationState::Pending
+        | seren::ManagedRuntimeReconciliationState::Other(_) => {}
     }
 
     let deadline = std::time::Instant::now() + MANAGED_MUTATION_POLL_TIMEOUT;
@@ -315,7 +318,7 @@ where
             Err(error) => return Err(error),
         };
         let action = &payload.data.reconciliation;
-        match action.state {
+        match &action.state {
             seren::ManagedRuntimeReconciliationState::Applied => {
                 return serde_json::to_value(payload).map_err(Into::into);
             }
@@ -325,7 +328,9 @@ where
                     operation, request_id, action,
                 ));
             }
-            seren::ManagedRuntimeReconciliationState::Pending => {}
+            // Only recognized terminal states end polling.
+            seren::ManagedRuntimeReconciliationState::Pending
+            | seren::ManagedRuntimeReconciliationState::Other(_) => {}
         }
     }
 }
@@ -6192,6 +6197,8 @@ pub async fn managed_reference_env_credential_proposal_create(
             "This idempotency key already produced an applied proposal. Review it with managed-reference-env-credential-proposal-get; use a new idempotency key for another change.".to_string(),
         seren::ManagedReferenceEnvCredentialProposalState::Superseded =>
             "This idempotency key belongs to a superseded proposal. Read the current proposal and use a new idempotency key for another change.".to_string(),
+        seren::ManagedReferenceEnvCredentialProposalState::Other(_) =>
+            "This proposal is in a state this version of Seren doesn't know. Review it with managed-reference-env-credential-proposal-get; use a new idempotency key for another change.".to_string(),
     };
     output::print_json(&serde_json::json!({
         "status": proposal.state,
@@ -14096,6 +14103,30 @@ mod tests {
             serde_json::from_value(serde_json::json!({ "data": [item] }))
                 .expect("run event matches the generated contract");
         serde_json::to_value(response).expect("serialize run events")["data"][0].clone()
+    }
+
+    #[test]
+    fn cloud_run_output_event_formatter_prints_unlisted_kinds_and_types() {
+        let wire = serde_json::json!({
+            "sequence_number": 7,
+            "kind": "model_call_finished",
+            "type": "future_model_call",
+            "item_id": "model_1",
+            "model": "anthropic/claude-opus-5-5"
+        });
+        let envelope = decoded_cloud_run_output_event(wire.clone());
+        assert_eq!(envelope, wire);
+        let row = format_cloud_run_output_event(&envelope);
+        assert!(row.contains("#7"), "{row}");
+        assert!(row.contains("model_call_finished"), "{row}");
+        assert!(row.contains("item=model_1"), "{row}");
+
+        let wire = serde_json::json!({
+            "sequence_number": 8, "kind": "brand_new_kind", "type": "text", "text": "hi"
+        });
+        let envelope = decoded_cloud_run_output_event(wire.clone());
+        assert_eq!(envelope, wire);
+        assert!(format_cloud_run_output_event(&envelope).contains("brand_new_kind"));
     }
 
     #[test]

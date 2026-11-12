@@ -4086,6 +4086,8 @@ fn hosted_status_from_policy(status: DelegationPolicyRequestStatus) -> HostedDel
         | DelegationPolicyRequestStatus::Cancelled
         | DelegationPolicyRequestStatus::Superseded
         | DelegationPolicyRequestStatus::Conflicted => HostedDelegationStatus::Expired,
+        // A status this version doesn't know grants nothing; keep waiting.
+        DelegationPolicyRequestStatus::Other(_) => HostedDelegationStatus::Pending,
     }
 }
 

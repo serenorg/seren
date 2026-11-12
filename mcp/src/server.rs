@@ -7309,6 +7309,9 @@ fn publisher_credential_proposal_next_step(
         seren::ManagedPublisherCredentialProposalState::Superseded => {
             "This idempotency_key belongs to a superseded proposal that can no longer be set up or applied. Call get_seren_agent_publisher_credential_proposal to find the current proposal, or create a new proposal with a new idempotency_key."
         }
+        seren::ManagedPublisherCredentialProposalState::Other(_) => {
+            "This idempotency_key belongs to a proposal in a state this version of Seren doesn't know. Call get_seren_agent_publisher_credential_proposal to review it, or create a new proposal with a new idempotency_key."
+        }
     }
 }
 
@@ -7329,6 +7332,9 @@ fn reference_env_credential_proposal_next_step(
         }
         seren::ManagedReferenceEnvCredentialProposalState::Superseded => {
             "This idempotency_key belongs to a superseded proposal that can no longer be set up or applied. Call get_seren_agent_reference_env_credential_proposal to find the current proposal, or create a new proposal with a new idempotency_key."
+        }
+        seren::ManagedReferenceEnvCredentialProposalState::Other(_) => {
+            "This idempotency_key belongs to a proposal in a state this version of Seren doesn't know. Call get_seren_agent_reference_env_credential_proposal to review it, or create a new proposal with a new idempotency_key."
         }
     }
 }

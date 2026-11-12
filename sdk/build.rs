@@ -1360,6 +1360,7 @@ fn open_response_only_schemas(value: &mut serde_json::Value) {
                 if let Some(responses) = operation.get_mut("responses") {
                     open_object_schema(responses, false);
                     relax_value_limits(responses, &shared_scalars, true);
+                    mark_reply_enums(responses, &[]);
                 }
             }
         }
@@ -1374,9 +1375,314 @@ fn open_response_only_schemas(value: &mut serde_json::Value) {
                 if !union_branches.contains(name) {
                     relax_value_limits(schema, &shared_scalars, !union_reached.contains(name));
                 }
+                if !union_reached.contains(name) && !CLOSED_REPLY_ENUMS.contains(&name.as_str()) {
+                    mark_reply_enums(schema, &[]);
+                }
             }
         }
     }
+}
+
+/// Documentation token that asks the generated enum to keep unlisted values.
+const OPEN_REPLY_ENUM_MARKER: &str = "seren-open-reply-enum";
+
+/// Reply-only component enums that stay closed. Every other multi-valued
+/// string enum reached only from replies decodes an unlisted value as
+/// `Other(String)`. Requests, single-value tags, and enums whose value picks
+/// a union branch stay closed without being listed here.
+const CLOSED_REPLY_ENUMS: &[&str] = &[
+    // A download is checked against its checksum; an algorithm the SDK can't
+    // compute must refuse the reply rather than pass the file unverified.
+    "StorageChecksumAlgorithm",
+];
+
+fn string_enum_values(schema: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
+    let map = schema.as_object()?;
+    if map.get("type").and_then(serde_json::Value::as_str) != Some("string") {
+        return None;
+    }
+    map.get("enum").and_then(serde_json::Value::as_array)
+}
+
+fn branch_property<'a>(branch: &'a serde_json::Value, name: &str) -> Option<&'a serde_json::Value> {
+    branch.get("properties")?.get(name)
+}
+
+/// Two union branches that require one tag property with different single values.
+fn tags_distinguish(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+    let required = |branch: &serde_json::Value| -> Vec<String> {
+        branch
+            .get("required")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect()
+    };
+    let b_required = required(b);
+    required(a).iter().any(|name| {
+        b_required.contains(name)
+            && matches!(
+                (
+                    branch_property(a, name).and_then(string_enum_values),
+                    branch_property(b, name).and_then(string_enum_values),
+                ),
+                (Some(x), Some(y)) if x.len() == 1 && y.len() == 1 && x != y
+            )
+    })
+}
+
+/// Properties of `branch` whose enum could pick between it and a sibling.
+fn discriminating_properties(index: usize, branches: &[serde_json::Value]) -> Vec<String> {
+    let branch = &branches[index];
+    let Some(properties) = branch
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+    else {
+        return Vec::new();
+    };
+    properties
+        .iter()
+        .filter(|(name, schema)| {
+            let Some(values) = string_enum_values(schema) else {
+                return false;
+            };
+            branches.iter().enumerate().any(|(other_index, other)| {
+                other_index != index
+                    && !tags_distinguish(branch, other)
+                    && branch_property(other, name)
+                        .is_some_and(|other| string_enum_values(other) != Some(values))
+            })
+        })
+        .map(|(name, _)| name.clone())
+        .collect()
+}
+
+/// Marks multi-valued string enums in a reply schema so the generated enum
+/// keeps unlisted values. `closed` names this object's properties that must
+/// stay closed because their value picks a union branch.
+fn mark_reply_enums(value: &mut serde_json::Value, closed: &[String]) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if open_string_enum(map) {
+                let marked = match map.get("description").and_then(serde_json::Value::as_str) {
+                    Some(text) if text.contains(OPEN_REPLY_ENUM_MARKER) => text.to_string(),
+                    Some(text) if !text.is_empty() => format!("{text}\n\n{OPEN_REPLY_ENUM_MARKER}"),
+                    _ => OPEN_REPLY_ENUM_MARKER.to_string(),
+                };
+                map.insert("description".into(), serde_json::Value::String(marked));
+            }
+            for (key, v) in map.iter_mut() {
+                match key.as_str() {
+                    "oneOf" | "anyOf" => {
+                        let snapshot = v.as_array().cloned().unwrap_or_default();
+                        for (index, branch) in v.as_array_mut().into_iter().flatten().enumerate() {
+                            let closed = discriminating_properties(index, &snapshot);
+                            mark_reply_enums(branch, &closed);
+                        }
+                    }
+                    "properties" => {
+                        for (name, property) in v.as_object_mut().into_iter().flatten() {
+                            if !closed.contains(name) {
+                                mark_reply_enums(property, &[]);
+                            }
+                        }
+                    }
+                    _ => mark_reply_enums(v, &[]),
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                mark_reply_enums(v, &[]);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Preserve unknown response enum values as `Other(String)` while keeping `FromStr` strict.
+fn open_marked_reply_enums(syntax: &mut syn::File) -> Vec<String> {
+    use syn::visit_mut::VisitMut;
+
+    fn doc_text(attr: &syn::Attribute) -> Option<String> {
+        let syn::Meta::NameValue(meta) = &attr.meta else {
+            return None;
+        };
+        if !meta.path.is_ident("doc") {
+            return None;
+        }
+        let syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(text),
+            ..
+        }) = &meta.value
+        else {
+            return None;
+        };
+        Some(text.value())
+    }
+
+    fn strip_marker(attrs: &mut Vec<syn::Attribute>) -> bool {
+        let mut marked = false;
+        attrs.retain_mut(|attr| {
+            let Some(text) = doc_text(attr) else {
+                return true;
+            };
+            if !text.contains(OPEN_REPLY_ENUM_MARKER) {
+                return true;
+            }
+            marked = true;
+            let rest = text.replace(OPEN_REPLY_ENUM_MARKER, "");
+            let rest = rest.trim_end();
+            if rest.trim().is_empty() {
+                return false;
+            }
+            *attr = syn::parse_quote!(#[doc = #rest]);
+            true
+        });
+        marked
+    }
+
+    #[derive(Default)]
+    struct Enums(HashSet<String>);
+    impl VisitMut for Enums {
+        fn visit_field_mut(&mut self, field: &mut syn::Field) {
+            strip_marker(&mut field.attrs);
+            syn::visit_mut::visit_field_mut(self, field);
+        }
+
+        fn visit_item_enum_mut(&mut self, item: &mut syn::ItemEnum) {
+            syn::visit_mut::visit_item_enum_mut(self, item);
+            let marked = strip_marker(&mut item.attrs);
+            if !marked
+                || item
+                    .variants
+                    .iter()
+                    .any(|v| !matches!(v.fields, syn::Fields::Unit))
+            {
+                return;
+            }
+            for attr in &mut item.attrs {
+                if !attr.path().is_ident("derive") {
+                    continue;
+                }
+                if let Ok(paths) = attr.parse_args_with(
+                    syn::punctuated::Punctuated::<syn::Path, syn::Token![,]>::parse_terminated,
+                ) {
+                    let kept = paths.into_iter().filter(|p| !p.is_ident("Copy"));
+                    *attr = syn::parse_quote!(#[derive(#(#kept),*)]);
+                }
+            }
+            item.variants.push(syn::parse_quote!(
+                /// An unknown string value preserved from the response.
+                #[serde(untagged)]
+                Other(::std::string::String)
+            ));
+            self.0.insert(item.ident.to_string());
+        }
+    }
+
+    struct Display<'a>(&'a HashSet<String>);
+    impl VisitMut for Display<'_> {
+        fn visit_item_impl_mut(&mut self, item: &mut syn::ItemImpl) {
+            syn::visit_mut::visit_item_impl_mut(self, item);
+            let Some((trait_path, _)) = &item.trait_ else {
+                return;
+            };
+            if trait_path
+                .segments
+                .last()
+                .is_none_or(|s| s.ident != "Display")
+            {
+                return;
+            }
+            let syn::Type::Path(self_ty) = item.self_ty.as_ref() else {
+                return;
+            };
+            if !self_ty
+                .path
+                .segments
+                .last()
+                .is_some_and(|s| self.0.contains(&s.ident.to_string()))
+            {
+                return;
+            }
+            for impl_item in &mut item.items {
+                let syn::ImplItem::Fn(method) = impl_item else {
+                    continue;
+                };
+                for stmt in &mut method.block.stmts {
+                    if let syn::Stmt::Expr(syn::Expr::Match(expr), _) = stmt {
+                        *expr.expr = syn::parse_quote!(self);
+                        expr.arms
+                            .push(syn::parse_quote!(Self::Other(value) => f.write_str(value),));
+                    }
+                }
+            }
+        }
+    }
+
+    let mut enums = Enums::default();
+    enums.visit_file_mut(syntax);
+    Display(&enums.0).visit_file_mut(syntax);
+    let mut names: Vec<String> = enums.0.into_iter().collect();
+    names.sort();
+    names
+}
+
+/// Untagged reply unions that end in a branch for a `type` this SDK doesn't list.
+const OPEN_REPLY_UNIONS: &[&str] = &["CloudRunOutputEventEnvelope"];
+
+/// Every `type` tag the run output event union lists.
+fn run_output_event_types(spec: &serde_json::Value) -> anyhow::Result<Vec<String>> {
+    let branches = spec
+        .pointer("/components/schemas/CloudRunOutputEvent/oneOf")
+        .and_then(serde_json::Value::as_array)
+        .context("Seren Cloud OpenAPI document is missing CloudRunOutputEvent")?;
+    fn collect(value: &serde_json::Value, types: &mut Vec<String>) {
+        if let Some(values) = value
+            .pointer("/properties/type/enum")
+            .and_then(serde_json::Value::as_array)
+        {
+            types.extend(values.iter().filter_map(|v| v.as_str().map(str::to_string)));
+        }
+        for member in value
+            .get("allOf")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            collect(member, types);
+        }
+    }
+    let mut types = Vec::new();
+    for branch in branches {
+        let before = types.len();
+        collect(branch, &mut types);
+        if types.len() == before {
+            anyhow::bail!("a CloudRunOutputEvent branch has no type tag");
+        }
+    }
+    Ok(types)
+}
+
+/// Ends each open reply union with an `Other` branch that keeps an event whose
+/// `type` the union doesn't list. A listed `type` must still match its branch.
+fn open_reply_unions(syntax: &mut syn::File) {
+    use syn::visit_mut::VisitMut;
+    struct Unions;
+    impl VisitMut for Unions {
+        fn visit_item_enum_mut(&mut self, item: &mut syn::ItemEnum) {
+            if OPEN_REPLY_UNIONS.contains(&item.ident.to_string().as_str()) {
+                item.variants.push(syn::parse_quote!(
+                    /// An opaque event with an unknown string `type`.
+                    Other(crate::UnknownRunOutputEvent)
+                ));
+            }
+            syn::visit_mut::visit_item_enum_mut(self, item);
+        }
+    }
+    Unions.visit_file_mut(syntax);
 }
 
 /// Checks the SerenDB query-cell contract before code generation.
@@ -1624,6 +1930,7 @@ fn main() -> anyhow::Result<()> {
     // object, so a cell that stopped being a named reference would silently
     // regenerate as a map.
     validate_query_result_cell_schema(&raw_json)?;
+    let event_types = run_output_event_types(&raw_json)?;
 
     let mut refs = HashSet::new();
     collect_refs(&raw_json, &mut refs);
@@ -1698,7 +2005,12 @@ fn main() -> anyhow::Result<()> {
     let mut syntax: syn::File = syn::parse2(tokens)?;
     normalize_datetime_types(&mut syntax);
     guard_publisher_value_response(&mut syntax);
+    let open_enums = open_marked_reply_enums(&mut syntax);
+    open_reply_unions(&mut syntax);
     let formatted = prettyplease::unparse(&syntax);
+    if formatted.contains(OPEN_REPLY_ENUM_MARKER) {
+        anyhow::bail!("generated code still carries the open reply enum marker");
+    }
 
     // Preserve status, headers, and body for every documented HTTP error.
     // Empty typed responses discard diagnostics before SDK consumers see them.
@@ -1716,6 +2028,24 @@ fn main() -> anyhow::Result<()> {
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     fs::create_dir_all(&out_dir)?;
     fs::write(out_dir.join("generated.rs"), formatted)?;
+    // A test decodes an unlisted value into every reply enum the build opened.
+    let mut checks = String::from(
+        "pub(crate) fn unlisted_reply_value_refusals() -> Vec<&'static str> {\n    let mut refused = Vec::new();\n",
+    );
+    for name in &open_enums {
+        checks.push_str(&format!(
+            "    if !matches!(serde_json::from_value::<crate::{name}>(serde_json::json!(\"seren-unlisted-value\")), Ok(crate::{name}::Other(value)) if value == \"seren-unlisted-value\") {{ refused.push(\"{name}\"); }}\n"
+        ));
+    }
+    checks.push_str("    refused\n}\n");
+    checks.push_str(&format!(
+        "pub(crate) const OPEN_REPLY_ENUMS: &[&str] = &{open_enums:?};\n"
+    ));
+    fs::write(out_dir.join("open_reply_enum_checks.rs"), checks)?;
+    fs::write(
+        out_dir.join("run_output_event_types.rs"),
+        format!("pub(crate) const RUN_OUTPUT_EVENT_TYPES: &[&str] = &{event_types:?};\n"),
+    )?;
 
     Ok(())
 }
