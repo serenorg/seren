@@ -1390,7 +1390,11 @@ const OPEN_REPLY_ENUM_MARKER: &str = "seren-open-reply-enum";
 /// string enum reached only from replies decodes an unlisted value as
 /// `Other(String)`. Requests, single-value tags, and enums whose value picks
 /// a union branch stay closed without being listed here.
-const CLOSED_REPLY_ENUMS: &[&str] = &[];
+const CLOSED_REPLY_ENUMS: &[&str] = &[
+    // A download is checked against its checksum; an algorithm the SDK can't
+    // compute must refuse the reply rather than pass the file unverified.
+    "StorageChecksumAlgorithm",
+];
 
 fn string_enum_values(schema: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
     let map = schema.as_object()?;
