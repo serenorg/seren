@@ -29070,7 +29070,7 @@ pub(crate) mod tests {
         let prefix = format!("/organizations/{id}/templates");
         let rejected = serde_json::json!({"slug": "example", "display_name": "Example", "active": true, "listed": false, "current_revision": 3, "review_state": "rejected", "review_reason": "Update the description"});
         let pending = serde_json::json!({"slug": "example", "display_name": "Example", "active": true, "listed": false, "current_revision": 3, "review_state": "pending"});
-        let profile = serde_json::json!({"capabilities": [], "example_tasks": [], "works_in": ["google-drive"], "pronouns": "she/her"});
+        let profile = serde_json::json!({"skill_slugs": [], "capabilities": [], "example_tasks": [], "works_in": ["google-drive"], "pronouns": "she/her"});
         let organization = serde_json::json!({"id": id, "name": "Example", "slug": "example", "created_by": id, "is_personal": false, "public_handle": "example-store", "created_at": "2026-10-25T00:00:00Z", "updated_at": "2026-10-25T00:00:00Z"});
         for (verb, route, request, response) in [
             (
@@ -29387,7 +29387,7 @@ pub(crate) mod tests {
             .and(path(route.as_str()))
             .and(body_json(serde_json::json!({"display_name": "Research Partner"})))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {
-                "avatar_url": null, "capabilities": [], "description": null, "example_tasks": [],
+                "avatar_url": null, "skill_slugs": [], "capabilities": [], "description": null, "example_tasks": [],
                 "job_title": null, "pronouns": "they/them", "tagline": null, "works_in": [],
                 "rename": {"previous_display_name": "Researcher", "display_name": "Research Partner",
                     "charge": {"amount_atomic": 1000000, "transaction_ids": [transaction]}}
@@ -40246,7 +40246,7 @@ pub(crate) mod tests {
     /// (`GET https://api.serendb.com/publishers/seren-agent/templates`, read on 2026-11-01),
     /// updated with the required intro-video metadata and catalog fields.
     fn public_employee_catalog() -> Value {
-        serde_json::json!({
+        let mut catalog = serde_json::json!({
             "data": [
                 {
                     "owner_connection": "mail_and_files",
@@ -40467,7 +40467,12 @@ pub(crate) mod tests {
                     "similar": []
                 }
             ]
-        })
+        });
+        // Core sends each listing's skill keys; none of these capabilities has one.
+        for listing in catalog["data"].as_array_mut().unwrap() {
+            listing["skill_slugs"] = serde_json::json!([]);
+        }
+        catalog
     }
 
     /// Core's listings as the generated client hands them back. Core's contract gives an
@@ -41142,7 +41147,7 @@ mod template_media_tests {
 
     fn profile_fixture(avatar: bool) -> Value {
         json!({"data": {"avatar_url": if avatar { json!("https://api.serendb.com/agents/templates/anya/avatar") } else { Value::Null },
-            "capabilities": [], "example_tasks": [], "works_in": [], "pronouns": "she/her"}})
+            "skill_slugs": [], "capabilities": [], "example_tasks": [], "works_in": [], "pronouns": "she/her"}})
     }
 
     fn video_fixture(state: &str, live: bool) -> Value {
