@@ -1499,7 +1499,7 @@ fn mark_reply_enums(value: &mut serde_json::Value, closed: &[String]) {
 
 /// Gives each marked reply enum an `Other(String)` variant that keeps an
 /// unlisted value. Parsing a string into the enum stays strict for requests.
-fn open_marked_reply_enums(syntax: &mut syn::File) {
+fn open_marked_reply_enums(syntax: &mut syn::File) -> Vec<String> {
     use syn::visit_mut::VisitMut;
 
     fn doc_text(attr: &syn::Attribute) -> Option<String> {
@@ -1622,6 +1622,64 @@ fn open_marked_reply_enums(syntax: &mut syn::File) {
     let mut enums = Enums::default();
     enums.visit_file_mut(syntax);
     Display(&enums.0).visit_file_mut(syntax);
+    let mut names: Vec<String> = enums.0.into_iter().collect();
+    names.sort();
+    names
+}
+
+/// Untagged reply unions that end in a branch for a `type` this SDK doesn't list.
+const OPEN_REPLY_UNIONS: &[&str] = &["CloudRunOutputEventEnvelope"];
+
+/// Every `type` tag the run output event union lists.
+fn run_output_event_types(spec: &serde_json::Value) -> anyhow::Result<Vec<String>> {
+    let branches = spec
+        .pointer("/components/schemas/CloudRunOutputEvent/oneOf")
+        .and_then(serde_json::Value::as_array)
+        .context("Seren Cloud OpenAPI document is missing CloudRunOutputEvent")?;
+    fn collect(value: &serde_json::Value, types: &mut Vec<String>) {
+        if let Some(values) = value
+            .pointer("/properties/type/enum")
+            .and_then(serde_json::Value::as_array)
+        {
+            types.extend(values.iter().filter_map(|v| v.as_str().map(str::to_string)));
+        }
+        for member in value
+            .get("allOf")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            collect(member, types);
+        }
+    }
+    let mut types = Vec::new();
+    for branch in branches {
+        let before = types.len();
+        collect(branch, &mut types);
+        if types.len() == before {
+            anyhow::bail!("a CloudRunOutputEvent branch has no type tag");
+        }
+    }
+    Ok(types)
+}
+
+/// Ends each open reply union with an `Other` branch that keeps an event whose
+/// `type` the union doesn't list. A listed `type` must still match its branch.
+fn open_reply_unions(syntax: &mut syn::File) {
+    use syn::visit_mut::VisitMut;
+    struct Unions;
+    impl VisitMut for Unions {
+        fn visit_item_enum_mut(&mut self, item: &mut syn::ItemEnum) {
+            if OPEN_REPLY_UNIONS.contains(&item.ident.to_string().as_str()) {
+                item.variants.push(syn::parse_quote!(
+                    /// An event whose `type` this SDK doesn't list, kept as Core sent it.
+                    Other(crate::UnknownRunOutputEvent)
+                ));
+            }
+            syn::visit_mut::visit_item_enum_mut(self, item);
+        }
+    }
+    Unions.visit_file_mut(syntax);
 }
 
 /// Checks the SerenDB query-cell contract before code generation.
@@ -1869,6 +1927,7 @@ fn main() -> anyhow::Result<()> {
     // object, so a cell that stopped being a named reference would silently
     // regenerate as a map.
     validate_query_result_cell_schema(&raw_json)?;
+    let event_types = run_output_event_types(&raw_json)?;
 
     let mut refs = HashSet::new();
     collect_refs(&raw_json, &mut refs);
@@ -1943,7 +2002,8 @@ fn main() -> anyhow::Result<()> {
     let mut syntax: syn::File = syn::parse2(tokens)?;
     normalize_datetime_types(&mut syntax);
     guard_publisher_value_response(&mut syntax);
-    open_marked_reply_enums(&mut syntax);
+    let open_enums = open_marked_reply_enums(&mut syntax);
+    open_reply_unions(&mut syntax);
     let formatted = prettyplease::unparse(&syntax);
     if formatted.contains(OPEN_REPLY_ENUM_MARKER) {
         anyhow::bail!("generated code still carries the open reply enum marker");
@@ -1965,6 +2025,24 @@ fn main() -> anyhow::Result<()> {
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     fs::create_dir_all(&out_dir)?;
     fs::write(out_dir.join("generated.rs"), formatted)?;
+    // A test decodes an unlisted value into every reply enum the build opened.
+    let mut checks = String::from(
+        "pub(crate) fn unlisted_reply_value_refusals() -> Vec<&'static str> {\n    let mut refused = Vec::new();\n",
+    );
+    for name in &open_enums {
+        checks.push_str(&format!(
+            "    if !matches!(serde_json::from_value::<crate::{name}>(serde_json::json!(\"seren-unlisted-value\")), Ok(crate::{name}::Other(value)) if value == \"seren-unlisted-value\") {{ refused.push(\"{name}\"); }}\n"
+        ));
+    }
+    checks.push_str("    refused\n}\n");
+    checks.push_str(&format!(
+        "pub(crate) const OPEN_REPLY_ENUMS: &[&str] = &{open_enums:?};\n"
+    ));
+    fs::write(out_dir.join("open_reply_enum_checks.rs"), checks)?;
+    fs::write(
+        out_dir.join("run_output_event_types.rs"),
+        format!("pub(crate) const RUN_OUTPUT_EVENT_TYPES: &[&str] = &{event_types:?};\n"),
+    )?;
 
     Ok(())
 }
