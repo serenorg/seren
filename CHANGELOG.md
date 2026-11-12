@@ -2,6 +2,25 @@
 
 Changes to Seren are documented in this file.
 
+## [0.12.0] - 2026-11-12
+
+Employee run events and run timelines work with Core's current managed runtime, and the SDK tolerates new values and fields Core adds to its replies.
+
+### Added
+
+- `seren agent managed-template-runs` and `managed-template-run` list the runs of an Employee your organization publishes and read one run's timeline, with `--follow` to print new steps until the run ends. MCP adds `list_seren_agent_template_runs` and `get_seren_agent_template_run`.
+- Add-on management in MCP: list published add-ons with price, buyers and earnings, update a listing, set a price, upload a picture, read price history, publish a release, and show or hide public add-ons on an Employee you own.
+- Publisher endpoints in MCP can declare that their last path value takes the remaining path segments, such as a file path inside folders.
+
+### Fixed
+
+- `seren agent cloud run events` and the matching MCP tool read the events of current Employee runs, including `model_call_finished`, `tool_output` and `warning` events, `display_arguments` on started tool calls and `display_content` on completed ones. Earlier releases failed with `Invalid Response Payload` on these runs.
+- Employee catalog tools read measured task cost percentiles such as `p90_task_atomic`, capability lines up to 160 characters, and tool names Core adds, such as `kraken` and `arkham`.
+- When Core adds a field, event type, status or catalog value to a reply, the CLI, MCP and SDK keep it as Core sent it instead of rejecting the whole reply. A run event of a type the SDK doesn't list keeps every field, and `seren agent cloud run events` prints it. A state the CLI or MCP doesn't know counts as still waiting, never as success or approval. Requests still refuse values that aren't listed, and storage checksum algorithms stay strict, because a download can't be checked against an algorithm the SDK doesn't know.
+- Publisher dispatch refusals in MCP name the rule the path broke, without exposing the path or credentials.
+- Passwords access requests keep their pending consent until a replacement request succeeds.
+- MCP publisher examples use Firecrawl's v2 scrape endpoint.
+
 ## [0.11.0] - 2026-11-06
 
 Employee management, publisher calls, skill installation, and gateway responses are aligned across the CLI, MCP, and SDK. This release also adds safer publisher deadlines and preserves approved Passwords access while grants are applied.
