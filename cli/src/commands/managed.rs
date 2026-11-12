@@ -74,6 +74,40 @@ pub enum ManagedAction {
     },
     /// Read aggregate work hours and skill count for a published template
     ManagedTemplateStats { template: String },
+    /// List the runs of an Employee your organization publishes, newest first
+    ManagedTemplateRuns {
+        template: String,
+        /// Only runs that ended this way, such as `completed` or `script_failed`
+        #[arg(long)]
+        ending: Option<String>,
+        /// Only runs started at or after this RFC 3339 time
+        #[arg(long)]
+        since: Option<String>,
+        /// Only runs started before this RFC 3339 time
+        #[arg(long)]
+        until: Option<String>,
+        /// Only runs of this Employer number, or `yours` for your organization's runs
+        #[arg(long)]
+        employer: Option<String>,
+        /// Only runs of this release
+        #[arg(long)]
+        release: Option<i64>,
+        /// Maximum runs to return, 20 by default
+        #[arg(long, value_parser = clap::value_parser!(i64).range(1..=100))]
+        limit: Option<i64>,
+        /// Runs to skip
+        #[arg(long, value_parser = clap::value_parser!(i64).range(0..))]
+        offset: Option<i64>,
+    },
+    /// Read one run's timeline of an Employee your organization publishes
+    ManagedTemplateRun {
+        template: String,
+        /// Run code, such as `R-7F3K`
+        run_code: String,
+        /// Print new steps every 5 seconds until the run ends
+        #[arg(long)]
+        follow: bool,
+    },
     /// Replace a managed agent's connected mail and files account
     ManagedRebind {
         deployment_id: Uuid,
@@ -443,6 +477,57 @@ fn print_value(value: &Value) {
     }
 }
 
+/// Seconds between reads of a followed run.
+const RUN_FOLLOW_INTERVAL_SECS: u64 = 5;
+/// Most steps Core returns in one read.
+const RUN_TIMELINE_PAGE_STEPS: usize = 500;
+
+/// Print a run's timeline. Following prints only each read's new steps, then
+/// the run once it has ended.
+async fn print_run_timeline(
+    client: &seren::Client,
+    template: &str,
+    run_code: &str,
+    follow: bool,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let mut after = None;
+    loop {
+        let timeline = match client
+            .seren_agent_get_template_run(template, run_code, after)
+            .await
+        {
+            Ok(response) => response.into_inner().data,
+            Err(error) => {
+                return Err(super::agent::anyhow_from_seren_error(
+                    "Managed agent request failed",
+                    error,
+                )
+                .await);
+            }
+        };
+        let ended = timeline.run.ended_at.is_some();
+        if after.is_none() {
+            print_response(&json!({ "data": timeline }), ctx)?;
+        } else {
+            if !timeline.steps.is_empty() {
+                print_response(&json!({ "data": timeline.steps }), ctx)?;
+            }
+            if ended {
+                print_response(&json!({ "data": timeline.run }), ctx)?;
+            }
+        }
+        if !follow || ended {
+            return Ok(());
+        }
+        let full_page = timeline.steps.len() >= RUN_TIMELINE_PAGE_STEPS;
+        after = timeline.next_after.or(after).or(Some(0));
+        if !full_page {
+            tokio::time::sleep(std::time::Duration::from_secs(RUN_FOLLOW_INTERVAL_SECS)).await;
+        }
+    }
+}
+
 pub async fn execute(action: ManagedAction, ctx: &CommandContext) -> Result<()> {
     // These operations use the caller's owner credential. Core enforces ownership and rejects runtime/work-context credentials.
     let client = ctx.client().await?;
@@ -477,6 +562,35 @@ pub async fn execute(action: ManagedAction, ctx: &CommandContext) -> Result<()> 
         }
         ManagedAction::ManagedTemplateStats { template } => {
             respond!(client.seren_agent_get_managed_agent_template_stats(&template))
+        }
+        ManagedAction::ManagedTemplateRuns {
+            template,
+            ending,
+            since,
+            until,
+            employer,
+            release,
+            limit,
+            offset,
+        } => respond!(client.seren_agent_list_template_runs(
+            &template,
+            employer.as_deref(),
+            ending.as_deref(),
+            limit,
+            offset,
+            release,
+            since.as_deref(),
+            until.as_deref(),
+        )),
+        ManagedAction::ManagedTemplateRun {
+            template,
+            run_code,
+            follow,
+        } => {
+            tokio::select! {
+                result = print_run_timeline(&client, &template, &run_code, follow, ctx) => result?,
+                _ = tokio::signal::ctrl_c() => {}
+            }
         }
         ManagedAction::ManagedRebind {
             deployment_id,
