@@ -1063,7 +1063,7 @@ mod tests {
             OutputFormat::Json,
         );
         let template = json!({"slug": "example", "display_name": "Example", "active": true, "listed": false, "current_revision": 3, "review_state": "pending"});
-        let profile = json!({"capabilities": [], "example_tasks": [], "works_in": [], "pronouns": "they/them"});
+        let profile = json!({"capabilities": [], "skill_slugs": [], "example_tasks": [], "works_in": [], "pronouns": "they/them"});
         let prefix = format!("/organizations/{organization_id}/templates");
         for (verb, route, request, response) in [
             (
