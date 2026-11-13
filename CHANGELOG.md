@@ -2,6 +2,30 @@
 
 Changes to Seren are documented in this file.
 
+## [0.12.0] - 2026-11-13
+
+Managed agent run timelines include reported script errors, and response decoding accepts added fields, event types, and enum values while preserving request and integrity checks.
+
+### Added
+
+- `seren agent managed-template-runs` lists runs of a managed agent published by your organization. `managed-template-run` reads one run's timeline and supports `--follow`. Run summaries include exit codes, reported script error output, and report timestamps. MCP exposes these reads through `list_seren_agent_template_runs` and `get_seren_agent_template_run`.
+- MCP add-on management: list published add-ons and earnings, update listings and prices, upload pictures, inspect price history, publish releases, and control visibility on managed agents you own.
+- MCP publisher endpoints can declare that their final path parameter consumes the remaining path segments, including nested file paths.
+
+### Changed
+
+- **Breaking:** Extensible response enums gain `Other(String)` variants and no longer implement `Copy`. Update exhaustive matches to handle unknown values, and borrow or clone affected enums instead of assuming they are copied. Run-event envelopes also gain an `Other(UnknownRunOutputEvent)` variant.
+
+### Fixed
+
+- CLI and MCP run-event reads decode current tool-output, model-timing, and warning events, including display arguments and content.
+- Response decoding accepts additional fields, relaxed response text limits, and unfamiliar response-only values. Unknown run-event types retain their full payloads in JSON output; normal CLI tables show selected metadata and summaries. Request enums, storage checksum algorithms, and known event payload validation remain strict.
+- Managed agent catalog reads support task cost percentiles, capability lines up to 160 characters, and additional tool names.
+- Managed mutation polling waits for a recognized terminal state, and consent checks do not infer approval from an unfamiliar status.
+- MCP publisher dispatch refusals identify the violated rule without exposing paths or credentials.
+- Seren Passwords access requests retain pending consent until replacement succeeds.
+- MCP publisher examples use Firecrawl's v2 scrape endpoint.
+
 ## [0.11.0] - 2026-11-06
 
 Employee management, publisher calls, skill installation, and gateway responses are aligned across the CLI, MCP, and SDK. This release also adds safer publisher deadlines and preserves approved Passwords access while grants are applied.
