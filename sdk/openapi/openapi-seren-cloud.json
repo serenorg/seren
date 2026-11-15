@@ -980,7 +980,7 @@
             }
           },
           "400": {
-            "description": "Invalid package or manifest (addon_package_invalid, addon_manifest_invalid), or a missing run dispatch"
+            "description": "Invalid package or manifest (addon_package_invalid, addon_manifest_invalid), or a missing run dispatch. An addon_manifest_invalid message names the file, the place in it and the problem, and ends with the shape manifest.json accepts."
           },
           "401": {
             "description": "Unauthorized"
@@ -10376,6 +10376,17 @@
             },
             "description": "Requests that require verified, unused customer consent."
           },
+          "guarded_submissions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GuardedSubmissionRule"
+            },
+            "description": "Form submissions only the customer may send, from the live window."
+          },
+          "links": {
+            "$ref": "#/components/schemas/BrowserLinks",
+            "description": "Restricts navigation to links supplied in the conversation."
+          },
           "max_session_seconds": {
             "type": [
               "integer",
@@ -10559,6 +10570,8 @@
           "header",
           "body",
           "kraken_api_sign",
+          "xero_connections",
+          "bill_com_sign_in",
           "proxy_inject",
           "runtime"
         ]
@@ -12391,7 +12404,18 @@
               },
               {
                 "$ref": "#/components/schemas/ManagedAgentDecisionOptionId",
-                "description": "The chosen option, required with `approve` for a managed agent\ndecision and accepted for no other entry."
+                "description": "The chosen option, required with `approve` for a managed agent\ndecision or a standing decision and accepted for no other entry."
+              }
+            ]
+          },
+          "payment_limits": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApprovalInboxPaymentLimits",
+                "description": "Required with `allow_always` for a payment and accepted for no other\ndecision."
               }
             ]
           }
@@ -12418,7 +12442,7 @@
               },
               {
                 "$ref": "#/components/schemas/ManagedAgentDecisionOptionId",
-                "description": "The recorded choice for a managed agent decision."
+                "description": "The recorded choice for a managed agent decision or an approved\nstanding decision."
               }
             ]
           }
@@ -12615,6 +12639,58 @@
           {
             "allOf": [
               {
+                "$ref": "#/components/schemas/ApprovalInboxStandingDecision"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "entry_id",
+                  "deployment_id",
+                  "created_at",
+                  "expires_at",
+                  "decision_state"
+                ],
+                "properties": {
+                  "created_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "decision_state": {
+                    "$ref": "#/components/schemas/ApprovalDecisionState"
+                  },
+                  "deployment_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "entry_id": {
+                    "type": "string"
+                  },
+                  "expires_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "After this time the decision can no longer be made."
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "standing_decision"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
                 "$ref": "#/components/schemas/ApprovalInboxOther"
               },
               {
@@ -12752,6 +12828,72 @@
           }
         }
       },
+      "ApprovalInboxPayment": {
+        "type": "object",
+        "description": "The amount and payee of a held payment. Its values are untrusted and must\nbe displayed as text, never rendered as markup.",
+        "required": [
+          "amount",
+          "currency",
+          "payee"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "description": "Decimal amount in major units of `currency`."
+          },
+          "currency": {
+            "type": "string",
+            "description": "ISO 4217 currency code."
+          },
+          "payee": {
+            "type": "string",
+            "description": "The payee identifier the request names."
+          }
+        }
+      },
+      "ApprovalInboxPaymentLimits": {
+        "type": "object",
+        "description": "The bounds of a standing approval for payments. Amounts are decimal strings\nin major units of `currency`.",
+        "required": [
+          "currency",
+          "max_per_payment",
+          "max_per_day",
+          "payees"
+        ],
+        "properties": {
+          "currency": {
+            "type": "string",
+            "description": "ISO 4217 currency code; must match the held payment's currency."
+          },
+          "max_per_day": {
+            "type": "string",
+            "description": "Most paid in total over any rolling 24 hours; at least `max_per_payment`."
+          },
+          "max_per_payment": {
+            "type": "string"
+          },
+          "payees": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Payee identifiers a payment may reach, exactly as requests name them.\nBetween 1 and 100."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApprovalInboxStandingDecision": {
+        "type": "object",
+        "description": "A standing decision a managed agent's script asked its hirer to make,\nwith no run waiting on it. The script reads the answer in a later run.\n\nOnly the hirer decides: `approve` with one of `decision.options`, or\n`deny`. Display its content as text, not markup.",
+        "required": [
+          "decision"
+        ],
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/ManagedAgentDecision"
+          }
+        }
+      },
       "ApprovalInboxToolCall": {
         "type": "object",
         "description": "Tool-call approval surfaced from an `awaiting_approval` run.\n\n`tool_call_id` is the orchestrator-supplied id that round-trips into the\n`approval_decisions` array on resume. `tool_ref` is the human-meaningful\ntool name (e.g. `seren_publisher_request`).",
@@ -12799,6 +12941,17 @@
               "type": "string"
             },
             "description": "Unconfirmed email destinations, as bare addresses, on this hire."
+          },
+          "payment": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApprovalInboxPayment",
+                "description": "Present when this request pays a payee, as Core read it from the exact\nrequest. A payment can be always allowed only within limits: with\n`allow_always`, the decision must carry `payment_limits`, and a later\npayment outside them asks again."
+              }
+            ]
           },
           "reason": {
             "type": [
@@ -13161,6 +13314,13 @@
         "enum": [
           "login",
           "card"
+        ]
+      },
+      "BrowserLinks": {
+        "type": "string",
+        "enum": [
+          "any",
+          "sent_only"
         ]
       },
       "CancelManagedAgentOnboardingRequest": {
@@ -19671,7 +19831,7 @@
                   },
                   {
                     "$ref": "#/components/schemas/ManagedAgentDecisionOptionId",
-                    "description": "The recorded choice for a managed agent decision."
+                    "description": "The recorded choice for a managed agent decision or an approved\nstanding decision."
                   }
                 ]
               }
@@ -26994,9 +27154,11 @@
       },
       "GuardedCheckout": {
         "type": "string",
-        "description": "Checkout protocol whose order and payment responses the egress adapter verifies.",
+        "description": "Checkout protocol whose order and payment the egress adapter verifies.",
         "enum": [
-          "best_buy"
+          "best_buy",
+          "irs_direct_pay",
+          "eftps"
         ]
       },
       "GuardedPurchaseMethod": {
@@ -27024,6 +27186,17 @@
             "$ref": "#/components/schemas/GuardedCheckout",
             "description": "Checkout protocol used to verify the order this request submits."
           },
+          "form_fields": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaxPaymentFormFields",
+                "description": "Required for tax payment checkouts and refused for store checkouts."
+              }
+            ]
+          },
           "host": {
             "type": "string",
             "description": "Exact lowercase DNS hostname, without a scheme, port or wildcard."
@@ -27034,6 +27207,38 @@
           "path_pattern": {
             "type": "string",
             "description": "Absolute path of the order-submission request. Its last `*` segment names the order. A complete `*` segment matches one nonempty segment. Queries are excluded. Trailing slashes and percent-encoded equivalents match the same configured path."
+          }
+        },
+        "additionalProperties": false
+      },
+      "GuardedSubmissionRule": {
+        "type": "object",
+        "required": [
+          "host",
+          "method",
+          "path_pattern"
+        ],
+        "properties": {
+          "graphql_operation_names": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional set of 1 to 32 unique, case-sensitive GraphQL operation names matching `[_A-Za-z][_0-9A-Za-z]*`. Omit to guard every request at this boundary. With names, a JSON object or batch is guarded if any operation matches or any operationName is missing or not a string. Unreadable, encoded, oversized or alternate-transport requests remain guarded."
+          },
+          "host": {
+            "type": "string",
+            "description": "Exact lowercase DNS hostname, without a scheme, port or wildcard."
+          },
+          "method": {
+            "$ref": "#/components/schemas/GuardedPurchaseMethod"
+          },
+          "path_pattern": {
+            "type": "string",
+            "description": "Absolute path of the form-submission request. A complete `*` segment matches one nonempty segment. Queries are excluded. Trailing slashes and percent-encoded equivalents match the same configured path."
           }
         },
         "additionalProperties": false
@@ -28187,6 +28392,7 @@
           "platform_managed",
           "status",
           "desired_lifecycle_state",
+          "routine_set_by_hirer",
           "template",
           "serving_fallback",
           "run_kinds",
@@ -28250,6 +28456,13 @@
             "format": "int64",
             "description": "Template revision the managed agent is set to run."
           },
+          "hire_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The name the Employer gave this hire. Absent for a template hired once per Employer."
+          },
           "id": {
             "type": "string",
             "format": "uuid"
@@ -28288,6 +28501,10 @@
             "type": "boolean",
             "description": "Always true; distinguishes this view from an ordinary deployment summary."
           },
+          "routine_set_by_hirer": {
+            "type": "boolean",
+            "description": "Whether the hirer chose the routine's time. Template updates keep a\nhirer's time; other hires run at the time the template sets."
+          },
           "run_kinds": {
             "type": "array",
             "items": {
@@ -28309,6 +28526,13 @@
           },
           "skill_slug": {
             "type": "string"
+          },
+          "slack_team_access_enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether verified Slack teammates may work on this hire. Only the hirer sees it."
           },
           "spend_limits": {
             "$ref": "#/components/schemas/HireSpendLimits"
@@ -28341,7 +28565,7 @@
       },
       "ManagedAgentRunFeeAmount": {
         "type": "object",
-        "description": "A configured run-kind amount in USD atomic units and display currency.",
+        "description": "A configured run-kind fee in USD atomic units and display currency. A\npercentage fee has `atomic` 0 and its `percent` set.",
         "required": [
           "atomic",
           "usd"
@@ -28350,6 +28574,16 @@
           "atomic": {
             "type": "integer",
             "format": "int64"
+          },
+          "percent": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The fee as a whole-number percentage of each task's recorded running\ncost, rounded down; absent for a fixed fee.",
+            "maximum": 100,
+            "minimum": 1
           },
           "usd": {
             "type": "string"
@@ -30569,7 +30803,8 @@
           "data_delete",
           "bulk_change",
           "share",
-          "outside_send"
+          "outside_send",
+          "payment"
         ]
       },
       "QueuePhase": {
@@ -31285,6 +31520,40 @@
         "description": "Organization-defined policy selector in canonical form.\n\nThe syntax is enforced during deserialization rather than by convention, so\nevery producer and consumer of an [`OrganizationWorkContext`] agrees on which labels\nexist without each one repeating the check.",
         "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
       },
+      "TaxPaymentFormFields": {
+        "type": "object",
+        "description": "Names of the URL-encoded form fields a tax payment site posts with the\npayment's amount, tax form, tax period and bank account number, and of the\nfield only its final submission posts. Once all are known, a guarded\nrequest waits for the hirer's yes to that exact payment.",
+        "required": [
+          "amount",
+          "tax_form",
+          "tax_period",
+          "bank_account_number",
+          "submit"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string"
+          },
+          "bank_account_number": {
+            "type": "string"
+          },
+          "submit": {
+            "type": "string",
+            "description": "A field, such as the final page's submit button, that only the request\nplacing the payment posts."
+          },
+          "tax_form": {
+            "type": "string"
+          },
+          "tax_period": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "One or two fields, such as a year and a month, shown joined by a space."
+          }
+        },
+        "additionalProperties": false
+      },
       "ToolApprovalCondition": {
         "oneOf": [
           {
@@ -31528,6 +31797,13 @@
           }
         }
       },
+      "ToolFailureStage": {
+        "type": "string",
+        "description": "When a failure happened relative to the tool doing any work. A missing\nstage means unknown, so only a check that provably ran first may set one.",
+        "enum": [
+          "before_run"
+        ]
+      },
       "ToolRecoveryErrorClass": {
         "type": "string",
         "enum": [
@@ -31586,6 +31862,17 @@
               "null"
             ],
             "description": "Stable, non-secret discriminator for the specific failure, so the audit\ncan tell distinct failures apart within one invocation."
+          },
+          "stage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ToolFailureStage",
+                "description": "Set only when the runtime refused the call before it had any effect."
+              }
+            ]
           },
           "state": {
             "$ref": "#/components/schemas/ToolRecoveryState"

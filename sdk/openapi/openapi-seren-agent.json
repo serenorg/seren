@@ -3209,6 +3209,165 @@
         ]
       }
     },
+    "/deployments/{id}/channels/telegram": {
+      "delete": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Stop this hired employee from reaching the owner on Telegram. Repeating\nthis request succeeds. For the deployment owner only.",
+        "operationId": "seren_agent_delete_managed_agent_telegram",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Telegram disconnected"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/channels/telegram/confirm": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Confirm a Telegram start with the code the employee sent in Telegram after\nthe start message. Once confirmed, that Telegram account's messages reach\nthis hired employee.\nRepeating a confirmed request succeeds. For the deployment owner who\ncreated the start only.",
+        "operationId": "seren_agent_confirm_managed_agent_telegram",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TelegramConfirmRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Telegram is connected. The response must not be cached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_DeploymentChannelView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid body, or the code does not match"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment or start not found"
+          },
+          "409": {
+            "description": "Telegram has not sent the start message yet, or the start expired or is no longer waiting for confirmation"
+          },
+          "503": {
+            "description": "The employee's Telegram line is not available"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/channels/telegram/start": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Start connecting the owner's Telegram to this hired employee. Open\n`start_url` in the owner's Telegram; it sends the employee's bot a start\nmessage, and the employee answers in Telegram with a code the signed-in\nowner enters to confirm. The link expires in 10 minutes. For the deployment\nowner only.",
+        "operationId": "seren_agent_start_managed_agent_telegram",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Start link created. The response must not be cached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_TelegramStartView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Owner credential required"
+          },
+          "404": {
+            "description": "Deployment not found"
+          },
+          "409": {
+            "description": "The deployment cannot add channels"
+          },
+          "503": {
+            "description": "The employee has no Telegram line yet"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/channels/{channel}": {
       "delete": {
         "tags": [
@@ -3824,6 +3983,461 @@
             "bearer_auth": []
           }
         ]
+      },
+      "delete": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Unlink the email a mail-read Employee was hired with.",
+        "description": "Unlinks the Gmail or Outlook mailbox a mail-read Employee was hired with. The Employee keeps working; its email reads report `mail_not_linked` until the owner links a mailbox again. A mailbox linked after hiring is unlinked by revoking its publisher grant. Unlinking when no mailbox is linked changes nothing.",
+        "operationId": "seren_agent_unlink_managed_agent_connection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The Employee without its linked mailbox",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentOwnerView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the owner's session or user API key may unlink",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Deployment not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The Employee needs its mail and files connection (`mail_unlink_unsupported`) or changed during the unlink",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/connections/bill-com/step-up": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Ask Bill.com to send the account holder a verification code by phone. Use it when a `bill-com` call answers `bill_mfa_required`: payments, bulk payments and bank account changes need a session Bill.com trusts. Ask the hirer for the code, then submit it to `connections/bill-com/step-up/verify`. The managed agent's own runtime key and its owner may send one.",
+        "operationId": "seren_agent_send_managed_agent_bill_com_step_up",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bill.com sent the code. Do not cache this response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_BillComStepUpSent"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential is not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Deployment not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The managed agent has not signed in to Bill.com yet; make a `bill-com` call first (`bill_session_required`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Bill.com is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/connections/bill-com/step-up/verify": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Submit the verification code the hirer received from Bill.com. Bill.com then trusts the managed agent's sign-ins for 30 days, and the `bill-com` call that answered `bill_mfa_required` can be retried. The managed agent's own runtime key and its owner may submit one.",
+        "operationId": "seren_agent_verify_managed_agent_bill_com_step_up",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BillComStepUpCode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Bill.com accepted the code. Do not cache this response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_BillComStepUpVerified"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The code is not six digits, or Bill.com refused it (`bill_mfa_code_refused`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential is not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Deployment not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No code was sent for the current Bill.com session (`bill_challenge_required`, `bill_session_required`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Bill.com is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/connections/plaid": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "List a managed agent's bank connections, with each bank's name and its accounts' names and masks. Name a connection by its `item_id` in a call to the `plaid` publisher; Seren adds Plaid's keys and the connection's token. The managed agent's own runtime key and its owner may read them.",
+        "operationId": "seren_agent_list_managed_agent_plaid_connections",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The managed agent's bank connections. Do not cache this response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_PlaidConnections"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential is not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Deployment not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Start a bank connection for a managed agent through Plaid Hosted Link. Send the returned address to the hirer; when they finish, each bank they connected is listed under `connections/plaid`. The managed agent's own runtime key and its owner may start one.",
+        "operationId": "seren_agent_start_managed_agent_plaid_connection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The Plaid page to send to the hirer. Do not cache this response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_PlaidHostedLink"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential is not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Deployment not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Plaid is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/connections/plaid/{item_id}": {
+      "delete": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Remove a bank connection at Plaid and forget it. The managed agent's own runtime key and its owner may remove one.",
+        "operationId": "seren_agent_remove_managed_agent_plaid_connection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "item_id",
+            "in": "path",
+            "description": "Bank connection ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The connection was removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_PlaidConnectionRemoval"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential is not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Deployment or bank connection not found (`plaid_item_not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Plaid is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
     "/deployments/{id}/context": {
@@ -3946,6 +4560,246 @@
           },
           "409": {
             "description": "The task cannot yet continue or the request ID was reused with different input"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/copy-permission": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Read the copy permission and recent copies.",
+        "operationId": "seren_agent_get_managed_agent_copy_permission",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Copy permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OwnerCopyPermission"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential is not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request conflicts with current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Choose vaults for standing copy permission.",
+        "operationId": "seren_agent_start_managed_agent_copy_permission",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartCopyPermission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Copy permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_VaultProvisioningDecision"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential is not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request conflicts with current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Remove standing permission to copy items.",
+        "operationId": "seren_agent_remove_managed_agent_copy_permission",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Copy permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OwnerCopyPermission"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential is not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request conflicts with current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -4440,8 +5294,8 @@
         "tags": [
           "seren-agent"
         ],
-        "summary": "Read the live sign-in window that waits for the owner of a hired Employee.",
-        "description": "Returns the sign-in window the Employee opened and its owner may watch now. The window closes at `expires_at`, at most ten minutes after it opened. Only the owner's session or user API key is accepted.",
+        "summary": "Read the live window that waits for the owner of a hired managed agent.",
+        "description": "Returns the live window the managed agent opened and its owner may watch now: its `reason` (`challenge` or `third_party_sign_in` to sign in, `owner_submit` to check and submit a form the managed agent filled in) and a plain-text `message` for the owner. The window closes at `expires_at`, at most ten minutes after it opened. Only the owner's session or user API key is accepted.",
         "operationId": "seren_agent_get_active_managed_agent_browser_handoff",
         "parameters": [
           {
@@ -4457,7 +5311,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The waiting sign-in window. The response must not be cached.",
+            "description": "The waiting live window. The response must not be cached.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6645,6 +7499,69 @@
         ]
       }
     },
+    "/deployments/{id}/routine": {
+      "put": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Set when a scheduled Employee runs its routine, for the person who hired it\nonly: a time of day, daily or on weekdays, in a time zone. The Employee's\ntemplate updates keep this time.",
+        "operationId": "seren_agent_update_managed_agent_routine",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagedAgentRoutineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The hire as its hirer sees it, with its new schedule and time zone. The response must not be cached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentOwnerView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid body, time or time zone"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The credential is not the hirer's session or user API key"
+          },
+          "404": {
+            "description": "Hire not found, including another user's hire"
+          },
+          "409": {
+            "description": "The Employee does not run on a schedule (`managed_agent_routine_unscheduled`), or it changed during the request"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/run-timeline": {
       "post": {
         "tags": [
@@ -7459,6 +8376,66 @@
         ]
       }
     },
+    "/deployments/{id}/slack-team-access": {
+      "put": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Allow or refuse work from verified members of the hirer's Slack workspace.",
+        "operationId": "seren_agent_update_managed_agent_slack_team_access",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagedAgentSlackTeamAccessRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The hire with its saved setting. The response must not be cached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentOwnerView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid body"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The credential is not the hirer's session or user API key"
+          },
+          "404": {
+            "description": "Hire not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/spending": {
       "get": {
         "tags": [
@@ -7497,6 +8474,172 @@
           },
           "404": {
             "description": "Managed agent not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/standing-decisions": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Ask the hirer a standing decision a later run reads by key. Asking never pauses the run. A key names one decision per hire: asking again with a key returns the decision first asked under it, unchanged. A hire holds at most 2,000 open standing decisions. The hirer answers through the approval inbox.",
+        "operationId": "seren_agent_ask_managed_agent_standing_decision",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StandingDecisionAsk"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The decision held under the key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_StandingDecisionAnswer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential is not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The hire already has 2,000 open standing decisions (`standing_decision_limit_reached`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/standing-decisions/answers": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Read the answers to standing decisions by key: each one's state, chosen option and when it was answered. A key never asked is left out.",
+        "operationId": "seren_agent_read_managed_agent_standing_decision_answers",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StandingDecisionAnswersRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Answers for the asked keys",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_StandingDecisionAnswers"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential is not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -8636,7 +9779,7 @@
         "tags": [
           "seren-agent"
         ],
-        "summary": "Read one vault provisioning proposal from the managed agent runtime. An applied proposal returns the vault for each key.",
+        "summary": "Read one vault provisioning proposal from the managed agent runtime. An applied proposal returns the selected vaults by key.",
         "operationId": "seren_agent_get_managed_agent_vault_proposal",
         "parameters": [
           {
@@ -8802,7 +9945,7 @@
         "tags": [
           "seren-agent"
         ],
-        "summary": "Report from the managed agent runtime that a copy of chosen items finished, which ends the managed agent's access to the vault the owner picked for it.",
+        "summary": "Report from the managed agent runtime that a copy of chosen items finished, which ends the managed agent's access to the vaults the owner picked for it.",
         "operationId": "seren_agent_finish_managed_agent_vault_copy",
         "parameters": [
           {
@@ -10455,6 +11598,81 @@
         ]
       }
     },
+    "/templates/{template_slug}/hires/mine": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "List the signed-in user's live hires of a template, oldest first. Empty\nwhen they have none.",
+        "operationId": "seren_agent_list_my_template_hires",
+        "parameters": [
+          {
+            "name": "template_slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The user's live hires of the template",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_MyManagedAgentTemplateHire"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "User credential required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Template not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/templates/{template_slug}/reviews": {
       "get": {
         "tags": [
@@ -11212,6 +12430,10 @@
               "kind"
             ],
             "properties": {
+              "allow_writes": {
+                "type": "boolean",
+                "description": "Also grant the publisher's write operations, such as calls that spend the owner's\nbalance with the publisher. Each call asks the owner first. Defaults to reads only."
+              },
               "kind": {
                 "type": "string",
                 "enum": [
@@ -11526,6 +12748,17 @@
             },
             "description": "Requests that require verified, unused customer consent."
           },
+          "guarded_submissions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GuardedSubmissionRule"
+            },
+            "description": "Form submissions only the customer may send, from the live window."
+          },
+          "links": {
+            "$ref": "#/components/schemas/BrowserLinks",
+            "description": "Restricts navigation to links supplied in the conversation."
+          },
           "max_session_seconds": {
             "type": [
               "integer",
@@ -11827,6 +13060,8 @@
           "header",
           "body",
           "kraken_api_sign",
+          "xero_connections",
+          "bill_com_sign_in",
           "proxy_inject",
           "runtime"
         ]
@@ -13839,6 +15074,51 @@
           "lg"
         ]
       },
+      "BillComStepUpCode": {
+        "type": "object",
+        "description": "The verification code the account holder received from Bill.com.",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Six digits.",
+            "example": "123456"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BillComStepUpSent": {
+        "type": "object",
+        "description": "Bill.com sent the account holder a verification code.",
+        "required": [
+          "sent"
+        ],
+        "properties": {
+          "sent": {
+            "type": "boolean"
+          }
+        }
+      },
+      "BillComStepUpVerified": {
+        "type": "object",
+        "description": "The account holder's code was accepted.",
+        "required": [
+          "trusted",
+          "trusted_until"
+        ],
+        "properties": {
+          "trusted": {
+            "type": "boolean"
+          },
+          "trusted_until": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When Bill.com stops trusting this Employee's sign-ins without a new code."
+          }
+        }
+      },
       "BrandColor": {
         "type": "string",
         "pattern": "^#[0-9A-Fa-f]{6}$"
@@ -13862,10 +15142,18 @@
       },
       "BrowserHandoffReason": {
         "type": "string",
-        "description": "Why a script asks its owner to sign in.",
+        "description": "Why a script hands its tab to its owner.",
         "enum": [
           "challenge",
-          "third_party_sign_in"
+          "third_party_sign_in",
+          "owner_submit"
+        ]
+      },
+      "BrowserLinks": {
+        "type": "string",
+        "enum": [
+          "any",
+          "sent_only"
         ]
       },
       "BudgetContinuation": {
@@ -14708,6 +15996,46 @@
         },
         "additionalProperties": false
       },
+      "CopyKind": {
+        "type": "string",
+        "enum": [
+          "once",
+          "standing"
+        ]
+      },
+      "CopyPermissionStatus": {
+        "type": "string",
+        "enum": [
+          "off",
+          "waiting",
+          "on"
+        ]
+      },
+      "CopyRecordStatus": {
+        "type": "string",
+        "enum": [
+          "started",
+          "finished",
+          "partly_finished",
+          "failed"
+        ]
+      },
+      "CopySource": {
+        "type": "object",
+        "required": [
+          "account_id",
+          "vault_id"
+        ],
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "vault_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateBrowserHandoffRequest": {
         "type": "object",
         "description": "The runtime's request to open a window.",
@@ -14739,13 +16067,20 @@
           "timezone"
         ],
         "properties": {
+          "hire_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The hire's own name, such as the family it works for: 1 to 60\ncharacters. Required by a template that allows several hires per\nEmployer, where two live hires never share a name; refused otherwise."
+          },
           "oauth_connection_id": {
             "type": [
               "string",
               "null"
             ],
             "format": "uuid",
-            "description": "Required for mail_and_files templates; omit for sign_in_only templates."
+            "description": "Required for mail_and_files templates; optional for mail_read templates,\nwhose connection needs only mail-read access; omit for sign_in_only\ntemplates."
           },
           "provider": {
             "oneOf": [
@@ -14754,7 +16089,7 @@
               },
               {
                 "$ref": "#/components/schemas/ManagedAgentHireProvider",
-                "description": "Required for mail_and_files templates; optional for sign_in_only templates."
+                "description": "Required for mail_and_files templates and with `oauth_connection_id`\nfor mail_read templates; omit for sign_in_only templates."
               }
             ]
           },
@@ -15171,6 +16506,76 @@
               },
               "supports_orchestrated_deploy": {
                 "type": "boolean"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_BillComStepUpSent": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Bill.com sent the account holder a verification code.",
+            "required": [
+              "sent"
+            ],
+            "properties": {
+              "sent": {
+                "type": "boolean"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_BillComStepUpVerified": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "The account holder's code was accepted.",
+            "required": [
+              "trusted",
+              "trusted_until"
+            ],
+            "properties": {
+              "trusted": {
+                "type": "boolean"
+              },
+              "trusted_until": {
+                "type": "string",
+                "format": "date-time",
+                "description": "When Bill.com stops trusting this Employee's sign-ins without a new code."
               }
             }
           },
@@ -15707,7 +17112,7 @@
                 "items": {
                   "$ref": "#/components/schemas/DeploymentChannelView"
                 },
-                "description": "Every channel, always in the same order."
+                "description": "Every channel, always in the same order. Telegram is listed only when\nthe employee has a Telegram bot."
               }
             }
           },
@@ -15949,10 +17354,11 @@
         "properties": {
           "data": {
             "type": "object",
-            "description": "The sign-in window the owner may open now.",
+            "description": "The live window the owner may open now.",
             "required": [
               "handoff_id",
               "reason",
+              "message",
               "expires_at"
             ],
             "properties": {
@@ -15963,6 +17369,10 @@
               "handoff_id": {
                 "type": "string",
                 "format": "uuid"
+              },
+              "message": {
+                "type": "string",
+                "description": "One plain-text line telling the owner what the window is for."
               },
               "reason": {
                 "$ref": "#/components/schemas/BrowserHandoffReason"
@@ -16652,6 +18062,7 @@
               "platform_managed",
               "status",
               "desired_lifecycle_state",
+              "routine_set_by_hirer",
               "template",
               "serving_fallback",
               "run_kinds",
@@ -16715,6 +18126,13 @@
                 "format": "int64",
                 "description": "Template revision the managed agent is set to run."
               },
+              "hire_name": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The name the Employer gave this hire. Absent for a template hired once per Employer."
+              },
               "id": {
                 "type": "string",
                 "format": "uuid"
@@ -16753,6 +18171,10 @@
                 "type": "boolean",
                 "description": "Always true; distinguishes this view from an ordinary deployment summary."
               },
+              "routine_set_by_hirer": {
+                "type": "boolean",
+                "description": "Whether the hirer chose the routine's time. Template updates keep a\nhirer's time; other hires run at the time the template sets."
+              },
               "run_kinds": {
                 "type": "array",
                 "items": {
@@ -16774,6 +18196,13 @@
               },
               "skill_slug": {
                 "type": "string"
+              },
+              "slack_team_access_enabled": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "description": "Whether verified Slack teammates may work on this hire. Only the hirer sees it."
               },
               "spend_limits": {
                 "$ref": "#/components/schemas/HireSpendLimits"
@@ -19193,6 +20622,67 @@
           }
         }
       },
+      "DataResponse_OwnerCopyPermission": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "available",
+              "status",
+              "vault_count",
+              "recent_copies"
+            ],
+            "properties": {
+              "available": {
+                "type": "boolean"
+              },
+              "granted_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "proposal_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "recent_copies": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RecentCopy"
+                }
+              },
+              "status": {
+                "$ref": "#/components/schemas/CopyPermissionStatus"
+              },
+              "vault_count": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_OwnerPublisherAccessListResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -19283,6 +20773,111 @@
                   "$ref": "#/components/schemas/OwnerVaultProvisioningProposal"
                 },
                 "description": "The most recent proposals, newest first."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_PlaidConnectionRemoval": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "The outcome of removing a bank connection.",
+            "required": [
+              "removed"
+            ],
+            "properties": {
+              "removed": {
+                "type": "boolean"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_PlaidConnections": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "A hire's bank connections.",
+            "required": [
+              "connections"
+            ],
+            "properties": {
+              "connections": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PlaidConnection"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_PlaidHostedLink": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "A started Hosted Link session to send to the Employer.",
+            "required": [
+              "hosted_link_url",
+              "expires_at"
+            ],
+            "properties": {
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "hosted_link_url": {
+                "type": "string",
+                "description": "The Plaid page where the Employer connects a bank."
               }
             }
           },
@@ -19831,8 +21426,32 @@
                 "type": "string",
                 "format": "date-time"
               },
+              "kind": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/VaultProposalKind"
+                  }
+                ]
+              },
               "message": {
                 "type": "string"
+              },
+              "mirror_sources": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "Daily source identities for destinations, included only in the requested projection.",
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/CopySource"
+                },
+                "propertyNames": {
+                  "type": "string",
+                  "format": "uuid"
+                }
               },
               "proposal_id": {
                 "type": "string",
@@ -19855,7 +21474,7 @@
                   "object",
                   "null"
                 ],
-                "description": "The Seren vault for each proposed key, once applied.",
+                "description": "Selected Seren vaults keyed by their offered slots, once applied.",
                 "additionalProperties": {
                   "type": "string",
                   "format": "uuid"
@@ -20285,6 +21904,138 @@
                     "$ref": "#/components/schemas/SlackAppWorkspaceView"
                   }
                 ]
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_StandingDecisionAnswer": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "One standing decision's answer. `option_id` is present once approved;\n`decided_at` once approved or rejected.",
+            "required": [
+              "key",
+              "state",
+              "expires_at"
+            ],
+            "properties": {
+              "decided_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "key": {
+                "$ref": "#/components/schemas/StandingDecisionKey"
+              },
+              "option_id": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentDecisionOptionId"
+                  }
+                ]
+              },
+              "state": {
+                "$ref": "#/components/schemas/StandingDecisionState"
+              }
+            },
+            "additionalProperties": false
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_StandingDecisionAnswers": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Answers for the keys asked about; a key never asked is left out.",
+            "required": [
+              "answers"
+            ],
+            "properties": {
+              "answers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/StandingDecisionAnswer"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_TelegramStartView": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "start_id",
+              "start_url"
+            ],
+            "properties": {
+              "start_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "start_url": {
+                "type": "string",
+                "description": "The `t.me` link that opens the employee's bot with the start code."
               }
             }
           },
@@ -20973,6 +22724,7 @@
               "description": "One problem as an Owner reads it.",
               "required": [
                 "id",
+                "reference",
                 "template_slug",
                 "template_name",
                 "template_revision",
@@ -21037,6 +22789,21 @@
                   ],
                   "description": "The publisher a script's request was refused for, or `seren-private-models` for a refused model call."
                 },
+                "reference": {
+                  "type": "string",
+                  "description": "A short reference to quote to Seren support for this problem."
+                },
+                "refused_by": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ToolDenialSource",
+                      "description": "For a refused tool call, who refused it, when Seren knows it."
+                    }
+                  ]
+                },
                 "resolved_at": {
                   "type": [
                     "string",
@@ -21050,7 +22817,18 @@
                     "string",
                     "null"
                   ],
-                  "description": "The last lines that failure printed on its error stream, with personal details removed. Empty when it printed nothing there. Present only while the problem is open."
+                  "description": "The last lines that failure printed on its error stream, with personal details removed. When its error stream was empty, the error code, step and summary of the failure line it printed last on its normal output instead. Empty when it showed neither. Present only while the problem is open."
+                },
+                "script_error_output_source": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ScriptErrorOutputSource",
+                      "description": "Where `script_error_output` came from. Present only while the problem holds a script's output."
+                    }
+                  ]
                 },
                 "script_exit_code": {
                   "type": [
@@ -21100,6 +22878,20 @@
                 "template_slug": {
                   "type": "string",
                   "description": "The Employee's template slug."
+                },
+                "tool_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "For a refused tool call, the Seren tool that was refused, when Seren knows it."
+                },
+                "tool_reason_code": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "For a refused tool call, Seren's code for why it was refused, when Seren knows it."
                 },
                 "used_atomic": {
                   "type": [
@@ -21503,6 +23295,7 @@
               "description": "A template available for hire.",
               "required": [
                 "owner_connection",
+                "hires_per_employer",
                 "capabilities",
                 "skill_slugs",
                 "example_tasks",
@@ -21510,6 +23303,8 @@
                 "pronouns",
                 "intro_videos",
                 "slug",
+                "mcp_url",
+                "mcp_tools",
                 "display_name",
                 "publisher",
                 "published_at",
@@ -21627,6 +23422,10 @@
                     }
                   ]
                 },
+                "hires_per_employer": {
+                  "$ref": "#/components/schemas/ManagedAgentTemplateHiresPerEmployer",
+                  "description": "`many` when an Employer may hold several hires, each hired with its own `hire_name`."
+                },
                 "intro_video": {
                   "oneOf": [
                     {
@@ -21654,6 +23453,17 @@
                       "$ref": "#/components/schemas/JobTitle"
                     }
                   ]
+                },
+                "mcp_tools": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ManagedAgentMcpTool"
+                  },
+                  "description": "The work tools the MCP address offers besides its standard ones; empty when none."
+                },
+                "mcp_url": {
+                  "type": "string",
+                  "description": "The managed agent's MCP address: `https://mcp.serendb.com/employees/{page_slug}`,\nor `{slug}` when `page_slug` is null."
                 },
                 "owner_connection": {
                   "$ref": "#/components/schemas/ManagedAgentTemplateOwnerConnection",
@@ -21739,6 +23549,13 @@
                       "$ref": "#/components/schemas/Tagline"
                     }
                   ]
+                },
+                "telegram_bot": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Username of the managed agent's active Telegram bot, or null when none is registered."
                 },
                 "why": {
                   "oneOf": [
@@ -22108,6 +23925,61 @@
           }
         }
       },
+      "DataResponse_Vec_MyManagedAgentTemplateHire": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One of the signed-in user's live hires of a template.",
+              "required": [
+                "deployment_id",
+                "created_at"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "cron_timezone": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The IANA time zone of the hire's schedule; null when unset."
+                },
+                "deployment_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "hire_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The name the hire was given; null for the single hire of a template\nthat allows one."
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_Vec_OrganizationInstructionRecord": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -22373,7 +24245,8 @@
           "slack",
           "discord",
           "whatsapp",
-          "signal"
+          "signal",
+          "telegram"
         ]
       },
       "DeploymentChannelStatus": {
@@ -22417,7 +24290,7 @@
             "items": {
               "$ref": "#/components/schemas/DeploymentChannelView"
             },
-            "description": "Every channel, always in the same order."
+            "description": "Every channel, always in the same order. Telegram is listed only when\nthe employee has a Telegram bot."
           }
         }
       },
@@ -22603,7 +24476,7 @@
       },
       "GrantWriteOperation": {
         "type": "object",
-        "description": "A Seren-reviewed create operation that a sign-in grant lends the hirer's account to.",
+        "description": "A write a grant adds once its owner consented: a Seren-reviewed create a sign-in grant lends\nthe hirer's account to, or a catalog write an API-key grant's owner agreed to when adding the key.",
         "required": [
           "operation_id",
           "method",
@@ -22668,9 +24541,11 @@
       },
       "GuardedCheckout": {
         "type": "string",
-        "description": "Checkout protocol whose order and payment responses the egress adapter verifies.",
+        "description": "Checkout protocol whose order and payment the egress adapter verifies.",
         "enum": [
-          "best_buy"
+          "best_buy",
+          "irs_direct_pay",
+          "eftps"
         ]
       },
       "GuardedPurchaseMethod": {
@@ -22698,6 +24573,17 @@
             "$ref": "#/components/schemas/GuardedCheckout",
             "description": "Checkout protocol used to verify the order this request submits."
           },
+          "form_fields": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaxPaymentFormFields",
+                "description": "Required for tax payment checkouts and refused for store checkouts."
+              }
+            ]
+          },
           "host": {
             "type": "string",
             "description": "Exact lowercase DNS hostname, without a scheme, port or wildcard."
@@ -22708,6 +24594,38 @@
           "path_pattern": {
             "type": "string",
             "description": "Absolute path of the order-submission request. Its last `*` segment names the order. A complete `*` segment matches one nonempty segment. Queries are excluded. Trailing slashes and percent-encoded equivalents match the same configured path."
+          }
+        },
+        "additionalProperties": false
+      },
+      "GuardedSubmissionRule": {
+        "type": "object",
+        "required": [
+          "host",
+          "method",
+          "path_pattern"
+        ],
+        "properties": {
+          "graphql_operation_names": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional set of 1 to 32 unique, case-sensitive GraphQL operation names matching `[_A-Za-z][_0-9A-Za-z]*`. Omit to guard every request at this boundary. With names, a JSON object or batch is guarded if any operation matches or any operationName is missing or not a string. Unreadable, encoded, oversized or alternate-transport requests remain guarded."
+          },
+          "host": {
+            "type": "string",
+            "description": "Exact lowercase DNS hostname, without a scheme, port or wildcard."
+          },
+          "method": {
+            "$ref": "#/components/schemas/GuardedPurchaseMethod"
+          },
+          "path_pattern": {
+            "type": "string",
+            "description": "Absolute path of the form-submission request. A complete `*` segment matches one nonempty segment. Queries are excluded. Trailing slashes and percent-encoded equivalents match the same configured path."
           }
         },
         "additionalProperties": false
@@ -23375,10 +25293,11 @@
       },
       "ManagedAgentBrowserHandoffView": {
         "type": "object",
-        "description": "The sign-in window the owner may open now.",
+        "description": "The live window the owner may open now.",
         "required": [
           "handoff_id",
           "reason",
+          "message",
           "expires_at"
         ],
         "properties": {
@@ -23389,6 +25308,10 @@
           "handoff_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "message": {
+            "type": "string",
+            "description": "One plain-text line telling the owner what the window is for."
           },
           "reason": {
             "$ref": "#/components/schemas/BrowserHandoffReason"
@@ -23705,6 +25628,89 @@
             ]
           }
         }
+      },
+      "ManagedAgentDecision": {
+        "type": "object",
+        "description": "The exact display and offered choices reviewed by the hirer.",
+        "required": [
+          "title",
+          "description",
+          "details",
+          "options"
+        ],
+        "properties": {
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1
+          },
+          "details": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentDecisionDetail"
+            },
+            "maxItems": 50
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentDecisionOption"
+            },
+            "maxItems": 8,
+            "minItems": 2
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentDecisionDetail": {
+        "type": "object",
+        "description": "One plain-text display detail, without executable or provider-specific meaning.",
+        "required": [
+          "label",
+          "value"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentDecisionOption": {
+        "type": "object",
+        "description": "One option as the hirer reads it. Render the label as plain text.",
+        "required": [
+          "id",
+          "label"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ManagedAgentDecisionOptionId"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentDecisionOptionId": {
+        "type": "string",
+        "description": "An opaque identifier offered by the tool, never a command or a permission.",
+        "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
       },
       "ManagedAgentDeploymentActivityReport": {
         "type": "object",
@@ -25436,6 +27442,193 @@
           "microsoft_outlook"
         ]
       },
+      "ManagedAgentMcpTool": {
+        "type": "object",
+        "description": "One work tool a release declares.",
+        "required": [
+          "name",
+          "title",
+          "description",
+          "input_schema",
+          "message"
+        ],
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "1-500 characters."
+          },
+          "input_schema": {
+            "$ref": "#/components/schemas/ManagedAgentMcpToolInputSchema"
+          },
+          "message": {
+            "type": "string",
+            "description": "The task message a call sends, 1-1000 characters. Each `{{property}}`\nplaceholder names a property of `input_schema`."
+          },
+          "name": {
+            "type": "string",
+            "description": "Unique snake_case name, at most 40 characters.",
+            "pattern": "^[a-z][a-z0-9_]{0,39}$"
+          },
+          "title": {
+            "type": "string",
+            "description": "1-60 characters without surrounding whitespace or control characters."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentMcpToolInputSchema": {
+        "type": "object",
+        "description": "A JSON Schema object of at most 8 properties.",
+        "required": [
+          "type",
+          "properties",
+          "required"
+        ],
+        "properties": {
+          "properties": {
+            "type": "object",
+            "description": "Each key is a snake_case name of at most 40 characters.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ManagedAgentMcpToolProperty"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "required": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Properties a call must give, each named once."
+          },
+          "type": {
+            "$ref": "#/components/schemas/ManagedAgentMcpToolObjectType"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentMcpToolObjectType": {
+        "type": "string",
+        "enum": [
+          "object"
+        ]
+      },
+      "ManagedAgentMcpToolProperty": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "string"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "number"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "boolean"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "items",
+              "type"
+            ],
+            "properties": {
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "items": {
+                "$ref": "#/components/schemas/ManagedAgentMcpToolStringItems"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "array"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "One input property: a string, number, boolean or array of strings, with\nan optional description of 1-500 characters."
+      },
+      "ManagedAgentMcpToolStringItems": {
+        "type": "object",
+        "description": "The items of an array property: strings.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/ManagedAgentMcpToolStringType"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedAgentMcpToolStringType": {
+        "type": "string",
+        "enum": [
+          "string"
+        ]
+      },
+      "ManagedAgentMcpTools": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/ManagedAgentMcpTool"
+        },
+        "description": "A release's MCP work tools: at most 16, each with a unique name."
+      },
       "ManagedAgentMemoryResources": {
         "type": "object",
         "required": [
@@ -25596,6 +27789,10 @@
           "body"
         ],
         "properties": {
+          "also_to_lines": {
+            "type": "boolean",
+            "description": "For a `report` or `update`, also send the subject and body as a direct\nmessage to the hirer on each line they have written on. It counts as\nthe same notice."
+          },
           "body": {
             "type": "string",
             "description": "Plain-text message. A `report` body is at most 20,000 characters;\n`action_needed` and `update` bodies are at most 1,500 characters.",
@@ -25653,6 +27850,7 @@
         "description": "One problem as an Owner reads it.",
         "required": [
           "id",
+          "reference",
           "template_slug",
           "template_name",
           "template_revision",
@@ -25717,6 +27915,21 @@
             ],
             "description": "The publisher a script's request was refused for, or `seren-private-models` for a refused model call."
           },
+          "reference": {
+            "type": "string",
+            "description": "A short reference to quote to Seren support for this problem."
+          },
+          "refused_by": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ToolDenialSource",
+                "description": "For a refused tool call, who refused it, when Seren knows it."
+              }
+            ]
+          },
           "resolved_at": {
             "type": [
               "string",
@@ -25730,7 +27943,18 @@
               "string",
               "null"
             ],
-            "description": "The last lines that failure printed on its error stream, with personal details removed. Empty when it printed nothing there. Present only while the problem is open."
+            "description": "The last lines that failure printed on its error stream, with personal details removed. When its error stream was empty, the error code, step and summary of the failure line it printed last on its normal output instead. Empty when it showed neither. Present only while the problem is open."
+          },
+          "script_error_output_source": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScriptErrorOutputSource",
+                "description": "Where `script_error_output` came from. Present only while the problem holds a script's output."
+              }
+            ]
           },
           "script_exit_code": {
             "type": [
@@ -25781,6 +28005,20 @@
             "type": "string",
             "description": "The Employee's template slug."
           },
+          "tool_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For a refused tool call, the Seren tool that was refused, when Seren knows it."
+          },
+          "tool_reason_code": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For a refused tool call, Seren's code for why it was refused, when Seren knows it."
+          },
           "used_atomic": {
             "type": [
               "integer",
@@ -25823,6 +28061,7 @@
           "platform_managed",
           "status",
           "desired_lifecycle_state",
+          "routine_set_by_hirer",
           "template",
           "serving_fallback",
           "run_kinds",
@@ -25886,6 +28125,13 @@
             "format": "int64",
             "description": "Template revision the managed agent is set to run."
           },
+          "hire_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The name the Employer gave this hire. Absent for a template hired once per Employer."
+          },
           "id": {
             "type": "string",
             "format": "uuid"
@@ -25924,6 +28170,10 @@
             "type": "boolean",
             "description": "Always true; distinguishes this view from an ordinary deployment summary."
           },
+          "routine_set_by_hirer": {
+            "type": "boolean",
+            "description": "Whether the hirer chose the routine's time. Template updates keep a\nhirer's time; other hires run at the time the template sets."
+          },
           "run_kinds": {
             "type": "array",
             "items": {
@@ -25945,6 +28195,13 @@
           },
           "skill_slug": {
             "type": "string"
+          },
+          "slack_team_access_enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether verified Slack teammates may work on this hire. Only the hirer sees it."
           },
           "spend_limits": {
             "$ref": "#/components/schemas/HireSpendLimits"
@@ -26702,6 +28959,39 @@
           "template_rollback"
         ]
       },
+      "ManagedAgentRoutineDays": {
+        "type": "string",
+        "description": "The days a hirer's routine runs.",
+        "enum": [
+          "daily",
+          "weekdays"
+        ]
+      },
+      "ManagedAgentRoutineRequest": {
+        "type": "object",
+        "description": "When a scheduled hire runs its routine.",
+        "required": [
+          "time",
+          "days",
+          "timezone"
+        ],
+        "properties": {
+          "days": {
+            "$ref": "#/components/schemas/ManagedAgentRoutineDays"
+          },
+          "time": {
+            "type": "string",
+            "description": "Local time on a 24-hour clock, `HH:MM`.",
+            "example": "07:30"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA time zone the time is in.",
+            "example": "Europe/Kyiv"
+          }
+        },
+        "additionalProperties": false
+      },
       "ManagedAgentRunActivity": {
         "type": "object",
         "required": [
@@ -26828,7 +29118,7 @@
       },
       "ManagedAgentRunFeeAmount": {
         "type": "object",
-        "description": "A configured run-kind amount in USD atomic units and display currency.",
+        "description": "A configured run-kind fee in USD atomic units and display currency. A\npercentage fee has `atomic` 0 and its `percent` set.",
         "required": [
           "atomic",
           "usd"
@@ -26837,6 +29127,16 @@
           "atomic": {
             "type": "integer",
             "format": "int64"
+          },
+          "percent": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The fee as a whole-number percentage of each task's recorded running\ncost, rounded down; absent for a fixed fee.",
+            "maximum": 100,
+            "minimum": 1
           },
           "usd": {
             "type": "string"
@@ -28421,6 +30721,18 @@
           }
         }
       },
+      "ManagedAgentSlackTeamAccessRequest": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
       "ManagedAgentStateRecord": {
         "type": "object",
         "required": [
@@ -28680,6 +30992,10 @@
           "display": {
             "$ref": "#/components/schemas/BrowserDisplay"
           },
+          "links": {
+            "$ref": "#/components/schemas/BrowserLinks",
+            "description": "Restricts navigation to HTTPS links supplied in the conversation."
+          },
           "max_session_seconds": {
             "type": "integer",
             "format": "int64",
@@ -28912,6 +31228,17 @@
             },
             "description": "Browser requests requiring the customer's confirmation for the exact order. Rules use exact lowercase DNS hosts, uppercase methods, and absolute paths with complete * segments."
           },
+          "guarded_submissions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GuardedSubmissionRule"
+            },
+            "description": "Browser form submissions only the customer may send, from the live window. Rules use exact lowercase DNS hosts, uppercase methods, and absolute paths with complete * segments."
+          },
+          "hires_per_employer": {
+            "$ref": "#/components/schemas/ManagedAgentTemplateHiresPerEmployer",
+            "description": "`many` lets one Employer hold several live hires, each hired with its\nown `hire_name`. Defaults to `one` when omitted."
+          },
           "line": {
             "oneOf": [
               {
@@ -28947,6 +31274,10 @@
             "format": "int32",
             "description": "Most characters of one tool result every hired copy keeps. Omit to use\nthe model policy's default (fast 6000, balanced 10000, deep 15000).\n1 to 1000000.",
             "minimum": 0
+          },
+          "mcp_tools": {
+            "$ref": "#/components/schemas/ManagedAgentMcpTools",
+            "description": "Work tools the managed agent's MCP address offers. Each turns a\ncall's arguments into one task message for the caller's hire. At\nmost 16, each with a unique name. Omit for none."
           },
           "mode": {
             "$ref": "#/components/schemas/CloudDeploymentMode",
@@ -29115,6 +31446,14 @@
           }
         }
       },
+      "ManagedAgentTemplateHiresPerEmployer": {
+        "type": "string",
+        "description": "How many live hires of a template one Employer may hold.",
+        "enum": [
+          "one",
+          "many"
+        ]
+      },
       "ManagedAgentTemplateIntroVideoListing": {
         "type": "object",
         "description": "The public intro video of a template available for hire.",
@@ -29184,6 +31523,7 @@
         "description": "A template available for hire.",
         "required": [
           "owner_connection",
+          "hires_per_employer",
           "capabilities",
           "skill_slugs",
           "example_tasks",
@@ -29191,6 +31531,8 @@
           "pronouns",
           "intro_videos",
           "slug",
+          "mcp_url",
+          "mcp_tools",
           "display_name",
           "publisher",
           "published_at",
@@ -29308,6 +31650,10 @@
               }
             ]
           },
+          "hires_per_employer": {
+            "$ref": "#/components/schemas/ManagedAgentTemplateHiresPerEmployer",
+            "description": "`many` when an Employer may hold several hires, each hired with its own `hire_name`."
+          },
           "intro_video": {
             "oneOf": [
               {
@@ -29335,6 +31681,17 @@
                 "$ref": "#/components/schemas/JobTitle"
               }
             ]
+          },
+          "mcp_tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentMcpTool"
+            },
+            "description": "The work tools the MCP address offers besides its standard ones; empty when none."
+          },
+          "mcp_url": {
+            "type": "string",
+            "description": "The managed agent's MCP address: `https://mcp.serendb.com/employees/{page_slug}`,\nor `{slug}` when `page_slug` is null."
           },
           "owner_connection": {
             "$ref": "#/components/schemas/ManagedAgentTemplateOwnerConnection",
@@ -29420,6 +31777,13 @@
                 "$ref": "#/components/schemas/Tagline"
               }
             ]
+          },
+          "telegram_bot": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Username of the managed agent's active Telegram bot, or null when none is registered."
           },
           "why": {
             "oneOf": [
@@ -29556,7 +31920,8 @@
         "description": "Owner access required when hiring a template.",
         "enum": [
           "mail_and_files",
-          "sign_in_only"
+          "sign_in_only",
+          "mail_read"
         ]
       },
       "ManagedAgentTemplatePrivacyMode": {
@@ -30090,7 +32455,8 @@
           "path",
           "exit_code",
           "error_output",
-          "details_removed"
+          "details_removed",
+          "error_output_source"
         ],
         "properties": {
           "details_removed": {
@@ -30099,7 +32465,11 @@
           },
           "error_output": {
             "type": "string",
-            "description": "The cleaned end of the script's error stream; empty when it printed nothing there."
+            "description": "The cleaned end of the script's error stream. When its error stream was empty, the error code, step and summary of the failure line it printed last on its normal output instead. Empty when it showed neither."
+          },
+          "error_output_source": {
+            "$ref": "#/components/schemas/ScriptErrorOutputSource",
+            "description": "Where `error_output` came from."
           },
           "exit_code": {
             "type": "integer",
@@ -30126,20 +32496,30 @@
         "description": "A product a managed agent works in, shown as a logo on its catalog card.",
         "enum": [
           "1password",
+          "addepar",
           "arkham",
+          "bill-com",
           "canva",
+          "cardano",
           "discord",
           "gmail",
           "google",
           "google-drive",
+          "granola",
           "kraken",
+          "line",
           "microsoft",
+          "nannykeeper",
           "onedrive",
           "outlook",
+          "plaid",
+          "quickbooks",
+          "sharepoint",
           "shopify",
           "signal",
           "slack",
-          "whatsapp"
+          "whatsapp",
+          "xero"
         ]
       },
       "ManagedAgentTemplateUpdate": {
@@ -31929,6 +34309,38 @@
           "unavailable"
         ]
       },
+      "MyManagedAgentTemplateHire": {
+        "type": "object",
+        "description": "One of the signed-in user's live hires of a template.",
+        "required": [
+          "deployment_id",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "cron_timezone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The IANA time zone of the hire's schedule; null when unset."
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "hire_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The name the hire was given; null for the single hire of a template\nthat allows one."
+          }
+        }
+      },
       "MyManagedAgentTemplateReview": {
         "type": "object",
         "description": "The signed-in user's review of a template and whether they can write one.",
@@ -32096,6 +34508,47 @@
           }
         }
       },
+      "OwnerCopyPermission": {
+        "type": "object",
+        "required": [
+          "available",
+          "status",
+          "vault_count",
+          "recent_copies"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "granted_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "proposal_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "recent_copies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecentCopy"
+            }
+          },
+          "status": {
+            "$ref": "#/components/schemas/CopyPermissionStatus"
+          },
+          "vault_count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "OwnerPublisherAccessEntry": {
         "oneOf": [
           {
@@ -32207,6 +34660,7 @@
           "proposal_id",
           "status",
           "vault_count",
+          "kind",
           "vaults",
           "created_at",
           "expires_at"
@@ -32218,6 +34672,14 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "chosen_vault_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           },
           "created_at": {
             "type": "string",
@@ -32234,6 +34696,9 @@
             "type": "string",
             "format": "date-time",
             "description": "When an undecided or unfinished proposal expires."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/VaultProposalKind"
           },
           "proposal_id": {
             "type": "string",
@@ -32295,6 +34760,101 @@
             "type": "integer",
             "format": "int64",
             "description": "Total number of items across all pages"
+          }
+        }
+      },
+      "PlaidAccount": {
+        "type": "object",
+        "description": "One account of a connected Item, as Plaid names it.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "mask": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The last digits of the account number, when Plaid has them."
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "PlaidConnection": {
+        "type": "object",
+        "description": "A bank connection of a hire. Scripts name it by `item_id` in `plaid` publisher calls.",
+        "required": [
+          "item_id",
+          "accounts",
+          "connected_at"
+        ],
+        "properties": {
+          "accounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlaidAccount"
+            }
+          },
+          "connected_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "institution_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "item_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "PlaidConnectionRemoval": {
+        "type": "object",
+        "description": "The outcome of removing a bank connection.",
+        "required": [
+          "removed"
+        ],
+        "properties": {
+          "removed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PlaidConnections": {
+        "type": "object",
+        "description": "A hire's bank connections.",
+        "required": [
+          "connections"
+        ],
+        "properties": {
+          "connections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlaidConnection"
+            }
+          }
+        }
+      },
+      "PlaidHostedLink": {
+        "type": "object",
+        "description": "A started Hosted Link session to send to the Employer.",
+        "required": [
+          "hosted_link_url",
+          "expires_at"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "hosted_link_url": {
+            "type": "string",
+            "description": "The Plaid page where the Employer connects a bank."
           }
         }
       },
@@ -32392,7 +34952,7 @@
             "items": {
               "$ref": "#/components/schemas/RequestedVault"
             },
-            "description": "Vaults to create or adopt, 1 to 50, with unique keys."
+            "description": "Vault slots to create or adopt, with unique keys. Setups allow 50; copies offer up to 20 and may fill a selected subset."
           }
         },
         "additionalProperties": false
@@ -33018,7 +35578,7 @@
       },
       "PurchaseCard": {
         "type": "object",
-        "description": "The card the managed agent says it will pay with. No checkout response observed\nbefore an order is placed names the card's last four digits, so Seren shows\nthis as the managed agent's statement and does not bind consent to it.",
+        "description": "The card the managed agent says it will pay a store order with. No checkout\nresponse observed before an order is placed names the card's last four\ndigits, so Seren shows this as the managed agent's statement and does not\nbind consent to it. A tax payment names its bank account itself and has no card.",
         "required": [
           "brand",
           "last_four"
@@ -33257,6 +35817,50 @@
         },
         "additionalProperties": false
       },
+      "RecentCopy": {
+        "type": "object",
+        "required": [
+          "copy_id",
+          "kind",
+          "started_at",
+          "status",
+          "items",
+          "vault_count"
+        ],
+        "properties": {
+          "copy_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kind": {
+            "$ref": "#/components/schemas/CopyKind"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CopyRecordStatus"
+          },
+          "vault_count": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "RecipientRevocation": {
         "type": "object",
         "required": [
@@ -33470,13 +36074,19 @@
         "description": "The order itself comes from the browser's guarded checkout, never from\nthese arguments.",
         "required": [
           "recipient",
-          "card",
           "execution_id"
         ],
         "properties": {
           "card": {
-            "$ref": "#/components/schemas/PurchaseCard",
-            "description": "The card the managed agent will pay with, shown to the hirer as the managed agent's statement."
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PurchaseCard",
+                "description": "The card the managed agent will pay a store order with, shown to the hirer as the managed agent's statement. Omit it for a tax payment, which names its bank account itself."
+              }
+            ]
           },
           "execution_id": {
             "type": "string",
@@ -33819,8 +36429,32 @@
             "type": "string",
             "format": "date-time"
           },
+          "kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/VaultProposalKind"
+              }
+            ]
+          },
           "message": {
             "type": "string"
+          },
+          "mirror_sources": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Daily source identities for destinations, included only in the requested projection.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/CopySource"
+            },
+            "propertyNames": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
           "proposal_id": {
             "type": "string",
@@ -33843,7 +36477,7 @@
               "object",
               "null"
             ],
-            "description": "The Seren vault for each proposed key, once applied.",
+            "description": "Selected Seren vaults keyed by their offered slots, once applied.",
             "additionalProperties": {
               "type": "string",
               "format": "uuid"
@@ -33853,6 +36487,14 @@
             }
           }
         }
+      },
+      "ScriptErrorOutputSource": {
+        "type": "string",
+        "description": "Where a failing script's `error_output` came from.",
+        "enum": [
+          "error_stream",
+          "failure_report"
+        ]
       },
       "ScriptRequestReport": {
         "oneOf": [
@@ -33934,7 +36576,7 @@
           },
           {
             "type": "object",
-            "description": "The script exited with an error. `error_output` is the end of its error\nstream with the hire's values removed, never its standard output.",
+            "description": "The script exited with an error. `error_output` is the end of its error\nstream with the hire's values removed. Of its standard output, only the\nstep, error code and summary of the shared failure line can appear, and\nonly when the error stream is empty.",
             "required": [
               "script",
               "exit_code",
@@ -33945,6 +36587,9 @@
             "properties": {
               "error_output": {
                 "type": "string"
+              },
+              "error_output_source": {
+                "$ref": "#/components/schemas/ScriptErrorOutputSource"
               },
               "execution_id": {
                 "type": [
@@ -34585,7 +37230,8 @@
           "channels:read",
           "reactions:write",
           "groups:read",
-          "im:history"
+          "im:history",
+          "users:read"
         ]
       },
       "SlackAppScopeView": {
@@ -34880,6 +37526,117 @@
           "ja"
         ]
       },
+      "StandingDecisionAnswer": {
+        "type": "object",
+        "description": "One standing decision's answer. `option_id` is present once approved;\n`decided_at` once approved or rejected.",
+        "required": [
+          "key",
+          "state",
+          "expires_at"
+        ],
+        "properties": {
+          "decided_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "key": {
+            "$ref": "#/components/schemas/StandingDecisionKey"
+          },
+          "option_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentDecisionOptionId"
+              }
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/StandingDecisionState"
+          }
+        },
+        "additionalProperties": false
+      },
+      "StandingDecisionAnswers": {
+        "type": "object",
+        "description": "Answers for the keys asked about; a key never asked is left out.",
+        "required": [
+          "answers"
+        ],
+        "properties": {
+          "answers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StandingDecisionAnswer"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "StandingDecisionAnswersRequest": {
+        "type": "object",
+        "description": "A script's `decision_answers`: the keys whose answers it reads.",
+        "required": [
+          "keys"
+        ],
+        "properties": {
+          "keys": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StandingDecisionKey"
+            },
+            "maxItems": 500,
+            "minItems": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "StandingDecisionAsk": {
+        "type": "object",
+        "description": "A script's `decision_ask`: a decision the hirer answers whenever they\nchoose, read back by key in later runs. Asking never pauses the run.",
+        "required": [
+          "key",
+          "decision",
+          "expires_in_days"
+        ],
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/ManagedAgentDecision"
+          },
+          "expires_in_days": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Days until the decision can no longer be answered, 1 to 30.",
+            "maximum": 30,
+            "minimum": 1
+          },
+          "key": {
+            "$ref": "#/components/schemas/StandingDecisionKey"
+          }
+        },
+        "additionalProperties": false
+      },
+      "StandingDecisionKey": {
+        "type": "string",
+        "description": "A script-chosen name for one standing decision, unique within its hire.\n1 to 128 characters of nonblank plain text."
+      },
+      "StandingDecisionState": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "approved",
+          "rejected",
+          "expired"
+        ]
+      },
       "StartAddonBuildRequest": {
         "type": "object",
         "required": [
@@ -34896,6 +37653,18 @@
             "$ref": "#/components/schemas/AddonBuildReason"
           },
           "request": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "StartCopyPermission": {
+        "type": "object",
+        "required": [
+          "redirect_origin"
+        ],
+        "properties": {
+          "redirect_origin": {
             "type": "string"
           }
         },
@@ -34979,6 +37748,76 @@
         "type": "string",
         "maxLength": 120,
         "minLength": 1
+      },
+      "TaxPaymentFormFields": {
+        "type": "object",
+        "description": "Names of the URL-encoded form fields a tax payment site posts with the\npayment's amount, tax form, tax period and bank account number, and of the\nfield only its final submission posts. Once all are known, a guarded\nrequest waits for the hirer's yes to that exact payment.",
+        "required": [
+          "amount",
+          "tax_form",
+          "tax_period",
+          "bank_account_number",
+          "submit"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string"
+          },
+          "bank_account_number": {
+            "type": "string"
+          },
+          "submit": {
+            "type": "string",
+            "description": "A field, such as the final page's submit button, that only the request\nplacing the payment posts."
+          },
+          "tax_form": {
+            "type": "string"
+          },
+          "tax_period": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "One or two fields, such as a year and a month, shown joined by a space."
+          }
+        },
+        "additionalProperties": false
+      },
+      "TelegramConfirmRequest": {
+        "type": "object",
+        "required": [
+          "start_id",
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "The code the employee sent in Telegram after the start message."
+          },
+          "start_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The start the owner created."
+          }
+        },
+        "additionalProperties": false
+      },
+      "TelegramStartView": {
+        "type": "object",
+        "required": [
+          "start_id",
+          "start_url"
+        ],
+        "properties": {
+          "start_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "start_url": {
+            "type": "string",
+            "description": "The `t.me` link that opens the employee's bot with the start code."
+          }
+        }
       },
       "TemplateAccessChange": {
         "oneOf": [
@@ -35123,6 +37962,35 @@
                 "type": "string",
                 "enum": [
                   "guarded_purchases_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Form submissions the customer sends from the live window.",
+            "required": [
+              "before",
+              "after",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/GuardedSubmissionRule"
+                }
+              },
+              "before": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/GuardedSubmissionRule"
+                }
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "guarded_submissions_changed"
                 ]
               }
             }
@@ -36068,6 +38936,16 @@
           }
         }
       },
+      "ToolDenialSource": {
+        "type": "string",
+        "description": "Who refused a tool call the runtime classed as a permission denial.",
+        "enum": [
+          "employee",
+          "publisher",
+          "seren",
+          "hirer"
+        ]
+      },
       "UpdateDecisionReason": {
         "oneOf": [
           {
@@ -36283,6 +39161,15 @@
         },
         "additionalProperties": false
       },
+      "VaultProposalKind": {
+        "type": "string",
+        "description": "The purpose of an owner-reviewed vault request.",
+        "enum": [
+          "vault_setup",
+          "copy_once",
+          "copy_permission"
+        ]
+      },
       "VaultProvisioningAccessLevel": {
         "type": "string",
         "enum": [
@@ -36372,6 +39259,21 @@
               },
               "vault_id": {
                 "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A destination for chosen items, apart from the daily sync setup.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "copy_destination"
+                ]
               }
             }
           },

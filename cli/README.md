@@ -402,6 +402,7 @@ Use `seren agent` to deploy managed agents from published templates, replace con
 
 ```bash
 seren agent managed-deploy-template <template-slug> --provider google --connection-id <connection-id> --timezone America/New_York
+seren agent managed-deploy-template <template-slug> --timezone America/New_York
 seren agent managed-template-stats <template-slug>
 seren agent managed-template-runs <template-slug> --ending script_failed --employer yours --limit 20
 seren agent managed-template-run <template-slug> <run-code> --follow
@@ -427,6 +428,8 @@ seren agent managed-proposals undo <deployment-id> <proposal-id>
 seren agent managed-handoff active <deployment-id>
 seren -o json agent managed-handoff ticket <deployment-id> <handoff-id>
 ```
+
+Read the template's `owner_connection` before hiring. Templates with `mail_and_files` require both `--provider` and `--connection-id`. For `mail_read`, supply both to link mail or omit both to hire without a link. For `sign_in_only`, omit both. A provider flag alone does not link a mail connection.
 
 `managed-template-stats` returns aggregate work hours, skill count, and the latest update time. `managed-template-runs` lists the runs of a managed agent your organization publishes, newest first, filtered by `--ending`, `--since`, `--until`, `--employer` (an Employer number, or `yours`), `--release`, `--limit` and `--offset`. `managed-template-run` prints one run's timeline: its release, status, ending, exit code, the most recently reported cleaned script error output (`error_lines`) and its timestamp (`error_lines_at`), model calls, tokens, cost and steps, with the hire shown only as `Employer` and its number. Nothing the Employer wrote is shown. `--follow` reads the run every 5 seconds, prints only new steps, and prints the run once it has ended; Ctrl-C stops it. Only the publishing organization's built-in Owner or Admin can read runs; other callers receive not found. `managed-feedback` creates a feedback record for the selected work revision; its optional replay key prevents duplicate submissions.
 

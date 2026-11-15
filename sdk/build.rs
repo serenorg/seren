@@ -1050,9 +1050,30 @@ fn merge_api_spec(
                 .find(|(from, _)| *from == name.as_str())
                 .map(|(_, to)| (*to).to_string())
                 .unwrap_or_else(|| name.clone());
-            main_schemas
-                .entry(&target_name)
-                .or_insert_with(|| schema.clone());
+            // These publisher contracts own shared definitions also present in
+            // the monolithic export. Limit overrides to those definitions.
+            let publisher_owns_schema = match path_prefix {
+                "/publishers/seren-agent" => [
+                    "GuardedCheckout",
+                    "GuardedPurchaseRule",
+                    "ManagedAgentRunFeeAmount",
+                    "ManagedAgentTemplateBrowserDefaults",
+                    "ManagedAgentTemplateDeployDefaults",
+                    "ManagedAgentTemplateOwnerConnection",
+                    "ManagedAgentTemplateTestRunScriptExit",
+                    "ManagedAgentTemplateTool",
+                ]
+                .contains(&target_name.as_str()),
+                "/publishers/seren-cloud" => target_name == "PublisherOperationPurpose",
+                _ => false,
+            };
+            if publisher_owns_schema {
+                main_schemas.insert(target_name, schema.clone());
+            } else {
+                main_schemas
+                    .entry(&target_name)
+                    .or_insert_with(|| schema.clone());
+            }
         }
     }
 
@@ -1183,7 +1204,16 @@ const HAND_WRITTEN_REQUEST_SCHEMAS: &[&str] = &[
 const VALUE_LIMITS: &[&str] = &["maxLength", "minLength", "maxItems", "minItems", "pattern"];
 
 /// Decode allowlisted response enums as strings while keeping request values closed.
-const OPEN_RESPONSE_ENUMS: &[&str] = &["ManagedAgentTemplateTool"];
+/// A listed enum opens even with one value, so future producer values decode.
+const OPEN_RESPONSE_ENUMS: &[&str] = &[
+    "ManagedAgentRunTrigger",
+    "ManagedAgentTemplateHiresPerEmployer",
+    "ManagedAgentTemplateTool",
+    "ManagedAgentTemplateOwnerConnection",
+    "ManagedAgentTemplatePrivacyMode",
+    "Pronouns",
+    "SpokenLanguage",
+];
 
 /// A string enum with more than one value.
 fn open_string_enum(map: &serde_json::Map<String, serde_json::Value>) -> bool {
@@ -1266,6 +1296,41 @@ fn relax_value_limits(value: &mut serde_json::Value, shared: &SharedScalars, val
     }
 }
 
+/// Replace references to allowlisted response enums with their open copies,
+/// including inside unions. A union's branch is chosen by its own tag, which
+/// is never on the allowlist, so an open listed value can't pick another branch.
+fn open_listed_enum_refs(value: &mut serde_json::Value, open: &HashMap<String, serde_json::Value>) {
+    let listed = value
+        .get("$ref")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|r| r.strip_prefix("#/components/schemas/"))
+        .filter(|name| OPEN_RESPONSE_ENUMS.contains(name))
+        .and_then(|name| open.get(name));
+    if let (Some(relaxed), Some(map)) = (listed, value.as_object()) {
+        let mut copy = relaxed.as_object().cloned().unwrap_or_default();
+        for (key, v) in map {
+            if key != "$ref" {
+                copy.insert(key.clone(), v.clone());
+            }
+        }
+        *value = serde_json::Value::Object(copy);
+        return;
+    }
+    match value {
+        serde_json::Value::Object(map) => {
+            for v in map.values_mut() {
+                open_listed_enum_refs(v, open);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                open_listed_enum_refs(v, open);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Relax response-only schemas while preserving request and union constraints.
 fn open_response_only_schemas(value: &mut serde_json::Value) {
     let mut request_roots = Vec::new();
@@ -1321,7 +1386,7 @@ fn open_response_only_schemas(value: &mut serde_json::Value) {
                 if let Some(map) = relaxed.as_object_mut()
                     && values
                     && OPEN_RESPONSE_ENUMS.contains(&name.as_str())
-                    && open_string_enum(map)
+                    && string_enum_values(&serde_json::Value::Object(map.clone())).is_some()
                 {
                     map.remove("enum");
                 }
@@ -1360,6 +1425,7 @@ fn open_response_only_schemas(value: &mut serde_json::Value) {
                 if let Some(responses) = operation.get_mut("responses") {
                     open_object_schema(responses, false);
                     relax_value_limits(responses, &shared_scalars, true);
+                    open_listed_enum_refs(responses, &shared_scalars.values);
                     mark_reply_enums(responses, &[]);
                 }
             }
@@ -1375,6 +1441,7 @@ fn open_response_only_schemas(value: &mut serde_json::Value) {
                 if !union_branches.contains(name) {
                     relax_value_limits(schema, &shared_scalars, !union_reached.contains(name));
                 }
+                open_listed_enum_refs(schema, &shared_scalars.values);
                 if !union_reached.contains(name) && !CLOSED_REPLY_ENUMS.contains(&name.as_str()) {
                     mark_reply_enums(schema, &[]);
                 }

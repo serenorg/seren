@@ -8766,20 +8766,31 @@ mod tests {
             "UTC",
         ]);
         assert!(
-            matches!(cli.command, Commands::Agent { action } if matches!(*action, AgentAction::Managed(commands::managed::ManagedAction::ManagedDeployTemplate { provider: commands::managed::TemplateProvider::Google, .. })))
+            matches!(cli.command, Commands::Agent { action } if matches!(*action, AgentAction::Managed(commands::managed::ManagedAction::ManagedDeployTemplate { provider: Some(commands::managed::TemplateProvider::Google), .. })))
         );
         let cli = parse_cli_with_large_stack(vec![
             "seren",
             "agent",
             "managed-deploy-template",
-            "researcher",
+            "bella",
+            "--timezone",
+            "UTC",
+        ]);
+        assert!(
+            matches!(cli.command, Commands::Agent { action } if matches!(*action, AgentAction::Managed(commands::managed::ManagedAction::ManagedDeployTemplate { provider: None, connection_id: None, .. })))
+        );
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-deploy-template",
+            "vera-hale",
             "--provider",
             "microsoft",
             "--timezone",
             "UTC",
         ]);
         assert!(
-            matches!(cli.command, Commands::Agent { action } if matches!(*action, AgentAction::Managed(commands::managed::ManagedAction::ManagedDeployTemplate { connection_id: None, .. })))
+            matches!(cli.command, Commands::Agent { action } if matches!(*action, AgentAction::Managed(commands::managed::ManagedAction::ManagedDeployTemplate { provider: Some(commands::managed::TemplateProvider::Microsoft), connection_id: None, .. })))
         );
         assert!(
             try_parse_cli_with_large_stack(vec!["seren", "agent", "managed-hire", "camilla"])

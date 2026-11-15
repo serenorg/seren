@@ -17045,7 +17045,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Create a managed agent deployment from a published template using an IANA timezone. A template whose catalog owner_connection is mail_and_files requires an existing oauth_connection_id; omit oauth_connection_id for a sign_in_only template. Read the template's owner_connection with get_seren_agent_template first. This creates paid infrastructure; obtain user approval first.",
+        description = "Create a managed agent deployment from a published template using an IANA timezone. A template whose catalog owner_connection is mail_and_files requires an existing oauth_connection_id and provider. For mail_read, omit both oauth_connection_id and provider to hire without a mail link, or supply both to link mail. For sign_in_only, omit both oauth_connection_id and provider. Read the template's owner_connection with get_seren_agent_template first. This creates paid infrastructure; obtain user approval first.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -38164,6 +38164,7 @@ pub(crate) mod tests {
                 "skill_slug": "managed-hire-00000000000000000000000000009003",
                 "mode": "cron",
                 "platform_managed": true,
+                "routine_set_by_hirer": false,
                 "serving_fallback": false,
                 "status": "running",
                 "desired_lifecycle_state": "running",
@@ -40295,7 +40296,7 @@ pub(crate) mod tests {
         prices[0]["measured_cost"]["average_price_atomic"] = serde_json::json!(1000000);
         prices[1]["measured_cost"] = fee_tool_measurement_fixture();
         prices[1]["measured_cost"]["average_price_atomic"] = serde_json::json!(0);
-        let owner = serde_json::json!({"id":deployment_id,"organization_id":Uuid::from_u128(1),"name":"Pricing contract","skill_slug":"pricing-contract","mode":"always_on","platform_managed":true,"serving_fallback":false,"status":"running","desired_lifecycle_state":"running","template":{"slug":"pricing-contract","display_name":"Pricing contract","revision":1},"run_kinds":prices.clone(),"spend_limits":{"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":prices.clone()},"created_at":"2026-10-23T00:00:00Z","updated_at":"2026-10-23T00:00:00Z"});
+        let owner = serde_json::json!({"id":deployment_id,"organization_id":Uuid::from_u128(1),"name":"Pricing contract","skill_slug":"pricing-contract","mode":"always_on","platform_managed":true,"routine_set_by_hirer":false,"serving_fallback":false,"status":"running","desired_lifecycle_state":"running","template":{"slug":"pricing-contract","display_name":"Pricing contract","revision":1},"run_kinds":prices.clone(),"spend_limits":{"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":prices.clone()},"created_at":"2026-10-23T00:00:00Z","updated_at":"2026-10-23T00:00:00Z"});
         Mock::given(method("GET"))
             .and(path(format!(
                 "/publishers/seren-agent/deployments/{deployment_id}/managed"
@@ -40460,7 +40461,7 @@ pub(crate) mod tests {
     /// (`GET https://api.serendb.com/publishers/seren-agent/templates`, read on 2026-11-01),
     /// updated with the required intro-video metadata and catalog fields.
     fn public_managed_agent_catalog() -> Value {
-        serde_json::json!({
+        let mut catalog = serde_json::json!({
             "data": [
                 {
                     "owner_connection": "mail_and_files",
@@ -40683,7 +40684,16 @@ pub(crate) mod tests {
                     "similar": []
                 }
             ]
-        })
+        });
+        for listing in catalog["data"].as_array_mut().unwrap() {
+            listing["hires_per_employer"] = serde_json::json!("one");
+            listing["mcp_tools"] = serde_json::json!([]);
+            listing["mcp_url"] = serde_json::json!(format!(
+                "https://mcp.serendb.com/employees/{}",
+                listing["slug"].as_str().unwrap()
+            ));
+        }
+        catalog
     }
 
     /// Core's listings as the generated client hands them back. Core's contract gives an
@@ -40804,8 +40814,17 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn the_managed_agent_catalog_preserves_every_listing() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, ResponseTemplate};
+
         let core = wiremock::MockServer::start().await;
-        mount_public_managed_agent_catalog(&core).await;
+        let mut catalog = public_managed_agent_catalog();
+        catalog["data"][1]["owner_connection"] = serde_json::json!("mail_read");
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/templates"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&catalog))
+            .mount(&core)
+            .await;
 
         let listings = managed_agent_catalog_json(
             call_managed_agent_catalog_tool(
@@ -40816,7 +40835,6 @@ pub(crate) mod tests {
             .await,
         );
 
-        let catalog = public_managed_agent_catalog();
         assert_eq!(listings, listings_as_the_snapshot_describes_them(&catalog));
         let slugs: Vec<&str> = listings
             .as_array()
@@ -40825,9 +40843,42 @@ pub(crate) mod tests {
             .map(|listing| listing["slug"].as_str().unwrap())
             .collect();
         assert_eq!(slugs, ["camilla", "vera-hale"]);
-        assert_eq!(listings[1]["owner_connection"], "sign_in_only");
+        assert_eq!(listings[1]["owner_connection"], "mail_read");
         assert_eq!(listings[1]["run_kinds"][1]["charge"], "cost");
         assert_eq!(core.received_requests().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn managed_agent_catalog_preserves_future_owner_connection_values() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, ResponseTemplate};
+
+        let core = wiremock::MockServer::start().await;
+        let mut catalog = public_managed_agent_catalog();
+        catalog["data"][1]["owner_connection"] = serde_json::json!("future_connection");
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/templates"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&catalog))
+            .mount(&core)
+            .await;
+        for (tool, arguments) in [
+            ("list_seren_agent_templates", serde_json::json!({})),
+            (
+                "get_seren_agent_template",
+                serde_json::json!({"slug": "vera-hale"}),
+            ),
+        ] {
+            let decoded = managed_agent_catalog_json(
+                call_managed_agent_catalog_tool(&core, tool, arguments).await,
+            );
+            let listing = if decoded.is_array() {
+                &decoded[1]
+            } else {
+                &decoded
+            };
+            assert_eq!(listing["owner_connection"], "future_connection");
+            assert_eq!(listing["slug"], "vera-hale");
+        }
     }
 
     /// Both caption states and supported shapes survive the public catalog response.
@@ -41204,6 +41255,8 @@ pub(crate) mod tests {
             ),
             "{hire}"
         );
+        assert!(hire.contains("For mail_read, omit both oauth_connection_id and provider"));
+        assert!(hire.contains("This creates paid infrastructure; obtain user approval first."));
         assert!(core.received_requests().await.unwrap().is_empty());
     }
 }

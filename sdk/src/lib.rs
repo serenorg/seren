@@ -869,6 +869,7 @@ mod tests {
     fn managed_owner_and_update_views_preserve_serving_revisions() {
         let owner_wire = json!({"id": Uuid::new_v4(), "organization_id": Uuid::new_v4(),
             "name": "Researcher", "skill_slug": "research", "mode": "cron", "platform_managed": true,
+            "routine_set_by_hirer": false,
             "status": "running", "desired_lifecycle_state": "running",
             "template": {"slug": "research", "display_name": "Researcher", "revision": 9},
             "desired_revision": 9, "serving_revision": 8, "serving_fallback": true,
@@ -1631,6 +1632,88 @@ mod tests {
         })
     }
 
+    #[test]
+    fn releases_preserve_managed_agent_tools_and_browser_guards() {
+        let mut wire = template_release_request_wire();
+        let defaults = &mut wire["deploy_defaults"];
+        defaults["hires_per_employer"] = json!("many");
+        defaults["mcp_tools"] = json!([{
+            "name": "research", "title": "Research", "description": "Research a topic",
+            "input_schema": {
+                "type": "object", "properties": {"topic": {"type": "string"}},
+                "required": ["topic"]
+            },
+            "message": "Research {{topic}}"
+        }]);
+        defaults["browser"]["links"] = json!("sent_only");
+        defaults["guarded_submissions"] = json!([{
+            "host": "example.com", "method": "POST", "path_pattern": "/submit"
+        }]);
+        defaults["guarded_purchases"] = json!([{
+            "host": "directpay.irs.gov", "method": "POST", "path_pattern": "/submit",
+            "checkout": "irs_direct_pay",
+            "form_fields": {
+                "amount": "amount", "tax_form": "form", "tax_period": ["year"],
+                "bank_account_number": "account", "submit": "confirm"
+            }
+        }]);
+        let request: crate::PublishManagedAgentTemplateReleaseRequest =
+            serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(request).unwrap(), wire);
+    }
+
+    #[test]
+    fn profile_updates_accept_the_current_managed_agent_tools() {
+        for tool in [
+            "addepar",
+            "bill-com",
+            "cardano",
+            "granola",
+            "line",
+            "nannykeeper",
+            "plaid",
+            "quickbooks",
+            "sharepoint",
+            "xero",
+        ] {
+            let wire = json!({"works_in": [tool]});
+            let request: crate::PutManagedAgentTemplateProfile =
+                serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(request).unwrap(), wire);
+        }
+        assert!(
+            serde_json::from_value::<crate::PutManagedAgentTemplateProfile>(
+                json!({"works_in": ["future_tool"]})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn managed_agent_percentage_fees_keep_their_rate() {
+        let fee = json!({"atomic": 0, "usd": "25%", "percent": 25});
+        let amount: crate::ManagedAgentRunFeeAmount = serde_json::from_value(fee.clone()).unwrap();
+        assert_eq!(serde_json::to_value(amount).unwrap(), fee);
+    }
+
+    #[test]
+    fn managed_agent_script_exits_keep_their_output_source() {
+        let wire = json!({
+            "path": "scripts/task.py", "exit_code": 1, "error_output": "Task failed",
+            "details_removed": false, "error_output_source": "failure_report"
+        });
+        let exit: crate::ManagedAgentTemplateTestRunScriptExit =
+            serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(exit).unwrap(), wire);
+    }
+
+    #[test]
+    fn publisher_operations_identify_the_payment_purpose() {
+        let purpose: crate::PublisherOperationPurpose =
+            serde_json::from_value(json!("payment")).unwrap();
+        assert!(matches!(purpose, crate::PublisherOperationPurpose::Payment));
+    }
+
     #[tokio::test]
     async fn a_release_sends_its_hires_tool_output_limit() {
         let server = MockServer::start().await;
@@ -1685,6 +1768,7 @@ mod tests {
     fn an_employer_sees_the_tool_output_limit_a_hire_runs_with() {
         let wire = json!({"id": Uuid::new_v4(), "organization_id": Uuid::new_v4(),
             "name": "Vera Hale", "skill_slug": "vera-hale", "mode": "cron", "platform_managed": true,
+            "routine_set_by_hirer": false,
             "status": "running", "desired_lifecycle_state": "running",
             "template": {"slug": "vera-hale", "display_name": "Vera Hale", "revision": 9},
             "serving_fallback": false, "run_kinds": [],
@@ -2034,10 +2118,13 @@ mod tests {
                 "publisher": {"organization_id": organization_id, "name": "Acme Studio",
                     "handle": "acme-studio", "made_by_seren": false, "verified": true},
                 "owner_connection": "mail_and_files",
+                "hires_per_employer": "one", "mcp_tools": [],
+                "mcp_url": "https://mcp.serendb.com/employees/release-test",
                 "spend_limit_defaults": {"per_task_atomic":2000000,"per_day_atomic":10000000},
                 "published_at": "2026-10-07T12:34:56Z",
                 "skill_slugs": [], "capabilities": ["Research"], "example_tasks": ["Summarize the latest report"],
                 "works_in": ["1password", "google-drive", "slack"], "pronouns": "they/them",
+                "spoken_language": "en", "privacy_mode": "no_training_short_lived_cache",
                 "job_title": "Researcher", "tagline": "Research made clear",
                 "description": "Find primary sources.", "activity_url": "https://example.com/activity",
                 "avatar_url": "https://example.com/avatar.png", "intro_videos": [],
@@ -2055,6 +2142,63 @@ mod tests {
                     "shared": {"words": ["research"], "tools": ["slack"], "skills": []}}]
             }]
         })
+    }
+
+    #[test]
+    fn template_owner_connection_responses_are_open_and_requests_stay_closed() {
+        for connection in [
+            "mail_and_files",
+            "sign_in_only",
+            "mail_read",
+            "future_connection",
+        ] {
+            let mut wire = public_template_list_wire(Uuid::new_v4())["data"][0].clone();
+            wire["owner_connection"] = json!(connection);
+            let listing: crate::ManagedAgentTemplateListing = serde_json::from_value(wire).unwrap();
+            assert_eq!(
+                serde_json::to_value(listing).unwrap()["owner_connection"],
+                connection
+            );
+            let request_value = serde_json::from_value::<crate::ManagedAgentTemplateOwnerConnection>(
+                json!(connection),
+            );
+            assert_eq!(
+                request_value.is_ok(),
+                connection != "future_connection",
+                "{connection}: {request_value:?}"
+            );
+        }
+        let mut malformed = public_template_list_wire(Uuid::new_v4())["data"][0].clone();
+        malformed["owner_connection"] = json!(42);
+        assert!(serde_json::from_value::<crate::ManagedAgentTemplateListing>(malformed).is_err());
+
+        // Catalog reply enums preserve values introduced by the producer.
+        for pointer in [
+            "/hires_per_employer",
+            "/pronouns",
+            "/spoken_language",
+            "/privacy_mode",
+            "/works_in/0",
+            "/run_kinds/0/triggers/0",
+            "/intro_videos/0/shape",
+        ] {
+            let mut wire = public_template_list_wire(Uuid::new_v4())["data"][0].clone();
+            wire["intro_videos"] = json!([{"url": "https://example.com/intro.mp4",
+                "poster_url": "https://example.com/intro.jpg", "captions_url": "https://example.com/intro.vtt",
+                "has_captions": false, "width": 1080, "height": 1920, "shape": "9:16",
+                "duration_ms": 30000}]);
+            *wire
+                .pointer_mut(pointer)
+                .unwrap_or_else(|| panic!("{pointer} is missing from the fixture")) =
+                json!("future_value");
+            let listing = serde_json::from_value::<crate::ManagedAgentTemplateListing>(wire)
+                .unwrap_or_else(|error| panic!("{pointer}: {error}"));
+            assert_eq!(
+                serde_json::to_value(listing).unwrap().pointer(pointer),
+                Some(&json!("future_value")),
+                "{pointer}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -2166,7 +2310,7 @@ mod tests {
             ("works_in", None),
             ("pronouns", None),
             ("capabilities", Some(json!(null))),
-            ("pronouns", Some(json!("unknown"))),
+            ("pronouns", Some(json!(7))),
             ("example_tasks", Some(json!([null]))),
         ];
         for (field, value) in mutations {
@@ -2231,7 +2375,7 @@ mod tests {
             );
         }
         for (pointer, value) in [
-            ("/data/0/pronouns", json!("unknown")),
+            ("/data/0/pronouns", json!(7)),
             ("/data/0/catalog", json!(null)),
             ("/data/0/publisher/verified", json!("true")),
         ] {
