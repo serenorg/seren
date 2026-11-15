@@ -63,10 +63,11 @@ pub enum ManagedAction {
     /// Create a managed deployment from a published template
     ManagedDeployTemplate {
         template: String,
-        #[arg(long, value_enum)]
-        provider: TemplateProvider,
-        /// Mail and files connection; omit for a sign-in-only template
-        #[arg(long)]
+        /// Mail provider; supply together with --connection-id
+        #[arg(long, value_enum, requires = "connection_id")]
+        provider: Option<TemplateProvider>,
+        /// Mail connection; omit both flags for sign-in-only or unlinked mail-read hires
+        #[arg(long, requires = "provider")]
         connection_id: Option<Uuid>,
         /// IANA time zone for the managed deployment's schedule
         #[arg(long)]
@@ -552,9 +553,16 @@ pub async fn execute(action: ManagedAction, ctx: &CommandContext) -> Result<()> 
             connection_id,
             timezone,
         } => {
-            let request: seren::CreateManagedAgentTemplateDeploymentRequest = typed_request(
-                json!({"provider": provider, "oauth_connection_id": connection_id, "timezone": timezone}),
-            )?;
+            let mut body = json!({"timezone": timezone});
+            match (provider, connection_id) {
+                (Some(provider), Some(connection_id)) => {
+                    body["provider"] = json!(provider);
+                    body["oauth_connection_id"] = json!(connection_id);
+                }
+                (None, None) => {}
+                _ => anyhow::bail!("provider and connection-id must be supplied together"),
+            }
+            let request: seren::CreateManagedAgentTemplateDeploymentRequest = typed_request(body)?;
             respond!(
                 client.seren_agent_create_managed_agent_template_deployment(&template, &request)
             );
@@ -950,7 +958,7 @@ mod tests {
         assert!(matches!(
             cli.action,
             ManagedAction::ManagedDeployTemplate {
-                provider: TemplateProvider::Google,
+                provider: Some(TemplateProvider::Google),
                 connection_id: Some(_),
                 ..
             }
@@ -958,9 +966,7 @@ mod tests {
         let cli = ManagedCli::try_parse_from([
             "agent",
             "managed-deploy-template",
-            "researcher",
-            "--provider",
-            "microsoft",
+            "bella",
             "--timezone",
             "UTC",
         ])
@@ -968,7 +974,7 @@ mod tests {
         assert!(matches!(
             cli.action,
             ManagedAction::ManagedDeployTemplate {
-                provider: TemplateProvider::Microsoft,
+                provider: None,
                 connection_id: None,
                 ..
             }
@@ -990,6 +996,30 @@ mod tests {
     }
 
     #[test]
+    fn template_deployment_requires_a_complete_mail_connection_selection() {
+        for flags in [
+            vec!["--provider", "google"],
+            vec!["--connection-id", "11111111-1111-4111-8111-111111111111"],
+            vec![
+                "--provider",
+                "unknown",
+                "--connection-id",
+                "11111111-1111-4111-8111-111111111111",
+            ],
+        ] {
+            let mut args = vec![
+                "agent",
+                "managed-deploy-template",
+                "bella",
+                "--timezone",
+                "UTC",
+            ];
+            args.extend(flags);
+            assert!(ManagedCli::try_parse_from(args).is_err());
+        }
+    }
+
+    #[test]
     fn only_requested_rollouts_override_the_publication_timeout() {
         assert_eq!(template_publication_timeout(None), None);
         assert_eq!(template_publication_timeout(Some(false)), None);
@@ -1001,10 +1031,15 @@ mod tests {
         use wiremock::matchers::{body_json, method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
-        for connection_id in [None, Some(Uuid::new_v4())] {
+        for (provider, connection_id) in [
+            (None, None),
+            (Some(TemplateProvider::Google), Some(Uuid::new_v4())),
+            (Some(TemplateProvider::Microsoft), Some(Uuid::new_v4())),
+        ] {
             let server = MockServer::start().await;
-            let mut request = json!({"provider": "google", "timezone": "UTC"});
+            let mut request = json!({"timezone": "UTC"});
             if let Some(id) = connection_id {
+                request["provider"] = json!(provider);
                 request["oauth_connection_id"] = json!(id);
             }
             Mock::given(method("POST"))
@@ -1038,7 +1073,7 @@ mod tests {
             execute(
                 ManagedAction::ManagedDeployTemplate {
                     template: "researcher".into(),
-                    provider: TemplateProvider::Google,
+                    provider,
                     connection_id,
                     timezone: "UTC".into(),
                 },

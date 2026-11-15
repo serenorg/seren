@@ -1183,7 +1183,10 @@ const HAND_WRITTEN_REQUEST_SCHEMAS: &[&str] = &[
 const VALUE_LIMITS: &[&str] = &["maxLength", "minLength", "maxItems", "minItems", "pattern"];
 
 /// Decode allowlisted response enums as strings while keeping request values closed.
-const OPEN_RESPONSE_ENUMS: &[&str] = &["ManagedAgentTemplateTool"];
+const OPEN_RESPONSE_ENUMS: &[&str] = &[
+    "ManagedAgentTemplateTool",
+    "ManagedAgentTemplateOwnerConnection",
+];
 
 /// A string enum with more than one value.
 fn open_string_enum(map: &serde_json::Map<String, serde_json::Value>) -> bool {
