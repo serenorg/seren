@@ -869,6 +869,7 @@ mod tests {
     fn managed_owner_and_update_views_preserve_serving_revisions() {
         let owner_wire = json!({"id": Uuid::new_v4(), "organization_id": Uuid::new_v4(),
             "name": "Researcher", "skill_slug": "research", "mode": "cron", "platform_managed": true,
+            "routine_set_by_hirer": false,
             "status": "running", "desired_lifecycle_state": "running",
             "template": {"slug": "research", "display_name": "Researcher", "revision": 9},
             "desired_revision": 9, "serving_revision": 8, "serving_fallback": true,
@@ -1685,6 +1686,7 @@ mod tests {
     fn an_employer_sees_the_tool_output_limit_a_hire_runs_with() {
         let wire = json!({"id": Uuid::new_v4(), "organization_id": Uuid::new_v4(),
             "name": "Vera Hale", "skill_slug": "vera-hale", "mode": "cron", "platform_managed": true,
+            "routine_set_by_hirer": false,
             "status": "running", "desired_lifecycle_state": "running",
             "template": {"slug": "vera-hale", "display_name": "Vera Hale", "revision": 9},
             "serving_fallback": false, "run_kinds": [],
@@ -2034,6 +2036,8 @@ mod tests {
                 "publisher": {"organization_id": organization_id, "name": "Acme Studio",
                     "handle": "acme-studio", "made_by_seren": false, "verified": true},
                 "owner_connection": "mail_and_files",
+                "hires_per_employer": "one", "mcp_tools": [],
+                "mcp_url": "https://mcp.serendb.com/employees/release-test",
                 "spend_limit_defaults": {"per_task_atomic":2000000,"per_day_atomic":10000000},
                 "published_at": "2026-10-07T12:34:56Z",
                 "skill_slugs": [], "capabilities": ["Research"], "example_tasks": ["Summarize the latest report"],
@@ -2055,6 +2059,31 @@ mod tests {
                     "shared": {"words": ["research"], "tools": ["slack"], "skills": []}}]
             }]
         })
+    }
+
+    #[test]
+    fn template_owner_connection_responses_are_open_and_requests_stay_closed() {
+        for connection in [
+            "mail_and_files",
+            "sign_in_only",
+            "mail_read",
+            "future_connection",
+        ] {
+            let mut wire = public_template_list_wire(Uuid::new_v4())["data"][0].clone();
+            wire["owner_connection"] = json!(connection);
+            let listing: crate::ManagedAgentTemplateListing = serde_json::from_value(wire).unwrap();
+            assert_eq!(
+                serde_json::to_value(listing).unwrap()["owner_connection"],
+                connection
+            );
+            let request_value = serde_json::from_value::<crate::ManagedAgentTemplateOwnerConnection>(
+                json!(connection),
+            );
+            assert_eq!(request_value.is_ok(), connection != "future_connection");
+        }
+        let mut malformed = public_template_list_wire(Uuid::new_v4())["data"][0].clone();
+        malformed["owner_connection"] = json!(42);
+        assert!(serde_json::from_value::<crate::ManagedAgentTemplateListing>(malformed).is_err());
     }
 
     #[tokio::test]

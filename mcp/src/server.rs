@@ -17045,7 +17045,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Create a managed agent deployment from a published template using an IANA timezone. A template whose catalog owner_connection is mail_and_files requires an existing oauth_connection_id; omit oauth_connection_id for a sign_in_only template. Read the template's owner_connection with get_seren_agent_template first. This creates paid infrastructure; obtain user approval first.",
+        description = "Create a managed agent deployment from a published template using an IANA timezone. A template whose catalog owner_connection is mail_and_files requires an existing oauth_connection_id and provider. For mail_read, omit both oauth_connection_id and provider to hire without a mail link, or supply both to link mail. For sign_in_only, omit both oauth_connection_id and provider. Read the template's owner_connection with get_seren_agent_template first. This creates paid infrastructure; obtain user approval first.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -40464,6 +40464,9 @@ pub(crate) mod tests {
             "data": [
                 {
                     "owner_connection": "mail_and_files",
+                    "hires_per_employer": "one",
+                    "mcp_tools": [],
+                    "mcp_url": "https://mcp.serendb.com/employees/camilla",
                     "tagline": null,
                     "description": null,
                     "capabilities": [],
@@ -40564,6 +40567,9 @@ pub(crate) mod tests {
                 },
                 {
                     "owner_connection": "sign_in_only",
+                    "hires_per_employer": "one",
+                    "mcp_tools": [],
+                    "mcp_url": "https://mcp.serendb.com/employees/vera-hale",
                     "tagline": "AML/KYC expert for US and EU rules, screening, policies and training",
                     "description": "Vera is the compliance hire you have been trying to make for months, and she does the work of ten people. She screens your customers, looks into the ones that seem off, writes your policies and trains your team. She knows US and EU anti-money-laundering rules down to individual states and member states, and she is on duty around the clock.\n\nBuilt by Daertho, on Daertho's own global sanctions, PEP and adverse-media data.",
                     "capabilities": [
@@ -40804,8 +40810,17 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn the_managed_agent_catalog_preserves_every_listing() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, ResponseTemplate};
+
         let core = wiremock::MockServer::start().await;
-        mount_public_managed_agent_catalog(&core).await;
+        let mut catalog = public_managed_agent_catalog();
+        catalog["data"][1]["owner_connection"] = serde_json::json!("mail_read");
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/templates"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&catalog))
+            .mount(&core)
+            .await;
 
         let listings = managed_agent_catalog_json(
             call_managed_agent_catalog_tool(
@@ -40816,7 +40831,6 @@ pub(crate) mod tests {
             .await,
         );
 
-        let catalog = public_managed_agent_catalog();
         assert_eq!(listings, listings_as_the_snapshot_describes_them(&catalog));
         let slugs: Vec<&str> = listings
             .as_array()
@@ -40825,9 +40839,42 @@ pub(crate) mod tests {
             .map(|listing| listing["slug"].as_str().unwrap())
             .collect();
         assert_eq!(slugs, ["camilla", "vera-hale"]);
-        assert_eq!(listings[1]["owner_connection"], "sign_in_only");
+        assert_eq!(listings[1]["owner_connection"], "mail_read");
         assert_eq!(listings[1]["run_kinds"][1]["charge"], "cost");
         assert_eq!(core.received_requests().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn managed_agent_catalog_preserves_future_owner_connection_values() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, ResponseTemplate};
+
+        let core = wiremock::MockServer::start().await;
+        let mut catalog = public_managed_agent_catalog();
+        catalog["data"][1]["owner_connection"] = serde_json::json!("future_connection");
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/templates"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&catalog))
+            .mount(&core)
+            .await;
+        for (tool, arguments) in [
+            ("list_seren_agent_templates", serde_json::json!({})),
+            (
+                "get_seren_agent_template",
+                serde_json::json!({"slug": "vera-hale"}),
+            ),
+        ] {
+            let decoded = managed_agent_catalog_json(
+                call_managed_agent_catalog_tool(&core, tool, arguments).await,
+            );
+            let listing = if decoded.is_array() {
+                &decoded[1]
+            } else {
+                &decoded
+            };
+            assert_eq!(listing["owner_connection"], "future_connection");
+            assert_eq!(listing["slug"], "vera-hale");
+        }
     }
 
     /// Both caption states and supported shapes survive the public catalog response.
@@ -41204,6 +41251,8 @@ pub(crate) mod tests {
             ),
             "{hire}"
         );
+        assert!(hire.contains("For mail_read, omit both oauth_connection_id and provider"));
+        assert!(hire.contains("This creates paid infrastructure; obtain user approval first."));
         assert!(core.received_requests().await.unwrap().is_empty());
     }
 }
