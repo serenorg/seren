@@ -40460,13 +40460,10 @@ pub(crate) mod tests {
     /// (`GET https://api.serendb.com/publishers/seren-agent/templates`, read on 2026-11-01),
     /// updated with the required intro-video metadata and catalog fields.
     fn public_managed_agent_catalog() -> Value {
-        serde_json::json!({
+        let mut catalog = serde_json::json!({
             "data": [
                 {
                     "owner_connection": "mail_and_files",
-                    "hires_per_employer": "one",
-                    "mcp_tools": [],
-                    "mcp_url": "https://mcp.serendb.com/employees/camilla",
                     "tagline": null,
                     "description": null,
                     "capabilities": [],
@@ -40567,9 +40564,6 @@ pub(crate) mod tests {
                 },
                 {
                     "owner_connection": "sign_in_only",
-                    "hires_per_employer": "one",
-                    "mcp_tools": [],
-                    "mcp_url": "https://mcp.serendb.com/employees/vera-hale",
                     "tagline": "AML/KYC expert for US and EU rules, screening, policies and training",
                     "description": "Vera is the compliance hire you have been trying to make for months, and she does the work of ten people. She screens your customers, looks into the ones that seem off, writes your policies and trains your team. She knows US and EU anti-money-laundering rules down to individual states and member states, and she is on duty around the clock.\n\nBuilt by Daertho, on Daertho's own global sanctions, PEP and adverse-media data.",
                     "capabilities": [
@@ -40689,7 +40683,16 @@ pub(crate) mod tests {
                     "similar": []
                 }
             ]
-        })
+        });
+        for listing in catalog["data"].as_array_mut().unwrap() {
+            listing["hires_per_employer"] = serde_json::json!("one");
+            listing["mcp_tools"] = serde_json::json!([]);
+            listing["mcp_url"] = serde_json::json!(format!(
+                "https://mcp.serendb.com/employees/{}",
+                listing["slug"].as_str().unwrap()
+            ));
+        }
+        catalog
     }
 
     /// Core's listings as the generated client hands them back. Core's contract gives an
