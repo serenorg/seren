@@ -2299,6 +2299,7 @@ mod tests {
                     "status": "running",
                     "updated_at": "2026-09-01T00:00:00Z",
                     "platform_managed": true,
+                    "routine_set_by_hirer": false,
                     "serving_fallback": false,
                     "template": {
                         "slug": "platform-template",
@@ -2828,6 +2829,7 @@ mod tests {
                     "skill_slug": "managed-hire-0000000000000000000000000000900a",
                     "mode": "cron",
                     "platform_managed": true,
+                    "routine_set_by_hirer": false,
                     "serving_fallback": false,
                     "status": "running",
                     "desired_lifecycle_state": "running",
