@@ -38164,6 +38164,7 @@ pub(crate) mod tests {
                 "skill_slug": "managed-hire-00000000000000000000000000009003",
                 "mode": "cron",
                 "platform_managed": true,
+                "routine_set_by_hirer": false,
                 "serving_fallback": false,
                 "status": "running",
                 "desired_lifecycle_state": "running",
