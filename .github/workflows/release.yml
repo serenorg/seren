@@ -28,29 +28,7 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           REF_TYPE: ${{ github.ref_type }}
         run: |
-          python3 - <<'PY'
-          import os
-          import pathlib
-          import re
-          import tomllib
-
-          ref_name = os.environ["REF_NAME"]
-          prefix = "v" if os.environ["REF_TYPE"] == "tag" else "release-"
-          if not ref_name.startswith(prefix):
-            raise SystemExit(f"expected a ref starting with {prefix!r}, got {ref_name}")
-          ref_version = ref_name[len(prefix):]
-          cargo = tomllib.loads(pathlib.Path("Cargo.toml").read_text())
-          workspace_version = cargo["workspace"]["package"]["version"]
-          if ref_version != workspace_version:
-            raise SystemExit(
-                f"ref version {ref_version} does not match workspace version {workspace_version}"
-            )
-
-          changelog = pathlib.Path("CHANGELOG.md").read_text()
-          pattern = re.compile(rf"^## \[{re.escape(ref_version)}\]\s+-\s+.+$", re.MULTILINE)
-          if not pattern.search(changelog):
-            raise SystemExit(f"missing CHANGELOG entry for {ref_version}")
-          PY
+          python3 .github/scripts/release_metadata.py "$REF_NAME" "$REF_TYPE"
 
   build:
     needs: tag-check
@@ -141,35 +119,12 @@ jobs:
         working-directory: dist
         run: sha256sum * > SHA256SUMS.txt
 
-      - name: Extract release notes from changelog
+      - name: Prepare release notes
         env:
-          TAG_NAME: ${{ github.ref_name }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
         run: |
-          python3 - <<'PY'
-          import os
-          import pathlib
-          import re
-
-          tag_name = os.environ["TAG_NAME"]
-          version = tag_name[1:] if tag_name.startswith("v") else tag_name
-          changelog = pathlib.Path("CHANGELOG.md").read_text()
-          pattern = re.compile(rf"^## \[{re.escape(version)}\]\s+-\s+.+$")
-          lines = changelog.splitlines()
-          capture = []
-          inside = False
-          for line in lines:
-            if line.startswith("## ["):
-              if inside:
-                break
-              if pattern.match(line):
-                inside = True
-            if inside:
-              capture.append(line)
-          notes = "\n".join(capture).strip()
-          if not notes:
-            raise SystemExit(f"missing CHANGELOG entry for {version}")
-          pathlib.Path("RELEASE_NOTES.md").write_text(notes + "\n")
-          PY
+          python3 .github/scripts/release_metadata.py "$REF_NAME" "$REF_TYPE" --notes-file RELEASE_NOTES.md
 
       - name: Create release
         env:
@@ -180,8 +135,13 @@ jobs:
             echo "Release $TAG_NAME already exists; uploading any missing assets."
             gh release upload "$TAG_NAME" dist/* --clobber
           else
+            if [ -s RELEASE_NOTES.md ]; then
+              set -- --notes-file RELEASE_NOTES.md
+            else
+              set -- --generate-notes
+            fi
             gh release create "$TAG_NAME" \
               --title "$TAG_NAME" \
-              --notes-file RELEASE_NOTES.md \
+              "$@" \
               dist/*
           fi
