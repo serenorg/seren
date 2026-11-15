@@ -208,6 +208,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn audience_is_the_shared_mcp_resource() {
+        let signer = McpJwtSigner::new(
+            b"test-secret-key-at-least-32-bytes!!",
+            "https://mcp.example.com",
+        );
+        let (token, _) = signer
+            .sign_access_token(Uuid::new_v4(), "client", "api", None, None, None)
+            .unwrap();
+        let mut claims = signer.validate_access_token(&token).unwrap();
+        assert_eq!(claims.aud, "https://mcp.example.com/mcp");
+        for audience in [
+            "https://other.example.com/mcp",
+            "https://mcp.example.com/employees/alina-golub",
+        ] {
+            claims.aud = audience.to_string();
+            let token = encode(
+                &Header::new(Algorithm::HS256),
+                &claims,
+                &signer.encoding_key,
+            )
+            .unwrap();
+            assert!(signer.validate_access_token(&token).is_err(), "{audience}");
+        }
+    }
+
+    #[test]
     fn test_sign_and_validate() {
         let secret = b"test-secret-key-at-least-32-bytes!!";
         let signer = McpJwtSigner::new(secret, "https://mcp.example.com");

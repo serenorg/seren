@@ -161,6 +161,17 @@ claude mcp add --scope local --transport http seren https://mcp.serendb.com/mcp
 
 When you first use the MCP server, you'll be prompted to authorize Claude to access your SerenAI account via OAuth 2.1.
 
+**A Seren Employee's own tools:**
+
+In OAuth hosting mode, the server also serves `/employees/<page_slug>`. Use the `mcp_url` returned by the managed agent template catalog rather than constructing an address from its template slug. These addresses use the same Seren account authorization as `/mcp`.
+
+Each address exposes `give_task`, `get_report`, `hire`, and the template's declared tools under `task_<name>`. Save the job ID returned by a task call and pass it to `get_report` to retrieve the result. Hiring requires the user's approval, `confirm: true`, and an IANA timezone. Mail-connected templates also require the provider and OAuth connection ID; templates permitting multiple hires require a hire name. Read the advertised tool schema for the selected template before calling it.
+
+Task calls select the sole hire automatically. When several hires match, supply `deployment_id`; explicit IDs must identify one of your hires of that Employee. The built-in `give_task` accepts `text` and optional `deployment_id`. Publisher-declared tools use `task_<name>` and accept their original inputs inside an `arguments` object, with optional `deployment_id` alongside it. This keeps the hire selector separate from any publisher field with the same name.
+
+For a declared `research` tool whose original input is `{"topic":"quarterly results"}`, call `task_research` with `{"arguments":{"topic":"quarterly results"}}`. To select one of several hires, add its ID as a top-level `deployment_id`. Read-only mode permits listing and reports but refuses hiring and task dispatch.
+
+
 #### Method 2: Using the Local Server
 
 If you need to run the MCP server locally (for development or offline use):

@@ -7271,7 +7271,7 @@ pub(crate) fn ensure_writes_allowed(extensions: &Extensions) -> Result<(), McpEr
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ManagedDeploymentMutation {
+pub(crate) enum ManagedDeploymentMutation {
     Create,
     Update,
     Start,
@@ -7339,7 +7339,7 @@ fn reference_env_credential_proposal_next_step(
     }
 }
 
-fn ensure_managed_deployment_mutation_allowed(
+pub(crate) fn ensure_managed_deployment_mutation_allowed(
     extensions: &Extensions,
     mutation: ManagedDeploymentMutation,
 ) -> Result<(), McpError> {
