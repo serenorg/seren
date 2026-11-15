@@ -2228,7 +2228,7 @@ mod tests {
             ("works_in", None),
             ("pronouns", None),
             ("capabilities", Some(json!(null))),
-            ("pronouns", Some(json!("unknown"))),
+            ("pronouns", Some(json!(7))),
             ("example_tasks", Some(json!([null]))),
         ];
         for (field, value) in mutations {
@@ -2293,7 +2293,7 @@ mod tests {
             );
         }
         for (pointer, value) in [
-            ("/data/0/pronouns", json!("unknown")),
+            ("/data/0/pronouns", json!(7)),
             ("/data/0/catalog", json!(null)),
             ("/data/0/publisher/verified", json!("true")),
         ] {
