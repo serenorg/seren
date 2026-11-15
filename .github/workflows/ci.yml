@@ -40,6 +40,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      - name: Test release metadata
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
