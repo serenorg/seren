@@ -2079,7 +2079,11 @@ mod tests {
             let request_value = serde_json::from_value::<crate::ManagedAgentTemplateOwnerConnection>(
                 json!(connection),
             );
-            assert_eq!(request_value.is_ok(), connection != "future_connection");
+            assert_eq!(
+                request_value.is_ok(),
+                connection != "future_connection",
+                "{connection}: {request_value:?}"
+            );
         }
         let mut malformed = public_template_list_wire(Uuid::new_v4())["data"][0].clone();
         malformed["owner_connection"] = json!(42);

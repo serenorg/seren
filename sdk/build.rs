@@ -1050,9 +1050,17 @@ fn merge_api_spec(
                 .find(|(from, _)| *from == name.as_str())
                 .map(|(_, to)| (*to).to_string())
                 .unwrap_or_else(|| name.clone());
-            main_schemas
-                .entry(&target_name)
-                .or_insert_with(|| schema.clone());
+            // The agent contract owns this shared enum. The monolithic copy may
+            // predate mail_read; keep requests closed to the producer's values.
+            if path_prefix == "/publishers/seren-agent"
+                && target_name == "ManagedAgentTemplateOwnerConnection"
+            {
+                main_schemas.insert(target_name, schema.clone());
+            } else {
+                main_schemas
+                    .entry(&target_name)
+                    .or_insert_with(|| schema.clone());
+            }
         }
     }
 
