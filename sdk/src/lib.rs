@@ -1685,7 +1685,6 @@ mod tests {
     fn an_employer_sees_the_tool_output_limit_a_hire_runs_with() {
         let wire = json!({"id": Uuid::new_v4(), "organization_id": Uuid::new_v4(),
             "name": "Vera Hale", "skill_slug": "vera-hale", "mode": "cron", "platform_managed": true,
-            "routine_set_by_hirer": false,
             "status": "running", "desired_lifecycle_state": "running",
             "template": {"slug": "vera-hale", "display_name": "Vera Hale", "revision": 9},
             "serving_fallback": false, "run_kinds": [],
