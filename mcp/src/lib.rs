@@ -1,5 +1,6 @@
 mod config;
 mod docs;
+mod employee;
 mod error;
 #[cfg(feature = "telemetry")]
 mod metrics;
@@ -329,7 +330,10 @@ async fn reject_unsupported_mcp_methods(
         *req.method(),
         axum::http::Method::GET | axum::http::Method::DELETE
     );
-    if is_stream_method && req.uri().path() == MCP_ENDPOINT_PATH {
+    let path = req.uri().path();
+    let is_mcp_path =
+        path == MCP_ENDPOINT_PATH || employee::employee_page_slug_from_path(path).is_some();
+    if is_stream_method && is_mcp_path {
         tracing::debug!(
             event = "mcp_stream_method_rejected",
             method = %req.method(),
@@ -858,6 +862,44 @@ async fn require_simple_auth(
 /// MCP tokens are issued by this server and signed with HS256.
 /// Upstream tokens (for backend API calls) are stored server-side and never exposed to clients.
 async fn require_oauth_auth(
+    state: axum::extract::State<OAuthAuthState>,
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let employee_slug =
+        employee::employee_page_slug_from_path(req.uri().path()).map(str::to_string);
+    let server_host = state.oauth_state.server_host.clone();
+    let mut response = authenticate_request(state, req, next).await;
+    // An Employee's address points its challenge at her own resource metadata.
+    if let Some(slug) = employee_slug
+        && response.status() == axum::http::StatusCode::UNAUTHORIZED
+    {
+        let generic = format!(
+            r#"resource_metadata="{}/.well-known/oauth-protected-resource""#,
+            server_host.trim_end_matches('/')
+        );
+        let specific = format!(
+            r#"resource_metadata="{}/.well-known/oauth-protected-resource{}{}""#,
+            server_host.trim_end_matches('/'),
+            employee::EMPLOYEE_PATH_PREFIX,
+            slug
+        );
+        if let Some(challenge) = response
+            .headers()
+            .get(axum::http::header::WWW_AUTHENTICATE)
+            .and_then(|value| value.to_str().ok())
+            .map(|value| value.replace(&generic, &specific))
+            && let Ok(value) = axum::http::HeaderValue::from_str(&challenge)
+        {
+            response
+                .headers_mut()
+                .insert(axum::http::header::WWW_AUTHENTICATE, value);
+        }
+    }
+    response
+}
+
+async fn authenticate_request(
     axum::extract::State(state): axum::extract::State<OAuthAuthState>,
     mut req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
@@ -1919,6 +1961,7 @@ async fn run_oauth(config: Config) -> Result<()> {
         allowed_hosts = ?allowed_hosts,
         "Configured MCP streamable HTTP Host allowlist"
     );
+    let employee_allowed_hosts = allowed_hosts.clone();
     let http_config = streamable_http_config(allowed_hosts, ct.clone());
 
     // Create a sessionless streamable HTTP service.
@@ -1934,6 +1977,20 @@ async fn run_oauth(config: Config) -> Result<()> {
         },
         session_manager,
         http_config,
+    );
+
+    // Each listed Employee's own address, served by the same sessionless transport.
+    let employee_server = employee::EmployeeMcpServer::new(
+        &api_base_url,
+        reqwest::Client::builder()
+            .user_agent(format!("{}/{}", MCP_SERVER_NAME, env!("CARGO_PKG_VERSION")))
+            .timeout(std::time::Duration::from_secs(60))
+            .build()?,
+    );
+    let employee_service = StreamableHttpService::new(
+        move || Ok(employee_server.clone()),
+        Arc::new(NeverSessionManager::default()),
+        streamable_http_config(employee_allowed_hosts, ct.clone()),
     );
 
     // CORS configuration per MCP spec
@@ -2041,6 +2098,10 @@ async fn run_oauth(config: Config) -> Result<()> {
     // Keep unsupported MCP methods outside the authentication boundary.
     let mcp_router = axum::Router::new()
         .route(MCP_ENDPOINT_PATH, axum::routing::any_service(mcp_service))
+        .route(
+            "/employees/{page_slug}",
+            axum::routing::any_service(employee_service),
+        )
         .route(
             "/passwords/hosted-agent/{identity_id}",
             axum::routing::delete(delete_hosted_passwords_agent),
