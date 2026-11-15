@@ -24,6 +24,7 @@ fn owner(deployment_id: Uuid, run_kinds: Value) -> Value {
     json!({
         "id": deployment_id, "organization_id": Uuid::from_u128(1), "name": "Pricing contract",
         "skill_slug": "pricing-contract", "mode": "always_on", "platform_managed": true,
+        "routine_set_by_hirer": false,
         "status": "running", "desired_lifecycle_state": "running", "serving_fallback": false,
         "template": {"slug": "pricing-contract", "display_name": "Pricing contract", "revision": 1},
         "run_kinds": run_kinds.clone(),
@@ -80,6 +81,8 @@ async fn managed_pricing_success_bodies_preserve_fee_and_cost_contracts() {
                 "slug": "pricing-contract", "display_name": "Pricing contract",
                 "publisher": {"organization_id": Uuid::from_u128(1), "name": "Studio",
                     "made_by_seren": false, "verified": false},
+                "hires_per_employer": "one", "mcp_tools": [],
+                "mcp_url": "https://mcp.serendb.com/employees/pricing-contract",
                 "owner_connection": "sign_in_only", "published_at": "2026-10-23T00:00:00Z",
                 "capabilities": [], "skill_slugs": [], "example_tasks": ["Run a pricing task"],
                 "works_in": ["slack"], "pronouns": "they/them", "intro_videos": [],
