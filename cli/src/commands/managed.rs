@@ -63,8 +63,8 @@ pub enum ManagedAction {
     /// Create a managed deployment from a published template
     ManagedDeployTemplate {
         template: String,
-        /// Mail provider; supply together with --connection-id
-        #[arg(long, value_enum, requires = "connection_id")]
+        /// Mail provider; sent only when --connection-id is supplied
+        #[arg(long, value_enum)]
         provider: Option<TemplateProvider>,
         /// Mail connection; omit both flags for sign-in-only or unlinked mail-read hires
         #[arg(long, requires = "provider")]
@@ -559,8 +559,8 @@ pub async fn execute(action: ManagedAction, ctx: &CommandContext) -> Result<()> 
                     body["provider"] = json!(provider);
                     body["oauth_connection_id"] = json!(connection_id);
                 }
-                (None, None) => {}
-                _ => anyhow::bail!("provider and connection-id must be supplied together"),
+                (_, None) => {}
+                (None, Some(_)) => anyhow::bail!("provider is required with connection-id"),
             }
             let request: seren::CreateManagedAgentTemplateDeploymentRequest = typed_request(body)?;
             respond!(
@@ -996,9 +996,8 @@ mod tests {
     }
 
     #[test]
-    fn template_deployment_requires_a_complete_mail_connection_selection() {
+    fn template_deployment_requires_a_provider_for_a_mail_connection() {
         for flags in [
-            vec!["--provider", "google"],
             vec!["--connection-id", "11111111-1111-4111-8111-111111111111"],
             vec![
                 "--provider",
@@ -1020,6 +1019,30 @@ mod tests {
     }
 
     #[test]
+    fn template_deployment_keeps_existing_provider_only_commands() {
+        for provider in ["google", "microsoft"] {
+            let cli = ManagedCli::try_parse_from([
+                "agent",
+                "managed-deploy-template",
+                "vera-hale",
+                "--provider",
+                provider,
+                "--timezone",
+                "UTC",
+            ])
+            .unwrap();
+            assert!(matches!(
+                cli.action,
+                ManagedAction::ManagedDeployTemplate {
+                    provider: Some(_),
+                    connection_id: None,
+                    ..
+                }
+            ));
+        }
+    }
+
+    #[test]
     fn only_requested_rollouts_override_the_publication_timeout() {
         assert_eq!(template_publication_timeout(None), None);
         assert_eq!(template_publication_timeout(Some(false)), None);
@@ -1033,6 +1056,8 @@ mod tests {
 
         for (provider, connection_id) in [
             (None, None),
+            (Some(TemplateProvider::Google), None),
+            (Some(TemplateProvider::Microsoft), None),
             (Some(TemplateProvider::Google), Some(Uuid::new_v4())),
             (Some(TemplateProvider::Microsoft), Some(Uuid::new_v4())),
         ] {
