@@ -4569,6 +4569,246 @@
         ]
       }
     },
+    "/deployments/{id}/copy-permission": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Read the copy permission and recent copies.",
+        "operationId": "seren_agent_get_managed_agent_copy_permission",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Copy permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OwnerCopyPermission"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential is not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request conflicts with current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Choose vaults for standing copy permission.",
+        "operationId": "seren_agent_start_managed_agent_copy_permission",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartCopyPermission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Copy permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_VaultProvisioningDecision"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential is not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request conflicts with current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Remove standing permission to copy items.",
+        "operationId": "seren_agent_remove_managed_agent_copy_permission",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Copy permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OwnerCopyPermission"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential is not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request conflicts with current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/email-recipients": {
       "get": {
         "tags": [
@@ -8136,6 +8376,66 @@
         ]
       }
     },
+    "/deployments/{id}/slack-team-access": {
+      "put": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Allow or refuse work from verified members of the hirer's Slack workspace.",
+        "operationId": "seren_agent_update_managed_agent_slack_team_access",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagedAgentSlackTeamAccessRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The hire with its saved setting. The response must not be cached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentOwnerView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid body"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The credential is not the hirer's session or user API key"
+          },
+          "404": {
+            "description": "Hire not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/spending": {
       "get": {
         "tags": [
@@ -9479,7 +9779,7 @@
         "tags": [
           "seren-agent"
         ],
-        "summary": "Read one vault provisioning proposal from the managed agent runtime. An applied proposal returns the vault for each key.",
+        "summary": "Read one vault provisioning proposal from the managed agent runtime. An applied proposal returns the selected vaults by key.",
         "operationId": "seren_agent_get_managed_agent_vault_proposal",
         "parameters": [
           {
@@ -9645,7 +9945,7 @@
         "tags": [
           "seren-agent"
         ],
-        "summary": "Report from the managed agent runtime that a copy of chosen items finished, which ends the managed agent's access to the vault the owner picked for it.",
+        "summary": "Report from the managed agent runtime that a copy of chosen items finished, which ends the managed agent's access to the vaults the owner picked for it.",
         "operationId": "seren_agent_finish_managed_agent_vault_copy",
         "parameters": [
           {
@@ -12455,6 +12755,10 @@
             },
             "description": "Form submissions only the customer may send, from the live window."
           },
+          "links": {
+            "$ref": "#/components/schemas/BrowserLinks",
+            "description": "Restricts navigation to links supplied in the conversation."
+          },
           "max_session_seconds": {
             "type": [
               "integer",
@@ -14845,6 +15149,13 @@
           "owner_submit"
         ]
       },
+      "BrowserLinks": {
+        "type": "string",
+        "enum": [
+          "any",
+          "sent_only"
+        ]
+      },
       "BudgetContinuation": {
         "type": "object",
         "required": [
@@ -15681,6 +15992,46 @@
           "stopped_run_id": {
             "type": "string",
             "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CopyKind": {
+        "type": "string",
+        "enum": [
+          "once",
+          "standing"
+        ]
+      },
+      "CopyPermissionStatus": {
+        "type": "string",
+        "enum": [
+          "off",
+          "waiting",
+          "on"
+        ]
+      },
+      "CopyRecordStatus": {
+        "type": "string",
+        "enum": [
+          "started",
+          "finished",
+          "partly_finished",
+          "failed"
+        ]
+      },
+      "CopySource": {
+        "type": "object",
+        "required": [
+          "account_id",
+          "vault_id"
+        ],
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "vault_id": {
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -17845,6 +18196,13 @@
               },
               "skill_slug": {
                 "type": "string"
+              },
+              "slack_team_access_enabled": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "description": "Whether verified Slack teammates may work on this hire. Only the hirer sees it."
               },
               "spend_limits": {
                 "$ref": "#/components/schemas/HireSpendLimits"
@@ -20264,6 +20622,67 @@
           }
         }
       },
+      "DataResponse_OwnerCopyPermission": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "available",
+              "status",
+              "vault_count",
+              "recent_copies"
+            ],
+            "properties": {
+              "available": {
+                "type": "boolean"
+              },
+              "granted_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "proposal_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "recent_copies": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RecentCopy"
+                }
+              },
+              "status": {
+                "$ref": "#/components/schemas/CopyPermissionStatus"
+              },
+              "vault_count": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_OwnerPublisherAccessListResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -21007,8 +21426,32 @@
                 "type": "string",
                 "format": "date-time"
               },
+              "kind": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/VaultProposalKind"
+                  }
+                ]
+              },
               "message": {
                 "type": "string"
+              },
+              "mirror_sources": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "Daily source identities for destinations, included only in the requested projection.",
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/CopySource"
+                },
+                "propertyNames": {
+                  "type": "string",
+                  "format": "uuid"
+                }
               },
               "proposal_id": {
                 "type": "string",
@@ -21031,7 +21474,7 @@
                   "object",
                   "null"
                 ],
-                "description": "The Seren vault for each proposed key, once applied.",
+                "description": "Selected Seren vaults keyed by their offered slots, once applied.",
                 "additionalProperties": {
                   "type": "string",
                   "format": "uuid"
@@ -22374,7 +22817,18 @@
                     "string",
                     "null"
                   ],
-                  "description": "The last lines that failure printed on its error stream, with personal details removed. Empty when it printed nothing there. Present only while the problem is open."
+                  "description": "The last lines that failure printed on its error stream, with personal details removed. When its error stream was empty, the error code, step and summary of the failure line it printed last on its normal output instead. Empty when it showed neither. Present only while the problem is open."
+                },
+                "script_error_output_source": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ScriptErrorOutputSource",
+                      "description": "Where `script_error_output` came from. Present only while the problem holds a script's output."
+                    }
+                  ]
                 },
                 "script_exit_code": {
                   "type": [
@@ -23095,6 +23549,13 @@
                       "$ref": "#/components/schemas/Tagline"
                     }
                   ]
+                },
+                "telegram_bot": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Username of the managed agent's active Telegram bot, or null when none is registered."
                 },
                 "why": {
                   "oneOf": [
@@ -27482,7 +27943,18 @@
               "string",
               "null"
             ],
-            "description": "The last lines that failure printed on its error stream, with personal details removed. Empty when it printed nothing there. Present only while the problem is open."
+            "description": "The last lines that failure printed on its error stream, with personal details removed. When its error stream was empty, the error code, step and summary of the failure line it printed last on its normal output instead. Empty when it showed neither. Present only while the problem is open."
+          },
+          "script_error_output_source": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScriptErrorOutputSource",
+                "description": "Where `script_error_output` came from. Present only while the problem holds a script's output."
+              }
+            ]
           },
           "script_exit_code": {
             "type": [
@@ -27723,6 +28195,13 @@
           },
           "skill_slug": {
             "type": "string"
+          },
+          "slack_team_access_enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether verified Slack teammates may work on this hire. Only the hirer sees it."
           },
           "spend_limits": {
             "$ref": "#/components/schemas/HireSpendLimits"
@@ -30242,6 +30721,18 @@
           }
         }
       },
+      "ManagedAgentSlackTeamAccessRequest": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
       "ManagedAgentStateRecord": {
         "type": "object",
         "required": [
@@ -30500,6 +30991,10 @@
         "properties": {
           "display": {
             "$ref": "#/components/schemas/BrowserDisplay"
+          },
+          "links": {
+            "$ref": "#/components/schemas/BrowserLinks",
+            "description": "Restricts navigation to HTTPS links supplied in the conversation."
           },
           "max_session_seconds": {
             "type": "integer",
@@ -31283,6 +31778,13 @@
               }
             ]
           },
+          "telegram_bot": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Username of the managed agent's active Telegram bot, or null when none is registered."
+          },
           "why": {
             "oneOf": [
               {
@@ -31953,7 +32455,8 @@
           "path",
           "exit_code",
           "error_output",
-          "details_removed"
+          "details_removed",
+          "error_output_source"
         ],
         "properties": {
           "details_removed": {
@@ -31962,7 +32465,11 @@
           },
           "error_output": {
             "type": "string",
-            "description": "The cleaned end of the script's error stream; empty when it printed nothing there."
+            "description": "The cleaned end of the script's error stream. When its error stream was empty, the error code, step and summary of the failure line it printed last on its normal output instead. Empty when it showed neither."
+          },
+          "error_output_source": {
+            "$ref": "#/components/schemas/ScriptErrorOutputSource",
+            "description": "Where `error_output` came from."
           },
           "exit_code": {
             "type": "integer",
@@ -34001,6 +34508,47 @@
           }
         }
       },
+      "OwnerCopyPermission": {
+        "type": "object",
+        "required": [
+          "available",
+          "status",
+          "vault_count",
+          "recent_copies"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "granted_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "proposal_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "recent_copies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecentCopy"
+            }
+          },
+          "status": {
+            "$ref": "#/components/schemas/CopyPermissionStatus"
+          },
+          "vault_count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "OwnerPublisherAccessEntry": {
         "oneOf": [
           {
@@ -34112,6 +34660,7 @@
           "proposal_id",
           "status",
           "vault_count",
+          "kind",
           "vaults",
           "created_at",
           "expires_at"
@@ -34123,6 +34672,14 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "chosen_vault_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           },
           "created_at": {
             "type": "string",
@@ -34139,6 +34696,9 @@
             "type": "string",
             "format": "date-time",
             "description": "When an undecided or unfinished proposal expires."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/VaultProposalKind"
           },
           "proposal_id": {
             "type": "string",
@@ -34392,7 +34952,7 @@
             "items": {
               "$ref": "#/components/schemas/RequestedVault"
             },
-            "description": "Vaults to create or adopt, 1 to 50, with unique keys."
+            "description": "Vault slots to create or adopt, with unique keys. Setups allow 50; copies offer up to 20 and may fill a selected subset."
           }
         },
         "additionalProperties": false
@@ -35257,6 +35817,50 @@
         },
         "additionalProperties": false
       },
+      "RecentCopy": {
+        "type": "object",
+        "required": [
+          "copy_id",
+          "kind",
+          "started_at",
+          "status",
+          "items",
+          "vault_count"
+        ],
+        "properties": {
+          "copy_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kind": {
+            "$ref": "#/components/schemas/CopyKind"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CopyRecordStatus"
+          },
+          "vault_count": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "RecipientRevocation": {
         "type": "object",
         "required": [
@@ -35825,8 +36429,32 @@
             "type": "string",
             "format": "date-time"
           },
+          "kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/VaultProposalKind"
+              }
+            ]
+          },
           "message": {
             "type": "string"
+          },
+          "mirror_sources": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Daily source identities for destinations, included only in the requested projection.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/CopySource"
+            },
+            "propertyNames": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
           "proposal_id": {
             "type": "string",
@@ -35849,7 +36477,7 @@
               "object",
               "null"
             ],
-            "description": "The Seren vault for each proposed key, once applied.",
+            "description": "Selected Seren vaults keyed by their offered slots, once applied.",
             "additionalProperties": {
               "type": "string",
               "format": "uuid"
@@ -35859,6 +36487,14 @@
             }
           }
         }
+      },
+      "ScriptErrorOutputSource": {
+        "type": "string",
+        "description": "Where a failing script's `error_output` came from.",
+        "enum": [
+          "error_stream",
+          "failure_report"
+        ]
       },
       "ScriptRequestReport": {
         "oneOf": [
@@ -35940,7 +36576,7 @@
           },
           {
             "type": "object",
-            "description": "The script exited with an error. `error_output` is the end of its error\nstream with the hire's values removed, never its standard output.",
+            "description": "The script exited with an error. `error_output` is the end of its error\nstream with the hire's values removed. Of its standard output, only the\nstep, error code and summary of the shared failure line can appear, and\nonly when the error stream is empty.",
             "required": [
               "script",
               "exit_code",
@@ -35951,6 +36587,9 @@
             "properties": {
               "error_output": {
                 "type": "string"
+              },
+              "error_output_source": {
+                "$ref": "#/components/schemas/ScriptErrorOutputSource"
               },
               "execution_id": {
                 "type": [
@@ -36591,7 +37230,8 @@
           "channels:read",
           "reactions:write",
           "groups:read",
-          "im:history"
+          "im:history",
+          "users:read"
         ]
       },
       "SlackAppScopeView": {
@@ -37013,6 +37653,18 @@
             "$ref": "#/components/schemas/AddonBuildReason"
           },
           "request": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "StartCopyPermission": {
+        "type": "object",
+        "required": [
+          "redirect_origin"
+        ],
+        "properties": {
+          "redirect_origin": {
             "type": "string"
           }
         },
@@ -38509,6 +39161,15 @@
         },
         "additionalProperties": false
       },
+      "VaultProposalKind": {
+        "type": "string",
+        "description": "The purpose of an owner-reviewed vault request.",
+        "enum": [
+          "vault_setup",
+          "copy_once",
+          "copy_permission"
+        ]
+      },
       "VaultProvisioningAccessLevel": {
         "type": "string",
         "enum": [
@@ -38598,6 +39259,21 @@
               },
               "vault_id": {
                 "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A destination for chosen items, apart from the daily sync setup.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "copy_destination"
+                ]
               }
             }
           },

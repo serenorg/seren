@@ -2040,6 +2040,7 @@ mod tests {
                 "published_at": "2026-10-07T12:34:56Z",
                 "skill_slugs": [], "capabilities": ["Research"], "example_tasks": ["Summarize the latest report"],
                 "works_in": ["1password", "google-drive", "slack"], "pronouns": "they/them",
+                "spoken_language": "en", "privacy_mode": "no_training_short_lived_cache",
                 "job_title": "Researcher", "tagline": "Research made clear",
                 "description": "Find primary sources.", "activity_url": "https://example.com/activity",
                 "avatar_url": "https://example.com/avatar.png", "intro_videos": [],
@@ -2086,6 +2087,34 @@ mod tests {
         let mut malformed = public_template_list_wire(Uuid::new_v4())["data"][0].clone();
         malformed["owner_connection"] = json!(42);
         assert!(serde_json::from_value::<crate::ManagedAgentTemplateListing>(malformed).is_err());
+
+        // Every enum the catalog reply carries keeps a value Core adds later.
+        for pointer in [
+            "/hires_per_employer",
+            "/pronouns",
+            "/spoken_language",
+            "/privacy_mode",
+            "/works_in/0",
+            "/run_kinds/0/triggers/0",
+            "/intro_videos/0/shape",
+        ] {
+            let mut wire = public_template_list_wire(Uuid::new_v4())["data"][0].clone();
+            wire["intro_videos"] = json!([{"url": "https://example.com/intro.mp4",
+                "poster_url": "https://example.com/intro.jpg", "captions_url": "https://example.com/intro.vtt",
+                "has_captions": false, "width": 1080, "height": 1920, "shape": "9:16",
+                "duration_ms": 30000}]);
+            *wire
+                .pointer_mut(pointer)
+                .unwrap_or_else(|| panic!("{pointer} is missing from the fixture")) =
+                json!("future_value");
+            let listing = serde_json::from_value::<crate::ManagedAgentTemplateListing>(wire)
+                .unwrap_or_else(|error| panic!("{pointer}: {error}"));
+            assert_eq!(
+                serde_json::to_value(listing).unwrap().pointer(pointer),
+                Some(&json!("future_value")),
+                "{pointer}"
+            );
+        }
     }
 
     #[tokio::test]
