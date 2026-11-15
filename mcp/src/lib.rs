@@ -3390,4 +3390,159 @@ mod tests {
             );
         }
     }
+
+    #[tokio::test]
+    async fn employee_address_lists_her_tools_and_refuses_unknown() {
+        let core = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/templates"))
+            .and(header(
+                axum::http::header::AUTHORIZATION,
+                "Bearer upstream-access",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{
+                    "slug": "alina-golub",
+                    "page_slug": "roxy-barlow",
+                    "display_name": "Roxy Barlow",
+                    "mcp_url": "https://mcp.serendb.com/employees/roxy-barlow",
+                    "mcp_tools": [{
+                        "name": "trace_wallet",
+                        "title": "Trace a wallet",
+                        "description": "Follow a wallet's funds.",
+                        "input_schema": {
+                            "type": "object",
+                            "properties": {"address": {"type": "string"}},
+                            "required": ["address"]
+                        },
+                        "message": "Trace the wallet {{address}}."
+                    }]
+                }]
+            })))
+            .mount(&core)
+            .await;
+
+        let state = unreachable_store_oauth_auth_state();
+        let user_id = Uuid::new_v4();
+        let mut session = make_refresh_token("employee-session");
+        session.user_id = user_id;
+        cache_refresh_token_lookup(&state.oauth_token_cache, &session.token_hash, &session).await;
+        let (jwt, _) = state
+            .oauth_state
+            .jwt_signer
+            .sign_access_token(
+                user_id,
+                "client-1",
+                "api",
+                None,
+                None,
+                Some(session.token_hash.as_str()),
+            )
+            .unwrap();
+
+        let employee_server = employee::EmployeeMcpServer::new(&core.uri(), reqwest::Client::new());
+        let app = axum::Router::new()
+            .route(
+                "/employees/{page_slug}",
+                axum::routing::any_service(StreamableHttpService::new(
+                    move || Ok(employee_server.clone()),
+                    Arc::new(NeverSessionManager::default()),
+                    streamable_http_config(
+                        vec!["localhost".to_string()],
+                        tokio_util::sync::CancellationToken::new(),
+                    ),
+                )),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                require_oauth_auth,
+            ))
+            .layer(axum::middleware::from_fn(reject_unsupported_mcp_methods));
+
+        let call = |address: &str, bearer: Option<&str>, method: &str| {
+            let body = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": method,
+                "params": {
+                    "_meta": {
+                        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                        "io.modelcontextprotocol/clientInfo": {"name": "check", "version": "0"},
+                        "io.modelcontextprotocol/clientCapabilities": {}
+                    }
+                }
+            });
+            let mut request = Request::builder()
+                .method(axum::http::Method::POST)
+                .uri(format!("http://localhost/employees/{address}"))
+                .header(
+                    axum::http::header::ACCEPT,
+                    "application/json, text/event-stream",
+                )
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .header("mcp-protocol-version", "2026-07-28")
+                .header("mcp-method", method);
+            if let Some(bearer) = bearer {
+                request = request.header(
+                    axum::http::header::AUTHORIZATION,
+                    format!("Bearer {bearer}"),
+                );
+            }
+            request
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap()
+        };
+        let read = |response: axum::response::Response| async move {
+            let body = axum::body::to_bytes(Body::new(response.into_body()), 256 * 1024)
+                .await
+                .unwrap();
+            String::from_utf8(body.to_vec()).unwrap()
+        };
+
+        // Unsigned: 401 naming this address's own resource metadata.
+        let response = app
+            .clone()
+            .oneshot(call("roxy-barlow", None, "tools/list"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+        let challenge = response.headers()[axum::http::header::WWW_AUTHENTICATE]
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            challenge.contains(
+                r#"resource_metadata="http://mcp.test/.well-known/oauth-protected-resource/employees/roxy-barlow""#
+            ),
+            "{challenge}"
+        );
+
+        // Signed, listed: the standard tools plus her declared one.
+        let response = app
+            .clone()
+            .oneshot(call("roxy-barlow", Some(&jwt), "tools/list"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let body = read(response).await;
+        for tool in [
+            r#""name":"give_task""#,
+            r#""name":"get_report""#,
+            r#""name":"hire""#,
+            r#""name":"trace_wallet""#,
+            r#""title":"Trace a wallet""#,
+        ] {
+            assert!(body.contains(tool), "{tool} missing from {body}");
+        }
+
+        // Signed, unknown: -32004.
+        let response = app
+            .clone()
+            .oneshot(call("nobody-here", Some(&jwt), "tools/list"))
+            .await
+            .unwrap();
+        let body = read(response).await;
+        assert!(body.contains("-32004"), "{body}");
+        assert!(body.contains("No Employee at this address."), "{body}");
+    }
 }
