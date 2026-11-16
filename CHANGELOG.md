@@ -2,6 +2,24 @@
 
 Changes to Seren are documented in this file.
 
+## [0.13.0] - 2026-11-16
+
+### Added
+
+- Managed agents can expose their own MCP addresses with hiring, task dispatch, report retrieval, and template-declared tools through the existing Seren account authorization.
+- Managed agent contracts include guarded form submissions, browser link restrictions, percentage service fees, expanded tool selections, and script error provenance.
+
+### Changed
+
+- **Breaking:** Per-agent publisher-declared MCP tools use `task_<name>` and receive their original inputs inside `arguments`, with an optional top-level `deployment_id` for hire selection. Refresh the tool list, use the prefixed name, and wrap existing tool inputs in `arguments`; when several hires exist, supply the desired deployment ID. The built-in `give_task` keeps `text` and the optional deployment selector.
+- **Breaking:** Refreshed managed agent types require `routine_set_by_hirer` on owner views; `hires_per_employer`, `mcp_tools`, and `mcp_url` on catalog listings; and `error_output_source` on script exits. Browser handoffs require `message`, owner problems require `reference`, and vault provisioning proposals require `kind`. Update Rust struct literals and fixtures to supply these fields from the corresponding API values.
+- Mail-read managed agents can be hired without linking a mail connection. Mail-connected hires require both provider and connection ID; provider-only CLI invocations remain accepted without linking mail.
+
+### Fixed
+
+- Generated requests use the owning agent and cloud schemas for shared definitions, preserving current template deployment settings, tool selections, percentage fees, script error provenance, and payment purpose.
+- Managed agent MCP calls enforce read-only mode, validate task arguments before dispatch, follow report pagination, and explain historical pricing without implying that work is free.
+
 ## [0.12.0] - 2026-11-13
 
 Managed agent run timelines include reported script errors, and response decoding accepts added fields, event types, and enum values while preserving request and integrity checks.
