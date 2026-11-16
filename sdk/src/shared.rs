@@ -1663,17 +1663,38 @@ pub fn validate_oauth2_create_fields(
         ));
     }
 
-    if auth_type != Some("oauth2_cc")
-        && (oauth2_token_url.is_some()
-            || oauth2_client_id.is_some()
-            || oauth2_client_secret.is_some()
-            || oauth2_scopes_present)
-    {
+    validate_oauth2_fields_for_auth_type(
+        auth_type,
+        oauth2_token_url,
+        oauth2_client_id,
+        oauth2_client_secret,
+        oauth2_scopes_present,
+    )
+}
+
+/// Which `oauth2_*` fields an auth type other than `oauth2_cc` may carry. A
+/// passthrough publisher may name a token URL, as Core's Xero connections
+/// require; client credentials and scopes still need `oauth2_cc`.
+fn validate_oauth2_fields_for_auth_type(
+    auth_type: Option<&str>,
+    oauth2_token_url: Option<&str>,
+    oauth2_client_id: Option<&str>,
+    oauth2_client_secret: Option<&str>,
+    oauth2_scopes_present: bool,
+) -> Result<(), ValidationError> {
+    if auth_type == Some("oauth2_cc") {
+        return Ok(());
+    }
+    if oauth2_client_id.is_some() || oauth2_client_secret.is_some() || oauth2_scopes_present {
         return Err(ValidationError::new(
-            "oauth2_* fields require auth_type=oauth2_cc",
+            "oauth2_client_id, oauth2_client_secret and oauth2_scopes require auth_type=oauth2_cc",
         ));
     }
-
+    if oauth2_token_url.is_some() && auth_type != Some("passthrough") {
+        return Err(ValidationError::new(
+            "oauth2_token_url requires auth_type=oauth2_cc or auth_type=passthrough",
+        ));
+    }
     Ok(())
 }
 
@@ -1694,19 +1715,17 @@ pub fn validate_oauth2_update_fields(
         ));
     }
 
-    if auth_type.is_some()
-        && auth_type != Some("oauth2_cc")
-        && (oauth2_token_url.is_some()
-            || oauth2_client_id.is_some()
-            || oauth2_client_secret.is_some()
-            || oauth2_scopes_present)
-    {
-        return Err(ValidationError::new(
-            "oauth2_* fields require auth_type=oauth2_cc",
-        ));
+    // With auth_type left out, Core judges the fields against the stored auth type.
+    if auth_type.is_none() {
+        return Ok(());
     }
-
-    Ok(())
+    validate_oauth2_fields_for_auth_type(
+        auth_type,
+        oauth2_token_url,
+        oauth2_client_id,
+        oauth2_client_secret,
+        oauth2_scopes_present,
+    )
 }
 
 pub fn parse_publisher_category(value: &str) -> Result<crate::PublisherCategory, ValidationError> {
@@ -1984,6 +2003,69 @@ pub fn validate_cloud_approval_resume_identity(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const TOKEN_URL: &str = "https://identity.xero.com/connect/token";
+
+    #[test]
+    fn a_passthrough_publisher_may_name_a_token_url() {
+        validate_oauth2_create_fields(Some("passthrough"), Some(TOKEN_URL), None, None, false)
+            .expect("a passthrough create may carry a token URL");
+        validate_oauth2_update_fields(Some("passthrough"), Some(TOKEN_URL), None, None, false)
+            .expect("a passthrough update may carry a token URL");
+    }
+
+    #[test]
+    fn client_credentials_and_scopes_still_require_oauth2_cc() {
+        for auth_type in [None, Some("passthrough"), Some("static"), Some("jwt")] {
+            for (client_id, client_secret, scopes) in [
+                (Some("client"), None, false),
+                (None, Some("secret"), false),
+                (None, None, true),
+            ] {
+                let error = validate_oauth2_create_fields(
+                    auth_type,
+                    Some(TOKEN_URL),
+                    client_id,
+                    client_secret,
+                    scopes,
+                )
+                .expect_err("a create without oauth2_cc refuses client credentials");
+                assert!(error.to_string().contains("require auth_type=oauth2_cc"));
+                if auth_type.is_some() {
+                    validate_oauth2_update_fields(
+                        auth_type,
+                        None,
+                        client_id,
+                        client_secret,
+                        scopes,
+                    )
+                    .expect_err("an update without oauth2_cc refuses client credentials");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_token_url_still_needs_oauth2_cc_or_passthrough() {
+        for auth_type in [None, Some("static"), Some("jwt")] {
+            validate_oauth2_create_fields(auth_type, Some(TOKEN_URL), None, None, false)
+                .expect_err("a token URL needs oauth2_cc or passthrough");
+        }
+        for auth_type in ["static", "jwt"] {
+            validate_oauth2_update_fields(Some(auth_type), Some(TOKEN_URL), None, None, false)
+                .expect_err("a token URL needs oauth2_cc or passthrough");
+        }
+        validate_oauth2_create_fields(Some("oauth2_cc"), Some(TOKEN_URL), None, None, false)
+            .expect_err("oauth2_cc still needs its client credentials");
+        validate_oauth2_create_fields(
+            Some("oauth2_cc"),
+            Some(TOKEN_URL),
+            Some("client"),
+            Some("secret"),
+            true,
+        )
+        .expect("a complete oauth2_cc create is accepted");
+    }
 
     #[test]
     fn caller_identity_confirmation_requires_a_true_boolean_in_publisher_data() {
