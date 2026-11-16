@@ -1826,6 +1826,23 @@ pub struct CreatePublisherParams {
     /// Use this to map a non-reserved client header to Authorization upstream.
     #[serde(default)]
     pub passthrough_header_rewrite: Option<HashMap<String, String>>,
+    /// Complete-value format for a rewritten upstream header, keyed by the upstream
+    /// header name. "Bearer ..." makes Seren send `Bearer <value>` from the hirer's bare key,
+    /// e.g. {"Authorization": "Bearer ..."}.
+    #[serde(default)]
+    pub passthrough_header_value_format: Option<HashMap<String, seren::PublisherHeaderValueFormat>>,
+    /// Multiplier applied to upstream cost for pay_per_use billing (decimal string, e.g. "1.2")
+    #[serde(default)]
+    pub markup_multiplier: Option<String>,
+    /// Minimum prepaid balance a caller needs before calling (decimal string)
+    #[serde(default)]
+    pub minimum_balance: Option<String>,
+    /// Balance below which the caller is warned (decimal string)
+    #[serde(default)]
+    pub low_balance_threshold: Option<String>,
+    /// Minutes a caller may keep calling after the balance runs out
+    #[serde(default)]
+    pub grace_period_minutes: Option<i32>,
     /// Send this publisher stable, opaque organization and user identifiers.
     /// X-Seren-Caller-Organization-Id is scoped to publisher and organization;
     /// X-Seren-Caller-User-Id is scoped to publisher, organization and user.
@@ -2007,6 +2024,12 @@ pub struct UpdatePublisherParams {
     /// Use this to map a non-reserved client header to Authorization upstream.
     #[serde(default)]
     pub passthrough_header_rewrite: Option<HashMap<String, String>>,
+    /// Complete-value format for a rewritten upstream header, keyed by the upstream
+    /// header name. "Bearer ..." makes Seren send `Bearer <value>` from the hirer's bare key,
+    /// e.g. {"Authorization": "Bearer ..."}.
+    /// Omit to keep the current formats; an empty map clears them.
+    #[serde(default)]
+    pub passthrough_header_value_format: Option<HashMap<String, seren::PublisherHeaderValueFormat>>,
     /// Send this publisher stable, opaque organization and user identifiers.
     /// X-Seren-Caller-Organization-Id is scoped to publisher and organization;
     /// X-Seren-Caller-User-Id is scoped to publisher, organization and user.
@@ -2090,6 +2113,72 @@ pub struct UpdatePublisherPricingParams {
     /// Whether on-chain payments are enabled
     #[serde(default)]
     pub onchain_enabled: Option<bool>,
+    /// Multiplier applied to upstream cost for pay_per_use billing (decimal string, e.g. "1.2")
+    #[serde(default)]
+    pub markup_multiplier: Option<String>,
+    /// Minimum prepaid balance a caller needs before calling (decimal string)
+    #[serde(default)]
+    pub minimum_balance: Option<String>,
+    /// Balance below which the caller is warned (decimal string)
+    #[serde(default)]
+    pub low_balance_threshold: Option<String>,
+    /// Minutes an on-chain payment request stays open
+    #[serde(default)]
+    pub payment_expiry_minutes: Option<i32>,
+    /// Minutes a caller may keep calling after the balance runs out
+    #[serde(default)]
+    pub grace_period_minutes: Option<i32>,
+    /// Most queries a caller may make per minute
+    #[serde(default)]
+    pub max_queries_per_minute: Option<i32>,
+}
+
+/// Parameters for reading a publisher's credential review
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetPublisherCredentialReviewParams {
+    /// Publisher ID (UUID)
+    pub publisher_id: uuid::Uuid,
+}
+
+/// One reviewed credential field: where the hirer's value is bound and how they are asked for it
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct PublisherCredentialFieldParam {
+    /// Where the value goes: "header", "body" or "runtime"
+    pub binding: String,
+    /// Header name, JSON pointer, runtime field name, or the special targets Core documents
+    /// (`api_secret` for Kraken signing, `connections` for Xero connections, `sign_in` for Bill.com)
+    pub binding_target: String,
+    /// Field name shown to the hirer who supplies the value
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Guidance shown to the hirer who supplies the value
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub help: Option<String>,
+    /// Whether the value is masked while the hirer enters it (Core defaults to true)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret: Option<bool>,
+}
+
+/// Parameters for recording a publisher's credential review
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct RecordPublisherCredentialReviewParams {
+    /// Publisher ID (UUID)
+    pub publisher_id: uuid::Uuid,
+    /// The `binding_sha256` that get_publisher_credential_review returned; Core refuses the
+    /// review if the publisher's configuration changed since
+    pub expected_binding_sha256: String,
+    /// "api_key" when hirers must supply a credential, or "none"
+    pub requirement: String,
+    /// Each credential field a hirer supplies; empty when requirement is "none"
+    pub bindings: Vec<PublisherCredentialFieldParam>,
+}
+
+/// Core's request body for recording a publisher credential review
+#[derive(Debug, Serialize)]
+struct PublisherCredentialReviewRequest<'a> {
+    expected_binding_sha256: &'a str,
+    requirement: &'a str,
+    bindings: &'a [PublisherCredentialFieldParam],
 }
 
 /// Parameters for uploading a publisher logo
@@ -15014,6 +15103,11 @@ API endpoint: {endpoint}",
             upstream_headers,
             allowed_passthrough_headers,
             passthrough_header_rewrite,
+            passthrough_header_value_format,
+            markup_multiplier,
+            minimum_balance,
+            low_balance_threshold,
+            grace_period_minutes,
             forward_caller_identity,
             endpoints,
             undocumented_endpoint_policy,
@@ -15225,17 +15319,17 @@ API endpoint: {endpoint}",
             oauth2_scopes,
             database_config,
             gateway_fee_percent: None,
-            grace_period_minutes: None,
+            grace_period_minutes,
             hourly_rate: None,
             jwt_access_key: None,
             jwt_algorithm: None,
             jwt_expiration_seconds: None,
             jwt_secret_key: None,
-            low_balance_threshold: None,
-            markup_multiplier: None,
-            minimum_balance: None,
+            low_balance_threshold,
+            markup_multiplier,
+            minimum_balance,
             ownership_tracking_enabled: None,
-            passthrough_header_value_format: None,
+            passthrough_header_value_format,
             passthrough_header_rewrite: passthrough_header_rewrite
                 .map(serde_json::to_value)
                 .transpose()
@@ -15330,6 +15424,7 @@ API endpoint: {endpoint}",
             api_key_query_param,
             allowed_passthrough_headers,
             passthrough_header_rewrite,
+            passthrough_header_value_format,
             forward_caller_identity,
             upstream_headers,
             auth_type,
@@ -15507,7 +15602,7 @@ API endpoint: {endpoint}",
                 .map_err(|e| McpError::invalid_params(e.to_string(), None))?,
             gateway_fee_percent: None,
             ownership_tracking_enabled: None,
-            passthrough_header_value_format: None,
+            passthrough_header_value_format,
             passthrough_header_rewrite: passthrough_header_rewrite
                 .map(serde_json::to_value)
                 .transpose()
@@ -15652,15 +15747,15 @@ API endpoint: {endpoint}",
             unresolved_fallback_charge: params.unresolved_fallback_charge,
             prepaid_enabled: params.prepaid_enabled,
             onchain_enabled: params.onchain_enabled,
+            grace_period_minutes: params.grace_period_minutes,
+            low_balance_threshold: params.low_balance_threshold,
+            markup_multiplier: params.markup_multiplier,
+            max_queries_per_minute: params.max_queries_per_minute,
+            minimum_balance: params.minimum_balance,
+            payment_expiry_minutes: params.payment_expiry_minutes,
             // Set defaults for fields not exposed in MCP params
-            grace_period_minutes: None,
             hourly_rate: None,
-            low_balance_threshold: None,
-            markup_multiplier: None,
-            max_queries_per_minute: None,
             min_display_price: None,
-            minimum_balance: None,
-            payment_expiry_minutes: None,
             pricing_display_text: None,
             pricing_model: None,
             token_cache_ttl_seconds: None,
@@ -15681,6 +15776,52 @@ API endpoint: {endpoint}",
 
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
+    #[tool(
+        description = "Platform admins only: read a publisher's credential review. Returns binding_sha256 for the publisher's current credential configuration, whether it requires hirer OAuth, and the recorded review (requirement, bindings and whether it is still valid). Pass binding_sha256 as expected_binding_sha256 to record_publisher_credential_review. Until a valid review is recorded, hirers can't save their own keys for the publisher.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_publisher_credential_review(
+        &self,
+        Parameters(params): Parameters<GetPublisherCredentialReviewParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/admin/publishers/{}/credentials",
+            self.api_base_url.trim_end_matches('/'),
+            params.publisher_id
+        );
+        let result = self
+            .execute_api_json::<()>(&extensions, reqwest::Method::GET, url, None)
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Platform admins only: record a publisher's credential review, so hirers can save their own keys for it. First call get_publisher_credential_review and pass its binding_sha256 as expected_binding_sha256; Core refuses the review if the publisher changed since. requirement is \"api_key\" with one binding per credential field the hirer supplies (binding \"header\", \"body\" or \"runtime\", binding_target, and optional label, help and secret), or \"none\" with no bindings. Changing the publisher's endpoints, headers or credentials later invalidates the review.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn record_publisher_credential_review(
+        &self,
+        Parameters(params): Parameters<RecordPublisherCredentialReviewParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let url = format!(
+            "{}/admin/publishers/{}/credentials",
+            self.api_base_url.trim_end_matches('/'),
+            params.publisher_id
+        );
+        let body = PublisherCredentialReviewRequest {
+            expected_binding_sha256: params.expected_binding_sha256.trim(),
+            requirement: params.requirement.trim(),
+            bindings: &params.bindings,
+        };
+        let result = self
+            .execute_api_json(&extensions, reqwest::Method::PUT, url, Some(&body))
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
     #[tool(
         description = "Upload a logo image for a publisher. Accepts base64-encoded PNG, JPEG, WebP, or SVG images. Maximum size 100KB, automatically resized to 200x200 if larger. Supports both API key and OAuth authentication.",
         annotations(read_only_hint = false, open_world_hint = false)
@@ -33196,6 +33337,409 @@ pub(crate) mod tests {
                 .expect_err("an update that drops the setting is not a success");
             assert_eq!(error.message, seren::FORWARD_CALLER_IDENTITY_UNCONFIRMED);
         }
+    }
+
+    fn publisher_params_with<T: serde::de::DeserializeOwned>(
+        mut params: serde_json::Value,
+        extra: serde_json::Value,
+    ) -> Parameters<T> {
+        for (key, value) in extra.as_object().expect("extra fields").clone() {
+            params[key] = value;
+        }
+        Parameters(serde_json::from_value(params).expect("tool params"))
+    }
+
+    fn base_create_params(organization_id: Uuid) -> serde_json::Value {
+        serde_json::json!({
+            "organization_id": organization_id,
+            "name": "Caller Aware",
+            "slug": "caller-aware",
+            "wallet_address": "0x1111111111111111111111111111111111111111",
+            "wallet_network_id": "eip155:8453",
+            "publisher_category": "integration",
+            "integration_type": "api",
+            "api_url": "https://upstream.example.com"
+        })
+    }
+
+    #[tokio::test]
+    async fn create_publisher_sends_value_formats_and_pricing_fields() {
+        use wiremock::ResponseTemplate;
+
+        let organization_id = Uuid::from_u128(0x3471);
+        let publisher_id = Uuid::from_u128(0x3472);
+        let proxy = publisher_write_server(
+            "POST",
+            &format!("/organizations/{organization_id}/publishers"),
+            ResponseTemplate::new(201)
+                .set_body_json(caller_identity_publisher_response(publisher_id, None)),
+        )
+        .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        server
+            .create_publisher(
+                publisher_params_with(
+                    base_create_params(organization_id),
+                    serde_json::json!({
+                        "auth_type": "passthrough",
+                        "allowed_passthrough_headers": ["X-Clearout-Key"],
+                        "passthrough_header_rewrite": {"X-Clearout-Key": "Authorization"},
+                        "passthrough_header_value_format": {"Authorization": "Bearer ..."},
+                        "markup_multiplier": "1.2",
+                        "minimum_balance": "0.5",
+                        "low_balance_threshold": "1.0",
+                        "grace_period_minutes": 15
+                    }),
+                ),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .expect("the publisher is created");
+        let body = only_request_body(&proxy).await;
+        assert_eq!(
+            body["passthrough_header_value_format"],
+            serde_json::json!({"Authorization": "Bearer ..."})
+        );
+        assert_eq!(body["markup_multiplier"], "1.2");
+        assert_eq!(body["minimum_balance"], "0.5");
+        assert_eq!(body["low_balance_threshold"], "1.0");
+        assert_eq!(body["grace_period_minutes"], 15);
+    }
+
+    #[test]
+    fn an_unknown_header_value_format_is_refused_before_any_request() {
+        let params: Result<CreatePublisherParams, _> = serde_json::from_value({
+            let mut params = base_create_params(Uuid::from_u128(0x3473));
+            params["passthrough_header_value_format"] =
+                serde_json::json!({"Authorization": "Token ..."});
+            params
+        });
+        assert!(params.is_err(), "only Core's formats are accepted");
+    }
+
+    #[tokio::test]
+    async fn update_publisher_sends_value_formats_only_when_given() {
+        use wiremock::ResponseTemplate;
+
+        let organization_id = Uuid::from_u128(0x3474);
+        let publisher_id = Uuid::from_u128(0x3475);
+        let route = format!("/organizations/{organization_id}/publishers/{publisher_id}");
+        for (given, sent) in [
+            (
+                serde_json::json!({"passthrough_header_value_format": {"Authorization": "Bearer ..."}}),
+                Some(serde_json::json!({"Authorization": "Bearer ..."})),
+            ),
+            (
+                serde_json::json!({"passthrough_header_value_format": {}}),
+                Some(serde_json::json!({})),
+            ),
+            (serde_json::json!({}), None),
+        ] {
+            let proxy = publisher_write_server(
+                "PUT",
+                &route,
+                ResponseTemplate::new(200)
+                    .set_body_json(caller_identity_publisher_response(publisher_id, None)),
+            )
+            .await;
+            let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+            server
+                .update_publisher(
+                    publisher_params_with(
+                        serde_json::json!({
+                            "organization_id": organization_id,
+                            "publisher_id": publisher_id
+                        }),
+                        given.clone(),
+                    ),
+                    extensions_with_headers(&[]),
+                )
+                .await
+                .expect("the publisher is updated");
+            let body = only_request_body(&proxy).await;
+            assert_eq!(
+                body.get("passthrough_header_value_format"),
+                sent.as_ref(),
+                "given {given}, sent {body}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_passthrough_publisher_with_a_token_url_is_created_in_one_call() {
+        use wiremock::ResponseTemplate;
+
+        let organization_id = Uuid::from_u128(0x3476);
+        let publisher_id = Uuid::from_u128(0x3477);
+        let proxy = publisher_write_server(
+            "POST",
+            &format!("/organizations/{organization_id}/publishers"),
+            ResponseTemplate::new(201)
+                .set_body_json(caller_identity_publisher_response(publisher_id, None)),
+        )
+        .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        server
+            .create_publisher(
+                publisher_params_with(
+                    base_create_params(organization_id),
+                    serde_json::json!({
+                        "auth_type": "passthrough",
+                        "oauth2_token_url": "https://identity.xero.com/connect/token"
+                    }),
+                ),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .expect("the passthrough publisher is created with its token URL");
+        let body = only_request_body(&proxy).await;
+        assert_eq!(body["auth_type"], "passthrough");
+        assert_eq!(
+            body["oauth2_token_url"],
+            "https://identity.xero.com/connect/token"
+        );
+    }
+
+    #[tokio::test]
+    async fn client_credentials_without_oauth2_cc_are_still_refused() {
+        let organization_id = Uuid::from_u128(0x3478);
+        let publisher_id = Uuid::from_u128(0x3479);
+        let proxy = wiremock::MockServer::start().await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        for credential in [
+            serde_json::json!({"oauth2_client_id": "client"}),
+            serde_json::json!({"oauth2_client_secret": "secret"}),
+        ] {
+            let mut extra = serde_json::json!({
+                "auth_type": "passthrough",
+                "oauth2_token_url": "https://identity.xero.com/connect/token"
+            });
+            for (key, value) in credential.as_object().unwrap() {
+                extra[key] = value.clone();
+            }
+            let error = server
+                .create_publisher(
+                    publisher_params_with(base_create_params(organization_id), extra.clone()),
+                    extensions_with_headers(&[]),
+                )
+                .await
+                .expect_err("a create without oauth2_cc refuses client credentials");
+            assert!(error.message.contains("require auth_type=oauth2_cc"));
+            let error = server
+                .update_publisher(
+                    publisher_params_with(
+                        serde_json::json!({
+                            "organization_id": organization_id,
+                            "publisher_id": publisher_id
+                        }),
+                        extra,
+                    ),
+                    extensions_with_headers(&[]),
+                )
+                .await
+                .expect_err("an update without oauth2_cc refuses client credentials");
+            assert!(error.message.contains("require auth_type=oauth2_cc"));
+        }
+        assert!(proxy.received_requests().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn update_publisher_pricing_sends_markup_balance_expiry_grace_and_rate_fields() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let organization_id = Uuid::from_u128(0x347a);
+        let publisher_id = Uuid::from_u128(0x347b);
+        let asset_id = Uuid::from_u128(0x347c);
+        let proxy = MockServer::start().await;
+        let mut publisher = serde_json::json!({
+        "data": {
+            "id": publisher_id,
+            "name": "CoinGecko Like",
+            "slug": "coingecko-like",
+            "categories": [],
+            "capabilities": [],
+            "use_cases": [],
+            "publisher_type": "organization",
+            "wallet_address": "0x1111111111111111111111111111111111111111",
+            "wallet_network_id": "eip155:8453",
+            "publisher_category": "integration",
+            "billing_model": "prepaid_credits",
+            "gateway_fee_percent": "0",
+            "auth_type": "static",
+            "allowed_passthrough_headers": [],
+            "passthrough_header_rewrite": {},
+            "forward_caller_identity": false,
+            "request_content_type": "application/json",
+            "upstream_headers": {},
+            "ownership_tracking_enabled": false,
+            "undocumented_endpoint_policy": "default_deny",
+            "is_active": true,
+            "is_verified": false,
+            "total_queries": 0,
+            "unique_agents_served": 0,
+            "total_revenue_atomic": 0,
+            "created_at": "2026-11-16T00:00:00Z",
+            "updated_at": "2026-11-16T00:00:00Z",
+            "requires_user_oauth": false
+            }
+        });
+        publisher["data"]["pricing"] = serde_json::json!([{
+            "asset_id": asset_id,
+            "pricing_model": "per_request",
+            "base_price_per_1000_rows": "0",
+            "markup_multiplier": "1",
+            "min_charge": "0",
+            "payment_expiry_minutes": 30,
+            "prepaid_enabled": true,
+            "onchain_enabled": false,
+            "minimum_balance": "0",
+            "low_balance_threshold": "0"
+        }]);
+        Mock::given(method("GET"))
+            .and(path("/publishers/coingecko-like"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(publisher))
+            .mount(&proxy)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/organizations"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{
+                    "id": organization_id,
+                    "name": "Publisher Org",
+                    "slug": "publisher-org",
+                    "created_by": Uuid::from_u128(0x347d),
+                    "is_personal": false,
+                    "created_at": "2026-11-16T00:00:00Z",
+                    "updated_at": "2026-11-16T00:00:00Z"
+                }]
+            })))
+            .mount(&proxy)
+            .await;
+        let pricing_path =
+            format!("/organizations/{organization_id}/publishers/{publisher_id}/pricing");
+        Mock::given(method("PUT"))
+            .and(path(pricing_path.as_str()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "asset_id": asset_id,
+                    "pricing_model": "per_request",
+                    "base_price_per_1000_rows": "0",
+                    "markup_multiplier": "1.2",
+                    "min_charge": "0",
+                    "payment_expiry_minutes": 45,
+                    "prepaid_enabled": true,
+                    "onchain_enabled": false,
+                    "minimum_balance": "0.5",
+                    "low_balance_threshold": "1.0"
+                }
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        server
+            .update_publisher_pricing(
+                Parameters(
+                    serde_json::from_value(serde_json::json!({
+                        "slug": "coingecko-like",
+                        "markup_multiplier": "1.2",
+                        "minimum_balance": "0.5",
+                        "low_balance_threshold": "1.0",
+                        "payment_expiry_minutes": 45,
+                        "grace_period_minutes": 15,
+                        "max_queries_per_minute": 120
+                    }))
+                    .expect("pricing params"),
+                ),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .expect("the pricing is updated");
+        let requests = proxy.received_requests().await.unwrap();
+        let put = requests
+            .iter()
+            .find(|request| request.method.as_str() == "PUT")
+            .expect("a pricing update request");
+        let body: serde_json::Value = put.body_json().expect("JSON pricing body");
+        assert_eq!(body["asset_id"], asset_id.to_string());
+        assert_eq!(body["markup_multiplier"], "1.2");
+        assert_eq!(body["minimum_balance"], "0.5");
+        assert_eq!(body["low_balance_threshold"], "1.0");
+        assert_eq!(body["payment_expiry_minutes"], 45);
+        assert_eq!(body["grace_period_minutes"], 15);
+        assert_eq!(body["max_queries_per_minute"], 120);
+    }
+
+    #[tokio::test]
+    async fn credential_review_tools_read_and_record_through_the_admin_route() {
+        use wiremock::ResponseTemplate;
+
+        let publisher_id = Uuid::from_u128(0x347e);
+        let route = format!("/admin/publishers/{publisher_id}/credentials");
+        let binding_sha256 = "a".repeat(64);
+
+        let proxy = publisher_write_server(
+            "GET",
+            &route,
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "publisher_id": publisher_id,
+                    "requires_user_oauth": false,
+                    "binding_sha256": binding_sha256,
+                    "review": null
+                }
+            })),
+        )
+        .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let result = server
+            .get_publisher_credential_review(
+                Parameters(GetPublisherCredentialReviewParams { publisher_id }),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .expect("the review is read");
+        assert!(format!("{result:?}").contains(&binding_sha256));
+
+        let proxy = publisher_write_server(
+            "PUT",
+            &route,
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {"requirement": "api_key", "valid": true}
+            })),
+        )
+        .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        server
+            .record_publisher_credential_review(
+                Parameters(
+                    serde_json::from_value(serde_json::json!({
+                        "publisher_id": publisher_id,
+                        "expected_binding_sha256": binding_sha256,
+                        "requirement": "api_key",
+                        "bindings": [
+                            {"binding": "header", "binding_target": "X-Clearout-Key", "label": "Clearout API key"},
+                            {"binding": "runtime", "binding_target": "email", "secret": false}
+                        ]
+                    }))
+                    .expect("record params"),
+                ),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .expect("the review is recorded");
+        assert_eq!(
+            only_request_body(&proxy).await,
+            serde_json::json!({
+                "expected_binding_sha256": binding_sha256,
+                "requirement": "api_key",
+                "bindings": [
+                    {"binding": "header", "binding_target": "X-Clearout-Key", "label": "Clearout API key"},
+                    {"binding": "runtime", "binding_target": "email", "secret": false}
+                ]
+            })
+        );
     }
 
     #[tokio::test]
