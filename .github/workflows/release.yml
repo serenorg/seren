@@ -31,7 +31,6 @@ jobs:
           python3 - <<'PY'
           import os
           import pathlib
-          import re
           import tomllib
 
           ref_name = os.environ["REF_NAME"]
@@ -45,11 +44,6 @@ jobs:
             raise SystemExit(
                 f"ref version {ref_version} does not match workspace version {workspace_version}"
             )
-
-          changelog = pathlib.Path("CHANGELOG.md").read_text()
-          pattern = re.compile(rf"^## \[{re.escape(ref_version)}\]\s+-\s+.+$", re.MULTILINE)
-          if not pattern.search(changelog):
-            raise SystemExit(f"missing CHANGELOG entry for {ref_version}")
           PY
 
   build:
@@ -141,7 +135,7 @@ jobs:
         working-directory: dist
         run: sha256sum * > SHA256SUMS.txt
 
-      - name: Extract release notes from changelog
+      - name: Prepare optional changelog release notes
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
@@ -152,7 +146,8 @@ jobs:
 
           tag_name = os.environ["TAG_NAME"]
           version = tag_name[1:] if tag_name.startswith("v") else tag_name
-          changelog = pathlib.Path("CHANGELOG.md").read_text()
+          changelog_path = pathlib.Path("CHANGELOG.md")
+          changelog = changelog_path.read_text() if changelog_path.exists() else ""
           pattern = re.compile(rf"^## \[{re.escape(version)}\]\s+-\s+.+$")
           lines = changelog.splitlines()
           capture = []
@@ -166,9 +161,7 @@ jobs:
             if inside:
               capture.append(line)
           notes = "\n".join(capture).strip()
-          if not notes:
-            raise SystemExit(f"missing CHANGELOG entry for {version}")
-          pathlib.Path("RELEASE_NOTES.md").write_text(notes + "\n")
+          pathlib.Path("RELEASE_NOTES.md").write_text(notes + "\n" if notes else "")
           PY
 
       - name: Create release
@@ -180,8 +173,13 @@ jobs:
             echo "Release $TAG_NAME already exists; uploading any missing assets."
             gh release upload "$TAG_NAME" dist/* --clobber
           else
+            if [ -s RELEASE_NOTES.md ]; then
+              set -- --notes-file RELEASE_NOTES.md
+            else
+              set -- --generate-notes
+            fi
             gh release create "$TAG_NAME" \
               --title "$TAG_NAME" \
-              --notes-file RELEASE_NOTES.md \
+              "$@" \
               dist/*
           fi
