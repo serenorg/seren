@@ -27157,6 +27157,7 @@
         "description": "Checkout protocol whose order and payment the egress adapter verifies.",
         "enum": [
           "best_buy",
+          "ringana",
           "irs_direct_pay",
           "eftps"
         ]
