@@ -34493,7 +34493,8 @@
         "type": "string",
         "description": "Checkout protocol whose order and payment responses the egress adapter verifies.",
         "enum": [
-          "best_buy"
+          "best_buy",
+          "ringana"
         ]
       },
       "GuardedPurchaseMethod": {

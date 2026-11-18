@@ -130,3 +130,19 @@ async fn access_list_decodes_owner_reason_and_cursor() {
     }
     server.verify().await;
 }
+
+#[test]
+fn guarded_purchase_rule_keeps_a_ringana_checkout() {
+    let wire = json!({
+        "host": "a.ringana.us",
+        "method": "POST",
+        "path_pattern": "/orders",
+        "checkout": "ringana"
+    });
+    let rule: seren::GuardedPurchaseRule = serde_json::from_value(wire.clone()).unwrap();
+    let encoded = serde_json::to_value(rule).unwrap();
+    assert_eq!(encoded["checkout"], "ringana");
+    for field in ["host", "method", "path_pattern"] {
+        assert_eq!(encoded[field], wire[field]);
+    }
+}
