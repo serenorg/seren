@@ -862,6 +862,41 @@ async fn require_simple_auth(
 /// MCP tokens are issued by this server and signed with HS256.
 /// Upstream tokens (for backend API calls) are stored server-side and never exposed to clients.
 async fn require_oauth_auth(
+    state: axum::extract::State<OAuthAuthState>,
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let page_slug =
+        managed_agent::managed_agent_page_slug_from_path(req.uri().path()).map(str::to_string);
+    let server_host = state.oauth_state.server_host.clone();
+    let mut response = authenticate_oauth_request(state, req, next).await;
+    // An Employee's address points its challenge at her own resource metadata.
+    if let Some(slug) = page_slug
+        && response.status() == axum::http::StatusCode::UNAUTHORIZED
+    {
+        let server_host = server_host.trim_end_matches('/');
+        let shared =
+            format!(r#"resource_metadata="{server_host}/.well-known/oauth-protected-resource""#);
+        let own = format!(
+            r#"resource_metadata="{server_host}/.well-known/oauth-protected-resource{}{slug}""#,
+            managed_agent::MANAGED_AGENT_PATH_PREFIX
+        );
+        if let Some(challenge) = response
+            .headers()
+            .get(axum::http::header::WWW_AUTHENTICATE)
+            .and_then(|value| value.to_str().ok())
+            .map(|value| value.replace(&shared, &own))
+            && let Ok(value) = axum::http::HeaderValue::from_str(&challenge)
+        {
+            response
+                .headers_mut()
+                .insert(axum::http::header::WWW_AUTHENTICATE, value);
+        }
+    }
+    response
+}
+
+async fn authenticate_oauth_request(
     axum::extract::State(state): axum::extract::State<OAuthAuthState>,
     mut req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
@@ -3385,9 +3420,19 @@ mod tests {
             .await;
 
         let state = unreachable_store_oauth_auth_state();
-        for metadata_path in [
-            "/.well-known/oauth-protected-resource",
-            "/.well-known/oauth-protected-resource/employees/roxy-barlow",
+        for (metadata_path, expected_resource) in [
+            (
+                "/.well-known/oauth-protected-resource",
+                "http://mcp.test/mcp",
+            ),
+            (
+                "/.well-known/oauth-protected-resource/mcp",
+                "http://mcp.test/mcp",
+            ),
+            (
+                "/.well-known/oauth-protected-resource/employees/roxy-barlow",
+                "http://mcp.test/employees/roxy-barlow",
+            ),
         ] {
             let response = crate::oauth::oauth_router(state.oauth_state.clone())
                 .oneshot(
@@ -3403,7 +3448,7 @@ mod tests {
                 .await
                 .unwrap();
             let metadata: serde_json::Value = serde_json::from_slice(&body).unwrap();
-            assert_eq!(metadata["resource"], "http://mcp.test/mcp");
+            assert_eq!(metadata["resource"], expected_resource, "{metadata_path}");
         }
         let user_id = Uuid::new_v4();
         let mut session = make_refresh_token("managed-agent-session");
@@ -3483,9 +3528,19 @@ mod tests {
             String::from_utf8(body.to_vec()).unwrap()
         };
 
-        for metadata_path in [
-            "/.well-known/oauth-protected-resource",
-            "/.well-known/oauth-protected-resource/employees/roxy-barlow",
+        for (metadata_path, expected_resource) in [
+            (
+                "/.well-known/oauth-protected-resource",
+                "http://mcp.test/mcp",
+            ),
+            (
+                "/.well-known/oauth-protected-resource/mcp",
+                "http://mcp.test/mcp",
+            ),
+            (
+                "/.well-known/oauth-protected-resource/employees/roxy-barlow",
+                "http://mcp.test/employees/roxy-barlow",
+            ),
         ] {
             let response = app
                 .clone()
@@ -3499,10 +3554,10 @@ mod tests {
                 .unwrap();
             assert_eq!(response.status(), axum::http::StatusCode::OK);
             let metadata: serde_json::Value = serde_json::from_str(&read(response).await).unwrap();
-            assert_eq!(metadata["resource"], "http://mcp.test/mcp");
+            assert_eq!(metadata["resource"], expected_resource, "{metadata_path}");
         }
 
-        // All address views share the canonical MCP OAuth resource.
+        // An Employee's unsigned challenge names her own resource metadata.
         let response = app
             .clone()
             .oneshot(call("roxy-barlow", None, "tools/list"))
@@ -3515,7 +3570,7 @@ mod tests {
             .to_string();
         assert!(
             challenge.contains(
-                r#"resource_metadata="http://mcp.test/.well-known/oauth-protected-resource""#
+                r#"resource_metadata="http://mcp.test/.well-known/oauth-protected-resource/employees/roxy-barlow""#
             ),
             "{challenge}"
         );
