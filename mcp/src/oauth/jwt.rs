@@ -173,7 +173,9 @@ impl McpJwtSigner {
     pub fn validate_access_token(&self, token: &str) -> Result<McpClaims, JwtError> {
         let mut validation = Validation::new(Algorithm::HS256);
         validation.set_issuer(&[&self.issuer]);
-        validation.set_audience(&[&self.audience]);
+        // The audience is checked below: `/mcp` or one Employee's own address.
+        validation.validate_aud = false;
+        validation.required_spec_claims.insert("aud".to_string());
         // Allow some clock skew (60 seconds)
         validation.leeway = 60;
 
@@ -181,7 +183,12 @@ impl McpJwtSigner {
 
         for decoding_key in &self.decoding_keys {
             match decode::<McpClaims>(token, decoding_key, &validation) {
-                Ok(token_data) => return Ok(token_data.claims),
+                Ok(token_data) => {
+                    if !self.accepts_audience(&token_data.claims.aud) {
+                        return Err(JwtError::ValidationFailed("InvalidAudience".to_string()));
+                    }
+                    return Ok(token_data.claims);
+                }
                 Err(e) => last_err = Some(e),
             }
         }
@@ -190,6 +197,16 @@ impl McpJwtSigner {
             .map(|e| e.to_string())
             .unwrap_or_else(|| "No decoding keys configured".to_string());
         Err(JwtError::ValidationFailed(msg))
+    }
+
+    /// `/mcp`, or `/employees/<page_slug>` on this server.
+    fn accepts_audience(&self, aud: &str) -> bool {
+        if aud == self.audience {
+            return true;
+        }
+        aud.strip_prefix(self.issuer.as_str())
+            .and_then(crate::managed_agent::managed_agent_page_slug_from_path)
+            .is_some()
     }
 
     /// Get the issuer URL
@@ -208,7 +225,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn audience_is_the_shared_mcp_resource() {
+    fn audience_is_the_shared_mcp_resource_or_an_employee_address() {
         let signer = McpJwtSigner::new(
             b"test-secret-key-at-least-32-bytes!!",
             "https://mcp.example.com",
@@ -218,9 +235,13 @@ mod tests {
             .unwrap();
         let mut claims = signer.validate_access_token(&token).unwrap();
         assert_eq!(claims.aud, "https://mcp.example.com/mcp");
-        for audience in [
-            "https://other.example.com/mcp",
-            "https://mcp.example.com/employees/alina-golub",
+        for (audience, accepted) in [
+            ("https://mcp.example.com/employees/alina-golub", true),
+            ("https://other.example.com/mcp", false),
+            ("https://other.example.com/employees/alina-golub", false),
+            ("https://mcp.example.com/employees/", false),
+            ("https://mcp.example.com/employees/Alina", false),
+            ("https://mcp.example.com/other", false),
         ] {
             claims.aud = audience.to_string();
             let token = encode(
@@ -229,7 +250,11 @@ mod tests {
                 &signer.encoding_key,
             )
             .unwrap();
-            assert!(signer.validate_access_token(&token).is_err(), "{audience}");
+            assert_eq!(
+                signer.validate_access_token(&token).is_ok(),
+                accepted,
+                "{audience}"
+            );
         }
     }
 

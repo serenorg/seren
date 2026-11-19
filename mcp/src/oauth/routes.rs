@@ -82,10 +82,24 @@ struct ProtectedResourceMetadata {
 /// Clients use this to discover which authorization server to use.
 async fn protected_resource_metadata(
     State(state): State<Arc<OAuthState>>,
+    uri: axum::http::Uri,
 ) -> Json<ProtectedResourceMetadata> {
     let server_host = state.server_host.trim_end_matches('/').to_string();
+    // The "path inserted" form names an Employee's own address as the resource.
+    let resource_path = uri
+        .path()
+        .strip_prefix("/.well-known/oauth-protected-resource")
+        .and_then(crate::managed_agent::managed_agent_page_slug_from_path)
+        .map(|slug| {
+            format!(
+                "{}{}",
+                crate::managed_agent::MANAGED_AGENT_PATH_PREFIX,
+                slug
+            )
+        })
+        .unwrap_or_else(|| "/mcp".to_string());
     Json(ProtectedResourceMetadata {
-        resource: format!("{}/mcp", server_host),
+        resource: format!("{}{}", server_host, resource_path),
         // RFC 9728: `authorization_servers` contains authorization server issuer identifiers
         // (NOT the metadata endpoint URL). The client will discover metadata from the issuer.
         authorization_servers: vec![server_host.clone()],
