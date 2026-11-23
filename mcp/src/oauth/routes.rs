@@ -50,6 +50,9 @@ pub struct OAuthState {
     pub circuit_breaker: Arc<OAuthCircuitBreaker>,
     /// JWT signer for MCP-issued access tokens.
     pub jwt_signer: Arc<McpJwtSigner>,
+    /// This pod's cache of session lookups, shared with the `/mcp` request check so `/revoke`
+    /// can evict a revoked session at once.
+    pub(crate) oauth_token_cache: crate::OAuthTokenCache,
 }
 
 const SUPPORTED_GRANT_TYPES: &[&str] = &["authorization_code", "refresh_token"];
@@ -1084,8 +1087,16 @@ struct RevokeRequest {
 
 /// Token revocation endpoint per RFC 7009.
 ///
-/// Revokes refresh tokens. Access tokens are JWTs issued by this server, so they
-/// cannot be server-side revoked and remain valid until expiry.
+/// Revokes refresh tokens and MCP access tokens. An access token is a JWT whose `rth` claim
+/// names its session's row in `mcp_oauth.refresh_tokens`; revoking it deletes that row, and the
+/// `/mcp` request check then answers 401 "Session has been revoked". A token without `rth` revokes
+/// the row the request check would use for it: its user's and client's latest live session.
+/// When the request names a `client_id`, only that client's access tokens are revoked.
+///
+/// The pod that handles the revocation evicts the session from its lookup cache at once. Other
+/// pods keep a cached lookup for at most `OAUTH_TOKEN_CACHE_TTL_SECS` (60 seconds), which is the
+/// longest a revoked token can still be accepted there.
+///
 /// Per the spec, this endpoint always returns 200 OK even if the token was
 /// invalid or already revoked.
 async fn revoke(
@@ -1097,11 +1108,79 @@ async fn revoke(
         validate_client_credentials(&state.store, client_id, req.client_secret.as_deref()).await?;
     }
 
-    // Try to revoke as refresh token (access tokens are JWTs that can't be revoked)
+    // Try to revoke as refresh token
     state.store.revoke_refresh_token(&req.token).await.ok();
+
+    // Try to revoke as an MCP access token
+    if let Ok(claims) = state.jwt_signer.validate_access_token(&req.token) {
+        revoke_access_token_session(&state, &claims, req.client_id.as_deref()).await;
+    }
 
     // RFC 7009: Always return 200 OK regardless of whether token existed
     Ok(StatusCode::OK)
+}
+
+/// Delete the session an accepted MCP access token names, and evict it from this pod's cache.
+async fn revoke_access_token_session(
+    state: &OAuthState,
+    claims: &crate::oauth::jwt::McpClaims,
+    request_client_id: Option<&str>,
+) {
+    // RFC 7009 2.1: a client may revoke only its own tokens.
+    if request_client_id.is_some_and(|client_id| client_id != claims.client_id) {
+        tracing::warn!(
+            event = "oauth_revoke_client_mismatch",
+            token_client_id = %claims.client_id,
+            "Refused to revoke an access token issued to another client"
+        );
+        return;
+    }
+    let Ok(user_id) = claims.user_id() else {
+        return;
+    };
+    let token_hash = match claims.rth.as_deref() {
+        Some(token_hash) => token_hash.to_string(),
+        // Legacy token: the request check uses the latest live row for its user and client.
+        None => match state
+            .store
+            .get_refresh_token_by_user_client(user_id, &claims.client_id)
+            .await
+        {
+            Ok(Some(refresh_token)) => refresh_token.token_hash,
+            Ok(None) => return,
+            Err(e) => {
+                tracing::error!(
+                    event = "oauth_revoke_lookup_failed",
+                    error = %e,
+                    "Failed to find the session of a legacy access token"
+                );
+                return;
+            }
+        },
+    };
+    match state
+        .store
+        .revoke_refresh_token_by_hash(&token_hash, user_id, &claims.client_id)
+        .await
+    {
+        Ok(revoked) => {
+            if revoked {
+                state.oauth_token_cache.lock().await.pop(&token_hash);
+            }
+            tracing::info!(
+                event = "oauth_access_token_revoked",
+                user_id = %user_id,
+                client_id = %claims.client_id,
+                revoked,
+                "Revoked MCP access token session"
+            );
+        }
+        Err(e) => tracing::error!(
+            event = "oauth_revoke_failed",
+            error = %e,
+            "Failed to revoke MCP access token session"
+        ),
+    }
 }
 
 // ============================================================================
@@ -2020,6 +2099,9 @@ mod tests {
             upstream_oauth_redirect_base_url: upstream.uri(),
             circuit_breaker: crate::oauth::circuit_breaker::create_oauth_circuit_breaker(),
             jwt_signer,
+            oauth_token_cache: Arc::new(tokio::sync::Mutex::new(lru::LruCache::new(
+                std::num::NonZeroUsize::new(16).unwrap(),
+            ))),
         });
         let app = oauth_router(state.clone()).layer(axum::Extension(axum::extract::ConnectInfo(
             std::net::SocketAddr::from(([127, 0, 0, 1], 12345)),

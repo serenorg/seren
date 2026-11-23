@@ -1147,6 +1147,30 @@ impl TokenStore {
         Ok(result.rows_affected() > 0)
     }
 
+    /// Revoke the session row an MCP access token names: its `rth` hash, owned by the token's
+    /// user and client. Returns whether a row was deleted.
+    pub async fn revoke_refresh_token_by_hash(
+        &self,
+        token_hash: &str,
+        user_id: Uuid,
+        client_id: &str,
+    ) -> Result<bool> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM mcp_oauth.refresh_tokens
+            WHERE token_hash = $1 AND user_id = $2 AND client_id = $3
+            "#,
+        )
+        .bind(token_hash)
+        .bind(user_id)
+        .bind(client_id)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     /// Extend a refresh token's expiry if it's far enough in the past that renewing would meaningfully extend it.
     ///
     /// This supports "non-expiring sessions" UX without writing on every request: we only renew
