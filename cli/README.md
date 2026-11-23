@@ -520,6 +520,40 @@ seren agent managed-passwords-status <setup-id>
 seren agent managed-passwords-cancel <organization-id> <setup-id>
 seren agent managed-passwords-apply <setup-id>
 
+# Approve that setup here with your vault keys instead of its launch link
+seren agent managed-passwords-approve <deployment-id> <setup-id> \
+  --mappings '[{"environment_name":"OPENAI_API_KEY","vault_id":"<vault-id>","item_id":"<item-id>","field":"password"}]'
+
+# Run an Employee on the Owner's own model keys or ChatGPT sign-in.
+# Preview, then create a proposal; keys go into Seren Passwords, never the command line.
+seren agent managed-model-credential-proposal-preview <deployment-id> \
+  --operation configure --auth-method '{"provider_key":{"provider":"anthropic"}}' \
+  --model-id <model-id> \
+  --fallback '{"provider":"seren_private_models","model_id":"<private-model-id>"}'
+seren agent managed-model-credential-proposal-create <deployment-id> --operation configure ...
+seren agent managed-passwords-setup <deployment-id> --model-credential-proposal-id <proposal-id>
+seren agent managed-model-credential-proposal-apply <deployment-id> \
+  --proposal-id <proposal-id> --setup-id <setup-id>
+
+# Sign the Owner organization in to ChatGPT, then use --auth-method chatgpt_subscription
+# with --oauth-connection-id from the connected status
+seren agent chatgpt-sign-in-start <organization-id>
+seren agent chatgpt-sign-in-status <organization-id> <sign-in-id>
+
+# Choose the Seren Private Model hires run (and fall back to)
+seren agent template-model-get <organization-id> <slug>
+seren agent template-model-set <organization-id> <slug> --model-id <model-id> \
+  --fallback-model <backup-model-id> --release-note "Faster model" --rollout
+
+# Let an Employer use the Owner's keys, with caps in USD atomic units (1,000,000 = $1)
+seren agent owner-model-grants <organization-id> <slug>
+seren agent owner-model-grant-set <organization-id> <slug> <employer-organization-id> \
+  --active true --per-day-atomic 5000000 --per-month-atomic 50000000
+seren agent owner-model-budget-get <organization-id>
+seren agent owner-model-budget-set <organization-id> --day-timezone America/Los_Angeles \
+  --per-month-atomic 200000000
+seren agent owner-model-spend <organization-id> <slug>
+
 # Manage the deployment lifecycle through seren-agent
 seren agent managed-start <deployment-id>
 seren agent managed-stop <deployment-id>
