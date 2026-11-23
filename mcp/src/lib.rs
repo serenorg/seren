@@ -12,6 +12,8 @@ mod server;
 mod telemetry;
 mod wallet;
 
+pub use passwords::{DelegationFieldChoice, approve_managed_agent_setup_locally};
+
 use anyhow::Result;
 use axum::extract::State;
 use axum::response::IntoResponse;

@@ -4508,7 +4508,7 @@ where
 
 /// One vault item field the user chose for a requested environment name.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
-pub(crate) struct DelegationFieldChoice {
+pub struct DelegationFieldChoice {
     /// Requested environment name this item field fills.
     pub environment_name: String,
     /// Vault holding the item.
@@ -4525,7 +4525,7 @@ pub(crate) struct DelegationFieldChoice {
 /// Core hands the setup's user its setup credential (which retires the
 /// setup's launch link), Passwords turns it into a participant capability for
 /// the Employee's identity, and the approval itself is signed locally.
-pub(crate) async fn approve_managed_agent_setup_locally(
+pub async fn approve_managed_agent_setup_locally(
     client: &seren::Client,
     kem_private: &IdentityKemPrivateKey,
     signing_private: &IdentitySigningPrivateKey,

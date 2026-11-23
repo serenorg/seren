@@ -529,6 +529,51 @@ pub async fn vault_rotation_cancel(
     Ok(())
 }
 
+/// Approve a managed agent's Seren Passwords setup here with the user's own
+/// vault keys instead of the setup's launch link. The approval is signed only
+/// when Seren Passwords asks to sign exactly the approval built here; using it
+/// retires the setup's launch link.
+pub async fn managed_agent_secrets_approve(
+    deployment_id: Uuid,
+    setup_id: Uuid,
+    mappings: &[seren_mcp::DelegationFieldChoice],
+    options: PasswordsOptions,
+    ctx: &CommandContext,
+) -> Result<()> {
+    ctx.require_user_session("Managed agent Seren Passwords approval")
+        .await?;
+    let client = passwords_api_client(ctx).await?;
+    let organization_id =
+        crate::commands::agent::managed_agent_deployment_summary(&client, deployment_id)
+            .await?
+            .organization_id;
+    let (_, _, key_source) = build_vault_key_source(options, ctx).await?;
+    let signing_private = account_signing_private_from_key_source(&key_source)?;
+    let kem_private = key_source
+        .kem_private()
+        .context("could not unlock vault key source")?
+        .into_owned();
+    let request = seren_mcp::approve_managed_agent_setup_locally(
+        &client,
+        &kem_private,
+        &signing_private,
+        organization_id,
+        setup_id,
+        mappings,
+    )
+    .await
+    .map_err(|error| anyhow::anyhow!("{}", error.message))?;
+    output::print_json(&serde_json::json!({
+        "status": request.status,
+        "setup_id": setup_id,
+        "deployment_id": deployment_id,
+        "mapped_fields": request.progress.mapped_fields,
+        "requested_fields": request.progress.requested_fields,
+        "next_step": "Run managed-passwords-status with the setup ID, then the apply command it names.",
+    }))?;
+    Ok(())
+}
+
 pub async fn vault_rotation_complete(
     options: VaultRotationCompleteOptions,
     ctx: &CommandContext,

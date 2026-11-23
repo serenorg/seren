@@ -1006,6 +1006,72 @@ enum OAuthAction {
     },
 }
 
+/// Non-secret change intent for a managed model-credential proposal.
+#[derive(clap::Args, Debug)]
+struct ModelCredentialProposalIntent {
+    /// configure, remove, add_credential, remove_credential or reorder_credentials
+    #[arg(long)]
+    operation: String,
+    /// Credential kind as JSON: "api_key", "chatgpt_subscription", or
+    /// {"provider_key":{"provider":..,"base_url":..}}; required for configure and add_credential
+    #[arg(long)]
+    auth_method: Option<String>,
+    /// Model the connection runs; required for configure and remove
+    #[arg(long)]
+    model_id: Option<String>,
+    /// Seren Private Model fallback as JSON: {"provider":"seren_private_models","model_id":..}
+    #[arg(long)]
+    fallback: Option<String>,
+    /// The organization's ChatGPT sign-in connection, for a chatgpt_subscription credential
+    #[arg(long)]
+    oauth_connection_id: Option<Uuid>,
+    /// seren-secrets:// reference to an already stored key (never a key itself)
+    #[arg(long)]
+    secret_ref: Option<String>,
+    /// Name of the credential remove_credential drops
+    #[arg(long)]
+    credential: Option<String>,
+    /// Credential name in the new failover order, for reorder_credentials (repeatable)
+    #[arg(long = "credential-order")]
+    credential_order: Vec<String>,
+}
+
+impl ModelCredentialProposalIntent {
+    fn into_change(
+        self,
+        replace_proposal_id: Option<Uuid>,
+    ) -> anyhow::Result<commands::agent::ModelCredentialProposalChange> {
+        let operation = serde_json::from_value(serde_json::Value::String(self.operation))
+            .map_err(|error| anyhow::anyhow!("--operation: {error}"))?;
+        // A bare kind ("api_key") reads as a JSON string.
+        let auth_method = self
+            .auth_method
+            .map(|value| {
+                serde_json::from_str(&value)
+                    .or_else(|_| serde_json::from_value(serde_json::Value::String(value)))
+                    .map_err(|error| anyhow::anyhow!("--auth-method: {error}"))
+            })
+            .transpose()?;
+        let fallback = self
+            .fallback
+            .map(|value| {
+                serde_json::from_str(&value).map_err(|error| anyhow::anyhow!("--fallback: {error}"))
+            })
+            .transpose()?;
+        Ok(commands::agent::ModelCredentialProposalChange {
+            operation,
+            auth_method,
+            model_id: self.model_id,
+            fallback,
+            oauth_connection_id: self.oauth_connection_id,
+            secret_ref: self.secret_ref,
+            credential: self.credential,
+            credential_order: (!self.credential_order.is_empty()).then_some(self.credential_order),
+            replace_proposal_id,
+        })
+    }
+}
+
 #[derive(Subcommand)]
 #[allow(clippy::large_enum_variant)]
 enum AgentAction {
@@ -1676,6 +1742,126 @@ enum AgentAction {
         /// Setup ID returned by managed-passwords-setup with model_credential_proposal_id; required for configure with either API-key or ChatGPT-subscription auth, or removal with remaining grants; omit on an idempotent retry
         #[arg(long)]
         setup_id: Option<Uuid>,
+    },
+    /// Preview a model-credential proposal for the Owner's own managed deployment without creating it
+    ManagedModelCredentialProposalPreview {
+        /// Deployment ID (UUID) of the Owner's own copy
+        deployment_id: Uuid,
+        #[command(flatten)]
+        intent: ModelCredentialProposalIntent,
+    },
+    /// Create a revision-bound model-credential proposal awaiting review
+    ManagedModelCredentialProposalCreate {
+        /// Deployment ID (UUID) of the Owner's own copy
+        deployment_id: Uuid,
+        #[command(flatten)]
+        intent: ModelCredentialProposalIntent,
+        /// Proposal UUID to supersede instead of the current one
+        #[arg(long)]
+        replace_proposal_id: Option<Uuid>,
+    },
+    /// Approve a managed agent Seren Passwords setup here with your vault keys instead of its launch link
+    ManagedPasswordsApprove {
+        /// Deployment ID (UUID) the setup belongs to
+        deployment_id: Uuid,
+        /// Setup ID returned by managed-passwords-setup
+        setup_id: Uuid,
+        /// JSON array naming one vault item field for each requested environment name:
+        /// [{"environment_name","vault_id","item_id","field"}]
+        #[arg(long)]
+        mappings: String,
+        /// Read the Seren Passwords master password from stdin
+        #[arg(long)]
+        master_password_stdin: bool,
+        /// Read the Seren Passwords master password from a file
+        #[arg(long)]
+        master_password_file: Option<std::path::PathBuf>,
+    },
+    /// Begin, or resume, the Owner organization's ChatGPT sign-in
+    ChatgptSignInStart {
+        /// Owner organization ID (UUID)
+        organization_id: Uuid,
+    },
+    /// Check a ChatGPT sign-in started by chatgpt-sign-in-start
+    ChatgptSignInStatus {
+        /// Owner organization ID (UUID)
+        organization_id: Uuid,
+        /// Sign-in ID returned by chatgpt-sign-in-start
+        sign_in_id: Uuid,
+    },
+    /// Read the Seren Private Model an Employee's hires run
+    TemplateModelGet {
+        /// Owner organization ID (UUID) that publishes the Employee
+        organization_id: Uuid,
+        /// Employee template slug
+        slug: String,
+    },
+    /// Switch the Seren Private Model an Employee's hires run, without a new release
+    TemplateModelSet {
+        /// Owner organization ID (UUID) that publishes the Employee
+        organization_id: Uuid,
+        /// Employee template slug
+        slug: String,
+        /// Approved Seren Private Model the hires run
+        #[arg(long)]
+        model_id: String,
+        /// Backup model tried in order when the model is unavailable (repeatable)
+        #[arg(long = "fallback-model")]
+        fallback_models: Vec<String>,
+        /// Note shown to Employers about the change
+        #[arg(long)]
+        release_note: Option<String>,
+        /// Offer the new revision to existing hires now
+        #[arg(long)]
+        rollout: bool,
+    },
+    /// List the Employers allowed to run an Employee on the Owner's own keys or ChatGPT sign-in
+    OwnerModelGrants {
+        /// Owner organization ID (UUID) that publishes the Employee
+        organization_id: Uuid,
+        /// Employee template slug
+        slug: String,
+    },
+    /// Allow or stop one Employer running an Employee on the Owner's own keys or ChatGPT sign-in
+    OwnerModelGrantSet {
+        /// Owner organization ID (UUID) that publishes the Employee
+        organization_id: Uuid,
+        /// Employee template slug
+        slug: String,
+        /// Employer organization ID (UUID) the grant is for
+        employer_organization_id: Uuid,
+        /// Turn the grant on (true) or off (false)
+        #[arg(long, action = clap::ArgAction::Set)]
+        active: bool,
+        /// Daily cap in USD atomic units (1,000,000 = $1); omit for unlimited, 0 for none
+        #[arg(long)]
+        per_day_atomic: Option<i64>,
+        /// Monthly cap in USD atomic units (1,000,000 = $1); omit for unlimited, 0 for none
+        #[arg(long)]
+        per_month_atomic: Option<i64>,
+    },
+    /// Read the Owner organization's monthly budget for model spend on its own keys
+    OwnerModelBudgetGet {
+        /// Owner organization ID (UUID)
+        organization_id: Uuid,
+    },
+    /// Replace the Owner organization's monthly budget for model spend on its own keys
+    OwnerModelBudgetSet {
+        /// Owner organization ID (UUID)
+        organization_id: Uuid,
+        /// IANA time zone the daily caps use, e.g. "America/Los_Angeles"
+        #[arg(long)]
+        day_timezone: String,
+        /// Monthly budget in USD atomic units (1,000,000 = $1); omit for unlimited
+        #[arg(long)]
+        per_month_atomic: Option<i64>,
+    },
+    /// Read the model spend Employers ran on the Owner's own keys for an Employee
+    OwnerModelSpend {
+        /// Owner organization ID (UUID) that publishes the Employee
+        organization_id: Uuid,
+        /// Employee template slug
+        slug: String,
     },
     /// Get a managed-agent resource summary for a deployment
     ManagedDeploymentResources {
@@ -8471,6 +8657,136 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
+            AgentAction::ManagedModelCredentialProposalPreview {
+                deployment_id,
+                intent,
+            } => {
+                commands::agent::managed_model_credential_proposal_preview(
+                    deployment_id,
+                    intent.into_change(None)?,
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::ManagedModelCredentialProposalCreate {
+                deployment_id,
+                intent,
+                replace_proposal_id,
+            } => {
+                commands::agent::managed_model_credential_proposal_create(
+                    deployment_id,
+                    intent.into_change(replace_proposal_id)?,
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::ManagedPasswordsApprove {
+                deployment_id,
+                setup_id,
+                mappings,
+                master_password_stdin,
+                master_password_file,
+            } => {
+                let mappings: Vec<seren_mcp::DelegationFieldChoice> =
+                    serde_json::from_str(&mappings).map_err(|error| {
+                        anyhow::anyhow!(
+                            "--mappings must be a JSON array of {{environment_name, vault_id, item_id, field}}: {error}"
+                        )
+                    })?;
+                commands::passwords::managed_agent_secrets_approve(
+                    deployment_id,
+                    setup_id,
+                    &mappings,
+                    commands::passwords::PasswordsOptions::from_input(
+                        master_password_stdin,
+                        master_password_file.as_deref(),
+                    )?,
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::ChatgptSignInStart { organization_id } => {
+                commands::agent::chatgpt_sign_in_start(organization_id, &ctx).await?
+            }
+            AgentAction::ChatgptSignInStatus {
+                organization_id,
+                sign_in_id,
+            } => commands::agent::chatgpt_sign_in_status(organization_id, sign_in_id, &ctx).await?,
+            AgentAction::TemplateModelGet {
+                organization_id,
+                slug,
+            } => commands::agent::template_model_get(organization_id, &slug, &ctx).await?,
+            AgentAction::TemplateModelSet {
+                organization_id,
+                slug,
+                model_id,
+                fallback_models,
+                release_note,
+                rollout,
+            } => {
+                commands::agent::template_model_set(
+                    organization_id,
+                    &slug,
+                    &seren::SetManagedAgentTemplateModel {
+                        model_id,
+                        fallback_models,
+                        release_note: release_note
+                            .map(|note| note.parse())
+                            .transpose()
+                            .map_err(|error| anyhow::anyhow!("--release-note: {error}"))?,
+                        rollout: rollout.then_some(true),
+                    },
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::OwnerModelGrants {
+                organization_id,
+                slug,
+            } => commands::agent::owner_model_grants(organization_id, &slug, &ctx).await?,
+            AgentAction::OwnerModelGrantSet {
+                organization_id,
+                slug,
+                employer_organization_id,
+                active,
+                per_day_atomic,
+                per_month_atomic,
+            } => {
+                commands::agent::owner_model_grant_set(
+                    organization_id,
+                    &slug,
+                    employer_organization_id,
+                    &seren::SetOwnerModelGrant {
+                        active,
+                        per_day_atomic,
+                        per_month_atomic,
+                    },
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::OwnerModelBudgetGet { organization_id } => {
+                commands::agent::owner_model_budget_get(organization_id, &ctx).await?
+            }
+            AgentAction::OwnerModelBudgetSet {
+                organization_id,
+                day_timezone,
+                per_month_atomic,
+            } => {
+                commands::agent::owner_model_budget_set(
+                    organization_id,
+                    &seren::SetOwnerModelBudget {
+                        day_timezone,
+                        per_month_atomic,
+                    },
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::OwnerModelSpend {
+                organization_id,
+                slug,
+            } => commands::agent::owner_model_spend(organization_id, &slug, &ctx).await?,
             AgentAction::ManagedDeploymentResources { deployment_id } => {
                 commands::agent::managed_agent_deployment_resources(deployment_id, &ctx).await?
             }

@@ -5498,7 +5498,7 @@ pub async fn managed_agent_get(deployment_id: Uuid, ctx: &CommandContext) -> Res
     Ok(())
 }
 
-async fn managed_agent_deployment_summary(
+pub(crate) async fn managed_agent_deployment_summary(
     client: &seren::Client,
     deployment_id: Uuid,
 ) -> Result<seren::CloudDeploymentSummary> {
@@ -6530,6 +6530,307 @@ pub async fn managed_connector_binding_proposal_apply(
         }
     }
     Ok(())
+}
+
+/// Non-secret change intent for a model-credential proposal; the CLI pins
+/// it to the deployment's active revision before sending it.
+pub struct ModelCredentialProposalChange {
+    pub operation: seren::ManagedModelCredentialProposalOperation,
+    pub auth_method: Option<seren::ManagedModelCredentialAuthMethod>,
+    pub model_id: Option<String>,
+    pub fallback: Option<seren::ManagedOwnerModelFallback>,
+    pub oauth_connection_id: Option<Uuid>,
+    pub secret_ref: Option<String>,
+    pub credential: Option<String>,
+    pub credential_order: Option<Vec<String>>,
+    pub replace_proposal_id: Option<Uuid>,
+}
+
+/// Build the proposal request against the deployment's active revision so a
+/// stale proposal fails closed at the server. Refuses anything but a
+/// `seren-secrets://` reference in `secret_ref`, so a key never leaves here.
+async fn model_credential_proposal_request(
+    client: &seren::Client,
+    deployment_id: Uuid,
+    change: ModelCredentialProposalChange,
+) -> Result<seren::ModelCredentialProposalRequest> {
+    if change
+        .secret_ref
+        .as_deref()
+        .is_some_and(|reference| !reference.starts_with("seren-secrets://"))
+    {
+        anyhow::bail!(
+            "--secret-ref must be a seren-secrets:// reference, never a key. Omit it and enter the key in Seren Passwords after the proposal is created."
+        );
+    }
+    let detail = client
+        .seren_agent_get_managed_deployment(&deployment_id)
+        .await
+        .map_err(|error| anyhow::anyhow!("Failed to load managed agent detail: {error}"))?
+        .into_inner()
+        .data;
+    let expected_active_revision_id = seren::managed_agent_deployment_detail(detail)?
+        .active_revision_id
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "The managed agent deployment has no active revision to base a proposal on"
+            )
+        })?;
+    Ok(seren::ModelCredentialProposalRequest {
+        auth_method: change.auth_method,
+        credential: change.credential,
+        credential_order: change.credential_order,
+        expected_active_revision_id,
+        fallback: change.fallback,
+        model_id: change.model_id,
+        oauth_connection_id: change.oauth_connection_id,
+        operation: change.operation,
+        replace_proposal_id: change.replace_proposal_id,
+        secret_ref: change.secret_ref,
+    })
+}
+
+/// Preview a model-credential proposal for the Owner's own managed seren-agent
+/// deployment without creating it.
+pub async fn managed_model_credential_proposal_preview(
+    deployment_id: Uuid,
+    change: ModelCredentialProposalChange,
+    ctx: &CommandContext,
+) -> Result<()> {
+    ctx.require_user_session("Managed agent model credential proposal preview")
+        .await?;
+    let client = ctx.client().await?;
+    let request = model_credential_proposal_request(&client, deployment_id, change).await?;
+    let preview = match client
+        .seren_cloud_preview_model_credential_proposal(&deployment_id, &request)
+        .await
+    {
+        Ok(response) => response.into_inner().data,
+        Err(error) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to preview model credential proposal",
+                error,
+            )
+            .await);
+        }
+    };
+    output::print_json(&serde_json::json!({
+        "deployment_id": preview.deployment_id,
+        "expected_active_revision_id": preview.expected_active_revision_id,
+        "operation": preview.operation,
+        "model_id": preview.model_id,
+        "auth_method": preview.auth_method,
+        "fallback": preview.fallback,
+        "credential_name": preview.credential_name,
+        "credential_order": preview.credential_order,
+        "proposal_fingerprint": preview.proposal_fingerprint,
+        "requested_environment_names": preview.requested_environment_names,
+        "requires_secret_resolution_result": preview.requires_secret_resolution_result,
+        "next_step": if preview.requires_secret_resolution_result {
+            "Run managed-model-credential-proposal-create with the same options, then managed-passwords-setup with its proposal_id."
+        } else {
+            "Run managed-model-credential-proposal-create with the same options; no Seren Passwords setup is needed."
+        },
+    }))?;
+    Ok(())
+}
+
+/// Create a revision-bound model-credential proposal awaiting review.
+pub async fn managed_model_credential_proposal_create(
+    deployment_id: Uuid,
+    change: ModelCredentialProposalChange,
+    ctx: &CommandContext,
+) -> Result<()> {
+    ctx.require_user_session("Managed agent model credential proposal create")
+        .await?;
+    let client = ctx.client().await?;
+    let request = model_credential_proposal_request(&client, deployment_id, change).await?;
+    let proposal = match client
+        .seren_cloud_create_model_credential_proposal(&deployment_id, &request)
+        .await
+    {
+        Ok(response) => response.into_inner().data,
+        Err(error) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to create model credential proposal",
+                error,
+            )
+            .await);
+        }
+    };
+    let next_step = match &proposal.state {
+        seren::ManagedModelCredentialProposalState::AwaitingReview => {
+            if proposal.requires_secret_resolution_result {
+                "Run managed-passwords-setup with --model-credential-proposal-id set to this proposal_id, approve the keys in Seren Passwords (or with managed-passwords-approve), then managed-model-credential-proposal-apply with --proposal-id and --setup-id."
+            } else {
+                "No Seren Passwords setup is needed. Run managed-model-credential-proposal-apply with --proposal-id and no --setup-id."
+            }
+        }
+        seren::ManagedModelCredentialProposalState::Applied => {
+            "This proposal is already applied. Run managed-model-credential-proposal-get to review it."
+        }
+        seren::ManagedModelCredentialProposalState::Superseded => {
+            "This proposal was superseded. Run managed-model-credential-proposal-get to find the current proposal."
+        }
+        seren::ManagedModelCredentialProposalState::Other(_) => {
+            "This proposal is in a state this version of Seren doesn't know. Run managed-model-credential-proposal-get to review it."
+        }
+    };
+    output::print_json(&serde_json::json!({
+        "status": proposal.state,
+        "proposal_id": proposal.id,
+        "deployment_id": proposal.deployment_id,
+        "model_id": proposal.model_id,
+        "auth_method": proposal.auth_method,
+        "operation": proposal.operation,
+        "credential_name": proposal.credential_name,
+        "credential_order": proposal.credential_order,
+        "expected_active_revision_id": proposal.expected_active_revision_id,
+        "requested_environment_names": proposal.requested_environment_names,
+        "requires_secret_resolution_result": proposal.requires_secret_resolution_result,
+        "next_step": next_step,
+    }))?;
+    Ok(())
+}
+
+/// Print a successful Core response, or the error it reported.
+async fn print_owner_model_response<T: serde::Serialize>(
+    context: &str,
+    result: std::result::Result<seren::ResponseValue<T>, seren::Error<()>>,
+) -> Result<()> {
+    match result {
+        Ok(response) => output::print_json(&response.into_inner()),
+        Err(error) => Err(anyhow_from_seren_error(context, error).await),
+    }
+}
+
+/// Begin, or resume, the Owner organization's pending ChatGPT sign-in.
+pub async fn chatgpt_sign_in_start(organization_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    print_owner_model_response(
+        "Failed to start ChatGPT sign-in",
+        client.start_chatgpt_sign_in(&organization_id).await,
+    )
+    .await
+}
+
+/// Check a ChatGPT sign-in started by `chatgpt-sign-in-start`.
+pub async fn chatgpt_sign_in_status(
+    organization_id: Uuid,
+    sign_in_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    print_owner_model_response(
+        "Failed to check ChatGPT sign-in",
+        client.get_sign_in(&organization_id, &sign_in_id).await,
+    )
+    .await
+}
+
+/// Read the Seren Private Model an Employee's hires run.
+pub async fn template_model_get(
+    organization_id: Uuid,
+    slug: &str,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    print_owner_model_response(
+        "Failed to load the Employee's model",
+        client
+            .get_managed_agent_template_model(&organization_id, slug)
+            .await,
+    )
+    .await
+}
+
+/// Switch the Seren Private Model an Employee's hires run.
+pub async fn template_model_set(
+    organization_id: Uuid,
+    slug: &str,
+    request: &seren::SetManagedAgentTemplateModel,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    print_owner_model_response(
+        "Failed to set the Employee's model",
+        client
+            .set_managed_agent_template_model(&organization_id, slug, request)
+            .await,
+    )
+    .await
+}
+
+/// List the Employers granted the Owner's own model credentials for an Employee.
+pub async fn owner_model_grants(
+    organization_id: Uuid,
+    slug: &str,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    print_owner_model_response(
+        "Failed to list owner model grants",
+        client.list_owner_model_grants(&organization_id, slug).await,
+    )
+    .await
+}
+
+/// Replace one Employer's grant of the Owner's own model credentials.
+pub async fn owner_model_grant_set(
+    organization_id: Uuid,
+    slug: &str,
+    employer_organization_id: Uuid,
+    request: &seren::SetOwnerModelGrant,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    print_owner_model_response(
+        "Failed to set owner model grant",
+        client
+            .update_owner_model_grant(&organization_id, slug, &employer_organization_id, request)
+            .await,
+    )
+    .await
+}
+
+/// Read the Owner organization's monthly budget for its own model credentials.
+pub async fn owner_model_budget_get(organization_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    print_owner_model_response(
+        "Failed to load owner model budget",
+        client.get_owner_model_budget(&organization_id).await,
+    )
+    .await
+}
+
+/// Replace the Owner organization's monthly budget for its own model credentials.
+pub async fn owner_model_budget_set(
+    organization_id: Uuid,
+    request: &seren::SetOwnerModelBudget,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    print_owner_model_response(
+        "Failed to set owner model budget",
+        client
+            .update_owner_model_budget(&organization_id, request)
+            .await,
+    )
+    .await
+}
+
+/// Read the model spend Employers ran on the Owner's own credentials for an Employee.
+pub async fn owner_model_spend(
+    organization_id: Uuid,
+    slug: &str,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    print_owner_model_response(
+        "Failed to load owner model spend",
+        client.get_owner_model_spend(&organization_id, slug).await,
+    )
+    .await
 }
 
 /// Read the current model-credential proposal for a managed seren-agent
