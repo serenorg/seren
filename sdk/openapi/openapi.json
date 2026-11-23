@@ -2920,6 +2920,80 @@
         ]
       }
     },
+    "/oauth/zoom/deauthorize": {
+      "post": {
+        "tags": [
+          "OAuth"
+        ],
+        "summary": "Receive Zoom's notice that a person removed Seren's app from their Zoom account.",
+        "description": "Every request must carry Zoom's `x-zm-signature` and `x-zm-request-timestamp` headers,\nsigned with the app's secret token. An `app_deauthorized` notice deletes that Zoom user's\nconnections to Seren's Zoom app and the Zoom meeting IDs stored for them; a published event\nkeeps its join link. A repeated notice succeeds and changes nothing.",
+        "operationId": "receive_zoom_app_removal",
+        "requestBody": {
+          "description": "A notice signed by Zoom",
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Address check answered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ZoomUrlValidationResponse"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "The person's Zoom data is deleted"
+          },
+          "400": {
+            "description": "The notice is malformed or of an unsupported kind",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The signature is missing or invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The notice is for another Zoom app",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Zoom notices are not accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/oauth/{provider}/authorize": {
       "get": {
         "tags": [
@@ -19308,7 +19382,8 @@
         "type": "string",
         "description": "A family of native tools the trusted runtime runs itself.",
         "enum": [
-          "onepassword"
+          "onepassword",
+          "seren_support"
         ]
       },
       "AgentNetworkProtocol": {
@@ -51615,6 +51690,22 @@
         "type": "string",
         "maxLength": 160,
         "minLength": 1
+      },
+      "ZoomUrlValidationResponse": {
+        "type": "object",
+        "description": "The answer to Zoom's address check: its plain token and that token signed with the app's secret token.",
+        "required": [
+          "plainToken",
+          "encryptedToken"
+        ],
+        "properties": {
+          "encryptedToken": {
+            "type": "string"
+          },
+          "plainToken": {
+            "type": "string"
+          }
+        }
       }
     },
     "securitySchemes": {

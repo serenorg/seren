@@ -9325,6 +9325,69 @@
         ]
       }
     },
+    "/deployments/{id}/support-cards": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Ask the hirer to approve account help on a card Core writes.",
+        "operationId": "seren_agent_request_support_card",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Replay key for this write, 1 to 255 visible ASCII characters",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestSupportCard"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The card is pending, or the reason it was refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SupportCardRequestOutcome"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential is not this hire's runtime key, or the template is not Seren-paid"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/tool-groups": {
       "get": {
         "tags": [
@@ -14271,7 +14334,8 @@
         "type": "string",
         "description": "A family of native tools the trusted runtime runs itself.",
         "enum": [
-          "onepassword"
+          "onepassword",
+          "seren_support"
         ]
       },
       "AgentNetworkAccessPreset": {
@@ -23195,6 +23259,58 @@
               }
             },
             "additionalProperties": false
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_SupportCardRequestOutcome": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "card_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "expires_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "description": "`pending` when the person now sees the card, otherwise `refused`."
+              }
+            }
           },
           "pagination": {
             "oneOf": [
@@ -35107,9 +35223,9 @@
           },
           {
             "type": "object",
-            "description": "Bill inference to the owner's ChatGPT subscription through a Codex\nsign-in credential.",
+            "description": "Bill inference to the owner's ChatGPT subscription through a ChatGPT\nsign-in connection.",
             "required": [
-              "secret_ref",
+              "oauth_connection_id",
               "method"
             ],
             "properties": {
@@ -35123,14 +35239,15 @@
                 "type": "string",
                 "description": "Name the credential keeps while it stays in `credentials`. Assigned\nby the service; omit it to keep the names already assigned."
               },
-              "secret_ref": {
+              "oauth_connection_id": {
                 "type": "string",
-                "description": "Approved subscription credential reference."
+                "format": "uuid",
+                "description": "The organization's ChatGPT sign-in connection."
               }
             }
           }
         ],
-        "description": "Codex authentication for a managed deployment. The credential is always a\nreference to a Seren Secrets field that the deployment is already granted;\nplaintext credentials are never accepted, stored, or returned."
+        "description": "Codex authentication for a managed deployment: a Seren Secrets reference the\ndeployment is granted, or a ChatGPT sign-in its organization holds. Plaintext\ncredentials are never accepted, stored, or returned."
       },
       "ManagedConnectorBindingMigrationState": {
         "type": "string",
@@ -37801,6 +37918,90 @@
         },
         "additionalProperties": false
       },
+      "RequestSupportCard": {
+        "type": "object",
+        "description": "`seren_request_support_card`. Which fields an action needs is decided by the\nhandler, because the Employee must be told why a card was refused.",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "action": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SupportActionName"
+              }
+            ]
+          },
+          "amount_cents": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "execution_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Execution identity supplied by the runtime."
+          },
+          "expires_in_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "hire_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "key_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SupportCardKind"
+          },
+          "network_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "public_description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recipient_email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scopes": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "RequestedVault": {
         "type": "object",
         "required": [
@@ -39554,6 +39755,55 @@
           }
         },
         "additionalProperties": false
+      },
+      "SupportActionName": {
+        "type": "string",
+        "enum": [
+          "transfer",
+          "withdrawal",
+          "create_api_key",
+          "delete_hire"
+        ]
+      },
+      "SupportCardKind": {
+        "type": "string",
+        "enum": [
+          "account_access",
+          "account_action",
+          "public_report"
+        ]
+      },
+      "SupportCardRequestOutcome": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "card_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "description": "`pending` when the person now sees the card, otherwise `refused`."
+          }
+        }
       },
       "SupportReportSource": {
         "type": "string",
