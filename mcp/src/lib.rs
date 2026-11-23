@@ -3529,7 +3529,7 @@ mod tests {
         // An invalid token answers 200 and deletes nothing.
         for form in [
             "token=not-a-token".to_string(),
-            format!("token={}x&client_id=client-1", &token_a),
+            format!("token={token_a}x&client_id=client-1"),
         ] {
             assert_eq!(revoke(form).await, axum::http::StatusCode::OK);
         }
