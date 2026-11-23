@@ -873,7 +873,7 @@ mod tests {
             "status": "running", "desired_lifecycle_state": "running",
             "template": {"slug": "research", "display_name": "Researcher", "revision": 9},
             "desired_revision": 9, "serving_revision": 8, "serving_fallback": true,
-            "run_kinds": [], "spend_limits": {"per_task_atomic": 2000000, "per_day_atomic": 10000000,
+            "run_kinds": [], "spend_limits": {"model_paid_by_owner": false, "per_task_atomic": 2000000, "per_day_atomic": 10000000,
                 "day_timezone": "UTC", "defaults": {"per_task_atomic": 2000000, "per_day_atomic": 10000000}, "run_kinds": []},
             "created_at": "2026-10-24T01:00:00Z", "updated_at": "2026-10-24T01:00:00Z"});
         let owner: crate::ManagedAgentOwnerView =
@@ -1772,7 +1772,7 @@ mod tests {
             "status": "running", "desired_lifecycle_state": "running",
             "template": {"slug": "vera-hale", "display_name": "Vera Hale", "revision": 9},
             "serving_fallback": false, "run_kinds": [],
-            "spend_limits": {"per_task_atomic": 6000000, "per_day_atomic": 30000000,
+            "spend_limits": {"model_paid_by_owner": false, "per_task_atomic": 6000000, "per_day_atomic": 30000000,
                 "day_timezone": "UTC", "defaults": {"per_task_atomic": 6000000, "per_day_atomic": 30000000}, "run_kinds": []},
             "max_tool_output_chars": 40000,
             "created_at": "2026-11-01T01:00:00Z", "updated_at": "2026-11-01T01:00:00Z"});
@@ -2111,7 +2111,7 @@ mod tests {
     }
 
     fn public_template_list_wire(organization_id: Uuid) -> serde_json::Value {
-        json!({
+        let mut wire = json!({
             "data": [{
                 "slug": "release-test",
                 "display_name": "Release test",
@@ -2141,7 +2141,9 @@ mod tests {
                 "similar": [{"slug": "iris", "score": 0.842,
                     "shared": {"words": ["research"], "tools": ["slack"], "skills": []}}]
             }]
-        })
+        });
+        wire["data"][0]["catalog"]["free_to_hirer"] = json!(false);
+        wire
     }
 
     #[test]
