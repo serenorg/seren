@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Seren Models",
-    "description": "Run public model chat completions through seren-models. OpenAI-compatible clients can use https://api.serendb.com/publishers/seren-models/v1 as their Base URL for GET /models and POST /chat/completions. That address returns native model JSON and errors, preserves payment headers, and sends progress comments by default for streaming requests. Existing addresses retain their billing response envelopes.",
+    "description": "Run model inference through seren-models. OpenAI-compatible clients can use https://api.serendb.com/publishers/seren-models/v1 as their Base URL for GET /models, POST /chat/completions and POST /responses. Responses requires a Codex run model key. That address returns native model JSON and errors and preserves payment headers. Existing addresses retain their billing response envelopes.",
     "contact": {
       "name": "SerenAI",
       "email": "hello@serendb.com"
@@ -74,6 +74,62 @@
           }
         ]
       }
+    },
+    "/responses": {
+      "post": {
+        "tags": [
+          "publishers"
+        ],
+        "operationId": "seren_models_responses",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Model response in a billing response envelope, or native server-sent events when stream is true. Usage is recorded when the response completes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ApiResultResponse"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "402": {
+            "description": "Run budget or balance exhausted"
+          },
+          "403": {
+            "description": "Request is not authorized for this run or organization"
+          },
+          "429": {
+            "description": "Owner credentials are unavailable; the response may include their earliest usage-limit reset"
+          },
+          "502": {
+            "description": "Model service unavailable"
+          },
+          "503": {
+            "description": "Model request cannot be admitted"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -135,6 +191,14 @@
           "payment_source": {
             "type": "string",
             "description": "Payment source used"
+          },
+          "receipt_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Receipt identifying this publisher call for a managed agent result."
           },
           "response_bytes": {
             "type": "integer",
@@ -237,6 +301,14 @@
               "payment_source": {
                 "type": "string",
                 "description": "Payment source used"
+              },
+              "receipt_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "Receipt identifying this publisher call for a managed agent result."
               },
               "response_bytes": {
                 "type": "integer",

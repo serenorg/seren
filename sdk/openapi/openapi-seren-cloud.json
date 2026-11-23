@@ -10569,6 +10569,9 @@
           "reference_env",
           "header",
           "body",
+          "query",
+          "client_credentials_form",
+          "client_credentials_basic",
           "kraken_api_sign",
           "xero_connections",
           "bill_com_sign_in",
@@ -13562,6 +13565,16 @@
             "type": "string",
             "format": "uuid"
           },
+          "results": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RunResults"
+              }
+            ]
+          },
           "role": {
             "type": "string"
           },
@@ -15038,6 +15051,16 @@
           {
             "type": "object",
             "properties": {
+              "results": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RunResults"
+                  }
+                ]
+              },
               "run_fee": {
                 "oneOf": [
                   {
@@ -24247,6 +24270,17 @@
                 "type": "string",
                 "format": "uuid"
               },
+              "fallback": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedOwnerModelFallback",
+                    "description": "Private-model fallback for `configure`. Required for provider keys when no existing fallback is configured."
+                  }
+                ]
+              },
               "id": {
                 "type": "string",
                 "format": "uuid"
@@ -24685,6 +24719,17 @@
               "expected_active_revision_id": {
                 "type": "string",
                 "format": "uuid"
+              },
+              "fallback": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedOwnerModelFallback",
+                    "description": "Private-model fallback for `configure`. Required for provider keys when no existing fallback is configured."
+                  }
+                ]
               },
               "model_id": {
                 "type": "string"
@@ -25408,6 +25453,16 @@
                 {
                   "type": "object",
                   "properties": {
+                    "results": {
+                      "oneOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "$ref": "#/components/schemas/RunResults"
+                        }
+                      ]
+                    },
                     "run_fee": {
                       "oneOf": [
                         {
@@ -27207,7 +27262,7 @@
           },
           "path_pattern": {
             "type": "string",
-            "description": "Absolute path of the order-submission request. Its last `*` segment names the order. A complete `*` segment matches one nonempty segment. Queries are excluded. Trailing slashes and percent-encoded equivalents match the same configured path."
+            "description": "Absolute path of the order-submission request. Store checkouts other than Ringana require a `*` segment naming the order; Ringana identifies the order in the request body. A complete `*` segment matches one nonempty segment. Queries are excluded. Trailing slashes and percent-encoded equivalents match the same configured path."
           }
         },
         "additionalProperties": false
@@ -27247,6 +27302,7 @@
       "HireSpendLimits": {
         "type": "object",
         "required": [
+          "model_paid_by_owner",
           "per_task_atomic",
           "per_day_atomic",
           "day_timezone",
@@ -27259,6 +27315,10 @@
           },
           "defaults": {
             "$ref": "#/components/schemas/SpendLimitDefaults"
+          },
+          "model_paid_by_owner": {
+            "type": "boolean",
+            "description": "Whether the Owner grants this Employer use of their model credentials."
           },
           "per_day_atomic": {
             "type": "integer",
@@ -27822,7 +27882,7 @@
                 "minItems": 1
               },
               "fallback": {
-                "$ref": "#/components/schemas/ManagedCodexFallback",
+                "$ref": "#/components/schemas/ManagedOwnerModelFallback",
                 "description": "Seren Private Model used when no credential can serve. Required with multiple credentials."
               },
               "model_id": {
@@ -27833,6 +27893,38 @@
                 "type": "string",
                 "enum": [
                   "codex"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "description": "Run Seren Agent on ordered Owner provider keys and a private-model fallback.\n\nOwner provider keys in failover order, followed by a Seren Private Model.",
+            "required": [
+              "model_id",
+              "credentials",
+              "fallback",
+              "provider"
+            ],
+            "properties": {
+              "credentials": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedProviderKeyCredential"
+                },
+                "minItems": 1
+              },
+              "fallback": {
+                "$ref": "#/components/schemas/ManagedOwnerModelFallback"
+              },
+              "model_id": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "provider_keys"
                 ]
               }
             },
@@ -29249,40 +29341,12 @@
               },
               "secret_ref": {
                 "type": "string",
-                "description": "`seren-secrets://{vault_id}/{item_id}/{field}` reference whose field\nvalue is the Codex credential cache (`auth.json` contents). Resolved\nat invocation time into an invocation-scoped Codex home."
+                "description": "Approved subscription credential reference."
               }
             }
           }
         ],
         "description": "Codex authentication for a managed deployment. The credential is always a\nreference to a Seren Secrets field that the deployment is already granted;\nplaintext credentials are never accepted, stored, or returned."
-      },
-      "ManagedCodexFallback": {
-        "type": "object",
-        "description": "The Seren Private Model a Codex connection runs on when no credential can serve.",
-        "required": [
-          "model_id",
-          "provider"
-        ],
-        "properties": {
-          "fallback_models": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Models tried in order when `model_id` is unavailable."
-          },
-          "model_id": {
-            "type": "string",
-            "description": "Model from the private models catalog."
-          },
-          "provider": {
-            "type": "string",
-            "enum": [
-              "seren_private_models"
-            ]
-          }
-        },
-        "additionalProperties": false
       },
       "ManagedConnectorBindingMigrationState": {
         "type": "string",
@@ -29512,12 +29576,46 @@
         }
       },
       "ManagedModelCredentialAuthMethod": {
-        "type": "string",
-        "description": "Reviewed Codex authentication interpretation. Changing it requires a new proposal even when the secret reference is unchanged.",
-        "enum": [
-          "api_key",
-          "chatgpt_subscription"
-        ]
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": [
+              "api_key"
+            ]
+          },
+          {
+            "type": "string",
+            "enum": [
+              "chatgpt_subscription"
+            ]
+          },
+          {
+            "type": "object",
+            "required": [
+              "provider_key"
+            ],
+            "properties": {
+              "provider_key": {
+                "type": "object",
+                "required": [
+                  "provider"
+                ],
+                "properties": {
+                  "base_url": {
+                    "type": "string"
+                  },
+                  "prices": {
+                    "$ref": "#/components/schemas/ManagedProviderKeyPrices"
+                  },
+                  "provider": {
+                    "$ref": "#/components/schemas/ManagedModelProvider"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "Reviewed model authentication. Changing it requires a new proposal even when the reference is unchanged."
       },
       "ManagedModelCredentialEffectiveMapping": {
         "type": "object",
@@ -29619,6 +29717,17 @@
             "type": "string",
             "format": "uuid"
           },
+          "fallback": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedOwnerModelFallback",
+                "description": "Private-model fallback for `configure`. Required for provider keys when no existing fallback is configured."
+              }
+            ]
+          },
           "id": {
             "type": "string",
             "format": "uuid"
@@ -29683,6 +29792,106 @@
           "applied",
           "superseded"
         ]
+      },
+      "ManagedModelProvider": {
+        "type": "string",
+        "enum": [
+          "openai",
+          "anthropic",
+          "gemini",
+          "azure_openai",
+          "xai",
+          "groq",
+          "deepseek",
+          "mistral",
+          "openrouter",
+          "togetherai",
+          "fireworks",
+          "bedrock_api_key",
+          "bedrock_access_key",
+          "custom"
+        ]
+      },
+      "ManagedOwnerModelFallback": {
+        "type": "object",
+        "description": "The Seren Private Model an Owner connection runs on when no credential can serve.",
+        "required": [
+          "model_id",
+          "provider"
+        ],
+        "properties": {
+          "fallback_models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Models tried in order when `model_id` is unavailable."
+          },
+          "model_id": {
+            "type": "string",
+            "description": "Model from the private models catalog."
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "seren_private_models"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedProviderKeyCredential": {
+        "type": "object",
+        "required": [
+          "provider",
+          "secret_ref"
+        ],
+        "properties": {
+          "base_url": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "prices": {
+            "$ref": "#/components/schemas/ManagedProviderKeyPrices"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ManagedModelProvider"
+          },
+          "secret_ref": {
+            "type": "string",
+            "description": "Seren Secrets reference; never the credential's plaintext."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedProviderKeyPrices": {
+        "type": "object",
+        "description": "Prices in atomic units per million tokens.",
+        "required": [
+          "input",
+          "cached",
+          "output"
+        ],
+        "properties": {
+          "cached": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "input": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "output": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
       },
       "ManagedPublisherCredentialChange": {
         "type": "object",
@@ -30354,6 +30563,17 @@
             "type": "string",
             "format": "uuid"
           },
+          "fallback": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedOwnerModelFallback",
+                "description": "Private-model fallback for `configure`. Required for provider keys when no existing fallback is configured."
+              }
+            ]
+          },
           "model_id": {
             "type": "string"
           },
@@ -30391,7 +30611,7 @@
               },
               {
                 "$ref": "#/components/schemas/ManagedModelCredentialAuthMethod",
-                "description": "Reviewed Codex authentication method. Required for `configure` and `add_credential`."
+                "description": "Reviewed authentication method and provider settings. Required for `configure` and `add_credential`."
               }
             ]
           },
@@ -30415,6 +30635,17 @@
           "expected_active_revision_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "fallback": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedOwnerModelFallback",
+                "description": "Private-model fallback for `configure`. Required for provider keys when no existing fallback is configured."
+              }
+            ]
           },
           "model_id": {
             "type": [
@@ -31046,6 +31277,40 @@
       "RunFileContent": {
         "type": "string",
         "format": "binary"
+      },
+      "RunResults": {
+        "type": "object",
+        "description": "Results reported by a managed agent and verified for its run.",
+        "required": [
+          "name",
+          "reported",
+          "verified",
+          "rejected"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "rejected": {
+            "type": "object",
+            "description": "Number of rejected results for each reason.",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "reported": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "verified": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
       },
       "RuntimeDispatchKind": {
         "type": "string",

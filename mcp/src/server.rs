@@ -3060,6 +3060,34 @@ pub struct UpdateSerenAgentTemplateListingParams {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct SerenAgentEventOrganizationParams {
+    pub organization_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SerenAgentEventParams {
+    pub organization_id: Uuid,
+    pub event_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CreateSerenAgentEventParams {
+    pub organization_id: Uuid,
+    pub request: seren::PutManagedAgentEvent,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateSerenAgentEventParams {
+    pub organization_id: Uuid,
+    pub event_id: Uuid,
+    pub request: seren::PutManagedAgentEvent,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateOrganizationParams {
     pub organization_id: Uuid,
     pub request: seren::RenameOrganizationRequest,
@@ -15763,6 +15791,7 @@ API endpoint: {endpoint}",
             token_exchange_mode: None,
             token_exchange_url: None,
             token_response_field: None,
+            upstream_cost_unit_price: None,
             usage_pricing: None,
         };
 
@@ -18111,6 +18140,202 @@ API endpoint: {endpoint}",
         let response = self
             .api_client(&extensions)?
             .request_managed_agent_template_review(&params.organization_id, &params.slug)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List the organization's Employee events, newest start first, with status (draft, published or cancelled), content_revision, notice_revision, privacy and meeting. Requires the publishing organization's built-in Owner.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_seren_agent_events(
+        &self,
+        Parameters(params): Parameters<SerenAgentEventOrganizationParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .list_managed_agent_events(&params.organization_id)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Read one Employee event with its announcement delivery counts: pending, delivered, skipped (for example an Employer who turned off the Employee's email) and failed. Requires the publishing organization's built-in Owner.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_seren_agent_event(
+        &self,
+        Parameters(params): Parameters<SerenAgentEventParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .get_managed_agent_event(&params.organization_id, &params.event_id)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Create a draft Employee event assigned to Employees the organization publishes. A draft reaches no one until publish_seren_agent_event. request takes summary (required, not blank), optional description, location and details (context the Employee reads when an Employer asks), start and end as local date_time such as 2027-01-15T18:00:00 with an IANA time_zone (end is exclusive, after the start and in the same zone), employee_slugs (one or more Employees the organization publishes), optional invited_contact_id (an Employer contact from list_seren_agent_employer_contacts; only the Owner and that Employer see a private event, and an event can't change between private and public once saved) and optional meeting: {kind: none}, {kind: link, url}, or {kind: google_meet | microsoft_teams | zoom, oauth_connection_id} for a meeting Seren creates on the Owner's account at publication. Responses show meeting and meeting_url. Seren refuses Zoom with managed_agent_event_zoom_unavailable while Zoom isn't connected to Seren; paste a Zoom link instead. Requires the publishing organization's built-in Owner.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn create_seren_agent_event(
+        &self,
+        Parameters(params): Parameters<CreateSerenAgentEventParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .create_managed_agent_event(&params.organization_id, &params.request)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Replace an Employee event's content, times and assigned Employees; send every field, since omitted optional fields are cleared. Cancelled events can't be edited. Changing a published event updates Employers' calendar entries, and changing its start, end, time zone or location emails its Employers again, so confirm the change with your user first. request takes summary (required, not blank), optional description, location and details (context the Employee reads when an Employer asks), start and end as local date_time such as 2027-01-15T18:00:00 with an IANA time_zone (end is exclusive, after the start and in the same zone), employee_slugs (one or more Employees the organization publishes), optional invited_contact_id (an Employer contact from list_seren_agent_employer_contacts; only the Owner and that Employer see a private event, and an event can't change between private and public once saved) and optional meeting: {kind: none}, {kind: link, url}, or {kind: google_meet | microsoft_teams | zoom, oauth_connection_id} for a meeting Seren creates on the Owner's account at publication. Responses show meeting and meeting_url. A published event's meeting can change only its pasted link. Seren refuses Zoom with managed_agent_event_zoom_unavailable while Zoom isn't connected to Seren; paste a Zoom link instead. Requires the publishing organization's built-in Owner.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn update_seren_agent_event(
+        &self,
+        Parameters(params): Parameters<UpdateSerenAgentEventParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .update_managed_agent_event(&params.organization_id, &params.event_id, &params.request)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Delete a draft Employee event. Published and cancelled events can't be deleted; cancel a published event instead. Requires the publishing organization's built-in Owner.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn delete_seren_agent_event(
+        &self,
+        Parameters(params): Parameters<SerenAgentEventParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .delete_managed_agent_event(&params.organization_id, &params.event_id)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Preview an Employee event's announcement email and the number of Employers it would reach now. Sends nothing. Requires the publishing organization's built-in Owner.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn preview_seren_agent_event(
+        &self,
+        Parameters(params): Parameters<SerenAgentEventParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .preview_managed_agent_event(&params.organization_id, &params.event_id)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Publish a draft Employee event that hasn't ended. Seren emails the announcement to every Employer of the assigned Employees (or only the invited Employer of a private event) who hasn't turned off the Employee's email, creates any requested meeting, and lets those Employers add it to their calendars by asking in the conversation. Emails can't be recalled, so preview with preview_seren_agent_event and confirm with your user first. Meeting refusals: managed_agent_event_teams_unavailable (this Microsoft account can't create Teams meetings; paste a meeting link instead), managed_agent_event_zoom_unavailable (Zoom isn't connected to Seren; paste a Zoom link instead), managed_agent_event_meeting_sign_in_needed (connect that account again, then retry), managed_agent_event_meeting_refused (the provider refused to create the meeting; choose another account or paste a link) and managed_agent_event_meeting_unavailable (the provider couldn't be reached; try again). Explain the refusal to the Owner as Seren reports it. Requires the publishing organization's built-in Owner.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn publish_seren_agent_event(
+        &self,
+        Parameters(params): Parameters<SerenAgentEventParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .publish_managed_agent_event(&params.organization_id, &params.event_id)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Cancel a published Employee event. Seren tells its Employers and updates their calendar entries; a cancelled event can't be edited or published again, so confirm with your user first. Requires the publishing organization's built-in Owner.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn cancel_seren_agent_event(
+        &self,
+        Parameters(params): Parameters<SerenAgentEventParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .cancel_managed_agent_event(&params.organization_id, &params.event_id)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List Employers who agreed in the conversation to share their name and email with this organization. Use a contact's id as invited_contact_id for a private event. Requires the publishing organization's built-in Owner.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_seren_agent_employer_contacts(
+        &self,
+        Parameters(params): Parameters<SerenAgentEventOrganizationParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .list_managed_agent_employer_contacts(&params.organization_id)
             .into_mcp_result()
             .await?
             .into_inner();
@@ -28749,6 +28974,15 @@ pub(crate) mod tests {
             ("update_seren_agent_template_profile", false),
             ("update_seren_agent_template_listing", false),
             ("request_seren_agent_template_review", false),
+            ("list_seren_agent_events", true),
+            ("get_seren_agent_event", true),
+            ("create_seren_agent_event", false),
+            ("update_seren_agent_event", false),
+            ("delete_seren_agent_event", false),
+            ("preview_seren_agent_event", true),
+            ("publish_seren_agent_event", false),
+            ("cancel_seren_agent_event", false),
+            ("list_seren_agent_employer_contacts", true),
             ("update_organization", false),
             ("get_seren_agent_state", true),
             ("list_seren_agent_work_items", true),
@@ -33594,7 +33828,8 @@ pub(crate) mod tests {
             "prepaid_enabled": true,
             "onchain_enabled": false,
             "minimum_balance": "0",
-            "low_balance_threshold": "0"
+            "low_balance_threshold": "0",
+            "upstream_cost_unit_price": "0"
         }]);
         Mock::given(method("GET"))
             .and(path("/publishers/coingecko-like"))
@@ -33631,7 +33866,8 @@ pub(crate) mod tests {
                     "prepaid_enabled": true,
                     "onchain_enabled": false,
                     "minimum_balance": "0.5",
-                    "low_balance_threshold": "1.0"
+                    "low_balance_threshold": "1.0",
+                    "upstream_cost_unit_price": "0"
                 }
             })))
             .expect(1)
@@ -38704,7 +38940,7 @@ pub(crate) mod tests {
                 "id": deployment_id,
                 "organization_id": Uuid::from_u128(1),
                 "name": "Hired Employee",
-                "spend_limits": {"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":[{"key":"run","name":"Run","charge":"fee","triggers":["hire_cron","schedule","chat","webhook","api"],"amount":{"atomic":500000,"usd":"$0.50"},"expected_cost_atomic":300000}]},
+                "spend_limits": {"model_paid_by_owner":false,"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":[{"key":"run","name":"Run","charge":"fee","triggers":["hire_cron","schedule","chat","webhook","api"],"amount":{"atomic":500000,"usd":"$0.50"},"expected_cost_atomic":300000}]},
                 "skill_slug": "managed-hire-00000000000000000000000000009003",
                 "mode": "cron",
                 "platform_managed": true,
@@ -40840,7 +41076,7 @@ pub(crate) mod tests {
         prices[0]["measured_cost"]["average_price_atomic"] = serde_json::json!(1000000);
         prices[1]["measured_cost"] = fee_tool_measurement_fixture();
         prices[1]["measured_cost"]["average_price_atomic"] = serde_json::json!(0);
-        let owner = serde_json::json!({"id":deployment_id,"organization_id":Uuid::from_u128(1),"name":"Pricing contract","skill_slug":"pricing-contract","mode":"always_on","platform_managed":true,"routine_set_by_hirer":false,"serving_fallback":false,"status":"running","desired_lifecycle_state":"running","template":{"slug":"pricing-contract","display_name":"Pricing contract","revision":1},"run_kinds":prices.clone(),"spend_limits":{"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":prices.clone()},"created_at":"2026-10-23T00:00:00Z","updated_at":"2026-10-23T00:00:00Z"});
+        let owner = serde_json::json!({"id":deployment_id,"organization_id":Uuid::from_u128(1),"name":"Pricing contract","skill_slug":"pricing-contract","mode":"always_on","platform_managed":true,"routine_set_by_hirer":false,"serving_fallback":false,"status":"running","desired_lifecycle_state":"running","template":{"slug":"pricing-contract","display_name":"Pricing contract","revision":1},"run_kinds":prices.clone(),"spend_limits":{"model_paid_by_owner":false,"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":prices.clone()},"created_at":"2026-10-23T00:00:00Z","updated_at":"2026-10-23T00:00:00Z"});
         Mock::given(method("GET"))
             .and(path(format!(
                 "/publishers/seren-agent/deployments/{deployment_id}/managed"
@@ -41098,6 +41334,7 @@ pub(crate) mod tests {
                         "active_hires": 3,
                         "best_sellers_rank": 1,
                         "seren_choice": false,
+                        "free_to_hirer": false,
                         "also_hired": [
                             "iris"
                         ],
@@ -41220,6 +41457,7 @@ pub(crate) mod tests {
                         "active_hires": 1,
                         "best_sellers_rank": 3,
                         "seren_choice": false,
+                        "free_to_hirer": false,
                         "also_hired": [],
                         "rating": null,
                         "updated_at": "2026-11-01T04:00:03.759627Z"

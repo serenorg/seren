@@ -29,6 +29,7 @@ fn owner(deployment_id: Uuid, run_kinds: Value) -> Value {
         "template": {"slug": "pricing-contract", "display_name": "Pricing contract", "revision": 1},
         "run_kinds": run_kinds.clone(),
         "spend_limits": {
+            "model_paid_by_owner": false,
             "per_task_atomic": 2000000, "per_day_atomic": 10000000, "day_timezone": "UTC",
             "defaults": {"per_task_atomic": 2000000, "per_day_atomic": 10000000},
             "run_kinds": run_kinds
@@ -89,7 +90,7 @@ async fn managed_pricing_success_bodies_preserve_fee_and_cost_contracts() {
                 "run_kinds": run_kinds.clone(),
                 "spend_limit_defaults": {"per_task_atomic": 2000000, "per_day_atomic": 10000000},
                 "catalog": {"hires_30d": 0, "tasks_done": 0, "hours_of_work": 0, "active_hires": 0,
-                    "best_sellers_rank": null, "seren_choice": false, "also_hired": [],
+                    "best_sellers_rank": null, "seren_choice": false, "free_to_hirer": false, "also_hired": [],
                     "rating": null, "updated_at": null},
                 "similar": []
             }]})))

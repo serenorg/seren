@@ -1419,7 +1419,8 @@ pub fn model_credential_proposal_applied_revision(
         || applied.id != reviewed.id
         || applied.deployment_id != reviewed.deployment_id
         || applied.model_id != reviewed.model_id
-        || applied.auth_method != reviewed.auth_method
+        || serde_json::to_value(&applied.auth_method).ok()
+            != serde_json::to_value(&reviewed.auth_method).ok()
         || applied.operation != reviewed.operation
         || applied.credential_name != reviewed.credential_name
         || applied.credential_order != reviewed.credential_order
@@ -2373,7 +2374,7 @@ mod tests {
                     "id": deployment_id,
                     "organization_id": uuid::Uuid::from_u128(1),
                     "name": "Platform Template",
-                    "spend_limits": {"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":[{"key":"run","name":"Run","charge":"fee","triggers":["hire_cron","schedule","chat","webhook","api"],"amount":{"atomic":500000,"usd":"$0.50"},"expected_cost_atomic":300000}]},
+                    "spend_limits": {"model_paid_by_owner": false, "per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":[{"key":"run","name":"Run","charge":"fee","triggers":["hire_cron","schedule","chat","webhook","api"],"amount":{"atomic":500000,"usd":"$0.50"},"expected_cost_atomic":300000}]},
                     "skill_slug": "platform-template",
                     "created_at": "2026-09-01T00:00:00Z",
                     "desired_lifecycle_state": "running",
@@ -2907,7 +2908,7 @@ mod tests {
                     "id": uuid::Uuid::from_u128(0x9002),
                     "organization_id": uuid::Uuid::from_u128(1),
                     "name": "Hired Employee",
-                    "spend_limits": {"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":[{"key":"run","name":"Run","charge":"fee","triggers":["hire_cron","schedule","chat","webhook","api"],"amount":{"atomic":500000,"usd":"$0.50"},"expected_cost_atomic":300000}]},
+                    "spend_limits": {"model_paid_by_owner": false, "per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":[{"key":"run","name":"Run","charge":"fee","triggers":["hire_cron","schedule","chat","webhook","api"],"amount":{"atomic":500000,"usd":"$0.50"},"expected_cost_atomic":300000}]},
                     "skill_slug": "managed-hire-0000000000000000000000000000900a",
                     "mode": "cron",
                     "platform_managed": true,
