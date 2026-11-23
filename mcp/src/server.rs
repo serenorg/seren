@@ -33828,7 +33828,8 @@ pub(crate) mod tests {
             "prepaid_enabled": true,
             "onchain_enabled": false,
             "minimum_balance": "0",
-            "low_balance_threshold": "0"
+            "low_balance_threshold": "0",
+            "upstream_cost_unit_price": "0"
         }]);
         Mock::given(method("GET"))
             .and(path("/publishers/coingecko-like"))
@@ -33865,7 +33866,8 @@ pub(crate) mod tests {
                     "prepaid_enabled": true,
                     "onchain_enabled": false,
                     "minimum_balance": "0.5",
-                    "low_balance_threshold": "1.0"
+                    "low_balance_threshold": "1.0",
+                    "upstream_cost_unit_price": "0"
                 }
             })))
             .expect(1)
@@ -38938,7 +38940,7 @@ pub(crate) mod tests {
                 "id": deployment_id,
                 "organization_id": Uuid::from_u128(1),
                 "name": "Hired Employee",
-                "spend_limits": {"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":[{"key":"run","name":"Run","charge":"fee","triggers":["hire_cron","schedule","chat","webhook","api"],"amount":{"atomic":500000,"usd":"$0.50"},"expected_cost_atomic":300000}]},
+                "spend_limits": {"model_paid_by_owner":false,"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":[{"key":"run","name":"Run","charge":"fee","triggers":["hire_cron","schedule","chat","webhook","api"],"amount":{"atomic":500000,"usd":"$0.50"},"expected_cost_atomic":300000}]},
                 "skill_slug": "managed-hire-00000000000000000000000000009003",
                 "mode": "cron",
                 "platform_managed": true,
@@ -41074,7 +41076,7 @@ pub(crate) mod tests {
         prices[0]["measured_cost"]["average_price_atomic"] = serde_json::json!(1000000);
         prices[1]["measured_cost"] = fee_tool_measurement_fixture();
         prices[1]["measured_cost"]["average_price_atomic"] = serde_json::json!(0);
-        let owner = serde_json::json!({"id":deployment_id,"organization_id":Uuid::from_u128(1),"name":"Pricing contract","skill_slug":"pricing-contract","mode":"always_on","platform_managed":true,"routine_set_by_hirer":false,"serving_fallback":false,"status":"running","desired_lifecycle_state":"running","template":{"slug":"pricing-contract","display_name":"Pricing contract","revision":1},"run_kinds":prices.clone(),"spend_limits":{"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":prices.clone()},"created_at":"2026-10-23T00:00:00Z","updated_at":"2026-10-23T00:00:00Z"});
+        let owner = serde_json::json!({"id":deployment_id,"organization_id":Uuid::from_u128(1),"name":"Pricing contract","skill_slug":"pricing-contract","mode":"always_on","platform_managed":true,"routine_set_by_hirer":false,"serving_fallback":false,"status":"running","desired_lifecycle_state":"running","template":{"slug":"pricing-contract","display_name":"Pricing contract","revision":1},"run_kinds":prices.clone(),"spend_limits":{"model_paid_by_owner":false,"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":prices.clone()},"created_at":"2026-10-23T00:00:00Z","updated_at":"2026-10-23T00:00:00Z"});
         Mock::given(method("GET"))
             .and(path(format!(
                 "/publishers/seren-agent/deployments/{deployment_id}/managed"
@@ -41332,6 +41334,7 @@ pub(crate) mod tests {
                         "active_hires": 3,
                         "best_sellers_rank": 1,
                         "seren_choice": false,
+                        "free_to_hirer": false,
                         "also_hired": [
                             "iris"
                         ],
@@ -41454,6 +41457,7 @@ pub(crate) mod tests {
                         "active_hires": 1,
                         "best_sellers_rank": 3,
                         "seren_choice": false,
+                        "free_to_hirer": false,
                         "also_hired": [],
                         "rating": null,
                         "updated_at": "2026-11-01T04:00:03.759627Z"
