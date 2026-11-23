@@ -101,7 +101,7 @@ struct OAuthAuthState {
     api_key_cache: Arc<Mutex<LruCache<String, CachedApiKeyValidation>>>,
     /// Positive token-hash lookups, bounded by session expiry and a short cache lifetime.
     /// Revocation becomes visible when this cache expires or an authoritative read rejects it.
-    oauth_token_cache: Arc<Mutex<LruCache<String, CachedRefreshTokenLookup>>>,
+    oauth_token_cache: OAuthTokenCache,
     /// Token storage has a separate failure domain from upstream OAuth and API-key validation.
     token_store_circuit_breaker: Arc<oauth::circuit_breaker::OAuthCircuitBreaker>,
     /// Shared OAuth state for endpoints and configuration.
@@ -398,13 +398,16 @@ struct CachedApiKeyValidation {
     expires_at: std::time::Instant,
 }
 
+/// Per-pod cache of OAuth token-hash lookups, shared by the request check and `/revoke`.
+pub(crate) type OAuthTokenCache = Arc<Mutex<LruCache<String, CachedRefreshTokenLookup>>>;
+
 /// Cached OAuth token-hash lookup result with expiry timestamp.
 ///
 /// Mirrors [`CachedApiKeyValidation`]: only *successful* lookups are cached, keyed by the
 /// refresh-token hash, so a transient token-store error does not zero out a recently
 /// validated OAuth bearer.
 #[derive(Clone)]
-struct CachedRefreshTokenLookup {
+pub(crate) struct CachedRefreshTokenLookup {
     refresh_token: oauth::store::RefreshToken,
     expires_at: tokio::time::Instant,
 }
@@ -2044,6 +2047,11 @@ async fn run_oauth(config: Config) -> Result<()> {
     );
 
     // OAuth state for routes
+    // OAuth token-hash lookup cache (short TTL) to survive transient token-store failures.
+    // `/revoke` shares it so a revoked session stops working on this pod at once.
+    let oauth_token_cache: OAuthTokenCache = Arc::new(Mutex::new(LruCache::new(
+        NonZeroUsize::new(OAUTH_TOKEN_CACHE_SIZE).expect("OAUTH_TOKEN_CACHE_SIZE must be > 0"),
+    )));
     let oauth_state = Arc::new(OAuthState {
         store: store.clone(),
         http: {
@@ -2070,6 +2078,7 @@ async fn run_oauth(config: Config) -> Result<()> {
         upstream_oauth_redirect_base_url: oauth_redirect_base_url,
         circuit_breaker: oauth::circuit_breaker::create_oauth_circuit_breaker(),
         jwt_signer,
+        oauth_token_cache: oauth_token_cache.clone(),
     });
 
     // Clone store for health check before moving it
@@ -2079,10 +2088,6 @@ async fn run_oauth(config: Config) -> Result<()> {
     // API key validation cache (5-minute TTL to reduce backend calls)
     let api_key_cache = Arc::new(Mutex::new(LruCache::new(
         NonZeroUsize::new(API_KEY_CACHE_SIZE).expect("API_KEY_CACHE_SIZE must be > 0"),
-    )));
-    // OAuth token-hash lookup cache (short TTL) to survive transient token-store failures.
-    let oauth_token_cache = Arc::new(Mutex::new(LruCache::new(
-        NonZeroUsize::new(OAUTH_TOKEN_CACHE_SIZE).expect("OAUTH_TOKEN_CACHE_SIZE must be > 0"),
     )));
     let oauth_auth_state = OAuthAuthState {
         store,
@@ -2894,7 +2899,7 @@ mod tests {
         }
     }
 
-    fn empty_oauth_token_cache() -> Arc<Mutex<LruCache<String, CachedRefreshTokenLookup>>> {
+    fn empty_oauth_token_cache() -> OAuthTokenCache {
         Arc::new(Mutex::new(LruCache::new(
             NonZeroUsize::new(OAUTH_TOKEN_CACHE_SIZE).unwrap(),
         )))
@@ -3296,6 +3301,7 @@ mod tests {
             .connect_lazy("postgresql://postgres@127.0.0.1:1/unreachable")
             .expect("lazy pool");
         let store = TokenStore::new(pool);
+        let oauth_token_cache = empty_oauth_token_cache();
         let oauth_state = Arc::new(OAuthState {
             store: store.clone(),
             http: reqwest::Client::new(),
@@ -3308,13 +3314,14 @@ mod tests {
                 b"test-secret-key-at-least-32-bytes!!",
                 "http://mcp.test",
             )),
+            oauth_token_cache: oauth_token_cache.clone(),
         });
         OAuthAuthState {
             store,
             api_key_cache: Arc::new(Mutex::new(LruCache::new(
                 NonZeroUsize::new(API_KEY_CACHE_SIZE).unwrap(),
             ))),
-            oauth_token_cache: empty_oauth_token_cache(),
+            oauth_token_cache,
             token_store_circuit_breaker: oauth::circuit_breaker::create_oauth_circuit_breaker(),
             oauth_state,
         }
@@ -3386,6 +3393,198 @@ mod tests {
                     .contains_key(axum::http::header::WWW_AUTHENTICATE)
             );
         }
+    }
+
+    /// `/revoke` with an MCP access token deletes that token's session, so the real request check
+    /// refuses it, while the user's other sessions, other clients' tokens and invalid tokens are
+    /// left alone.
+    #[tokio::test]
+    async fn revoking_an_access_token_signs_its_session_out() {
+        if !oauth::store::integration_tests_enabled() {
+            eprintln!(
+                "skipping oauth integration test; set SEREN_MCP_INTEGRATION_TESTS=1 to enable"
+            );
+            return;
+        }
+        let (_container, store) = oauth::store::test_token_store().await;
+        for client_id in ["client-1", "client-2", "client-3"] {
+            sqlx::query(
+                "INSERT INTO mcp_oauth.clients (id, name, redirect_uris, grants, scopes)
+                VALUES ($1, $1, ARRAY['http://localhost/callback'],
+                    ARRAY['authorization_code'], ARRAY['api'])",
+            )
+            .bind(client_id)
+            .execute(store.pool())
+            .await
+            .unwrap();
+        }
+        let user_id = Uuid::new_v4();
+        let session = |label: &str, client_id: &str| {
+            let mut token = make_refresh_token(label);
+            token.user_id = user_id;
+            token.client_id = client_id.to_string();
+            token
+        };
+        let session_a = session("session-a", "client-1");
+        let session_b = session("session-b", "client-1");
+        let session_c = session("session-c", "client-2");
+        let legacy_session = session("legacy-session", "client-3");
+        for token in [&session_a, &session_b, &session_c, &legacy_session] {
+            store.save_refresh_token(token).await.unwrap();
+        }
+
+        let oauth_token_cache = empty_oauth_token_cache();
+        let jwt_signer = Arc::new(oauth::McpJwtSigner::new(
+            b"test-secret-key-at-least-32-bytes!!",
+            "http://mcp.test",
+        ));
+        let oauth_state = Arc::new(OAuthState {
+            store: store.clone(),
+            http: reqwest::Client::new(),
+            server_host: "http://mcp.test".to_string(),
+            upstream_client_id: "upstream-client-id".to_string(),
+            upstream_api_base_url: "http://127.0.0.1:1".to_string(),
+            upstream_oauth_redirect_base_url: "http://127.0.0.1:1".to_string(),
+            circuit_breaker: oauth::circuit_breaker::create_oauth_circuit_breaker(),
+            jwt_signer: jwt_signer.clone(),
+            oauth_token_cache: oauth_token_cache.clone(),
+        });
+        let state = OAuthAuthState {
+            store: store.clone(),
+            api_key_cache: Arc::new(Mutex::new(LruCache::new(
+                NonZeroUsize::new(API_KEY_CACHE_SIZE).unwrap(),
+            ))),
+            oauth_token_cache: oauth_token_cache.clone(),
+            token_store_circuit_breaker: oauth::circuit_breaker::create_oauth_circuit_breaker(),
+            oauth_state: oauth_state.clone(),
+        };
+        let mcp = axum::Router::new()
+            .route("/mcp", axum::routing::post(|| async { "ok" }))
+            .layer(axum::middleware::from_fn_with_state(
+                state,
+                require_oauth_auth,
+            ));
+        let oauth_app = oauth::oauth_router(oauth_state).layer(axum::Extension(
+            axum::extract::ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 12345))),
+        ));
+        let access_token = |client_id: &str, rth: Option<&str>| {
+            jwt_signer
+                .sign_access_token(user_id, client_id, "api", None, None, rth)
+                .unwrap()
+                .0
+        };
+        let call_mcp = |token: String| {
+            let mcp = mcp.clone();
+            async move {
+                let response = mcp
+                    .oneshot(
+                        Request::post("/mcp")
+                            .header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                let status = response.status();
+                let challenge = response
+                    .headers()
+                    .get(axum::http::header::WWW_AUTHENTICATE)
+                    .map(|value| value.to_str().unwrap().to_string())
+                    .unwrap_or_default();
+                (status, challenge)
+            }
+        };
+        let revoke = |form: String| {
+            let oauth_app = oauth_app.clone();
+            async move {
+                oauth_app
+                    .oneshot(
+                        Request::post("/revoke")
+                            .header(
+                                axum::http::header::CONTENT_TYPE,
+                                "application/x-www-form-urlencoded",
+                            )
+                            .body(Body::from(form))
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap()
+                    .status()
+            }
+        };
+        let token_a = access_token("client-1", Some(&session_a.token_hash));
+        let token_b = access_token("client-1", Some(&session_b.token_hash));
+        let token_c = access_token("client-2", Some(&session_c.token_hash));
+        let legacy_token = access_token("client-3", None);
+        for token in [&token_a, &token_b, &token_c, &legacy_token] {
+            assert_eq!(call_mcp(token.clone()).await.0, axum::http::StatusCode::OK);
+        }
+        let session_count = || async {
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM mcp_oauth.refresh_tokens")
+                .fetch_one(store.pool())
+                .await
+                .unwrap()
+        };
+
+        // An invalid token answers 200 and deletes nothing.
+        for form in [
+            "token=not-a-token".to_string(),
+            format!("token={token_a}x&client_id=client-1"),
+        ] {
+            assert_eq!(revoke(form).await, axum::http::StatusCode::OK);
+        }
+        assert_eq!(session_count().await, 4);
+
+        // A client can't revoke another client's access token.
+        assert_eq!(
+            revoke(format!("token={token_c}&client_id=client-1")).await,
+            axum::http::StatusCode::OK
+        );
+        assert_eq!(session_count().await, 4);
+        assert_eq!(
+            call_mcp(token_c.clone()).await.0,
+            axum::http::StatusCode::OK
+        );
+
+        // Revoking session A's access token signs A out at once on this pod, though its lookup
+        // is cached; session B of the same user keeps working.
+        assert_eq!(
+            revoke(format!("token={token_a}&client_id=client-1")).await,
+            axum::http::StatusCode::OK
+        );
+        let (status, challenge) = call_mcp(token_a).await;
+        assert_eq!(status, axum::http::StatusCode::UNAUTHORIZED);
+        assert!(
+            challenge.contains("Session has been revoked"),
+            "unexpected challenge: {challenge}"
+        );
+        assert_eq!(call_mcp(token_b).await.0, axum::http::StatusCode::OK);
+        assert_eq!(
+            call_mcp(token_c.clone()).await.0,
+            axum::http::StatusCode::OK
+        );
+        assert_eq!(session_count().await, 3);
+
+        // Without a client_id, the token's own client is used.
+        assert_eq!(
+            revoke(format!("token={token_c}")).await,
+            axum::http::StatusCode::OK
+        );
+        assert_eq!(
+            call_mcp(token_c).await.0,
+            axum::http::StatusCode::UNAUTHORIZED
+        );
+
+        // A legacy token without `rth` revokes the session the request check uses for it.
+        assert_eq!(
+            revoke(format!("token={legacy_token}&client_id=client-3")).await,
+            axum::http::StatusCode::OK
+        );
+        assert_eq!(
+            call_mcp(legacy_token).await.0,
+            axum::http::StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(session_count().await, 1);
     }
 
     #[tokio::test]

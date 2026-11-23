@@ -21,8 +21,10 @@ use uuid::Uuid;
 ///
 /// Security is maintained because each request still validates the JWT signature,
 /// upstream tokens are refreshed server-side transparently, and the JWT's `rth`
-/// claim links to a server-side token vault that can be revoked at any time
-/// (deleting the `refresh_tokens` row causes the middleware `rth` lookup to 401).
+/// claim links to a server-side token vault that can be revoked at any time:
+/// `POST /revoke` with the access token deletes its `refresh_tokens` row, and the
+/// middleware `rth` lookup then answers 401 (within the 60-second per-pod lookup
+/// cache on pods other than the one that handled the revocation).
 pub const ACCESS_TOKEN_TTL_SECS: i64 = 10 * 365 * 24 * 60 * 60;
 
 /// JWT claims for MCP-issued access tokens
