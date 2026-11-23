@@ -4519,19 +4519,148 @@ pub(crate) struct DelegationFieldChoice {
     pub field: String,
 }
 
+/// Approve a managed agent's Seren Passwords setup from this client with the
+/// unlocked user's own keys, instead of the hosted Seren Passwords page.
+///
+/// Core hands the setup's user its setup credential (which retires the
+/// setup's launch link), Passwords turns it into a participant capability for
+/// the Employee's identity, and the approval itself is signed locally.
+pub(crate) async fn approve_managed_agent_setup_locally(
+    client: &seren::Client,
+    kem_private: &IdentityKemPrivateKey,
+    signing_private: &IdentitySigningPrivateKey,
+    organization_id: Uuid,
+    setup_id: Uuid,
+    choices: &[DelegationFieldChoice],
+) -> Result<seren::DelegationPolicyRequestView, McpError> {
+    if choices.is_empty() {
+        return Err(McpError::invalid_params(
+            "Choose an item field for each requested name",
+            None,
+        ));
+    }
+    let local = client
+        .managed_agent_secrets_setup_local_approval(&organization_id, &setup_id)
+        .await
+        .map_err(|error| {
+            McpError::invalid_request(
+                format!("Seren could not hand over this setup for local approval: {error}. Start the setup again with start_seren_agent_passwords_setup."),
+                None,
+            )
+        })?
+        .into_inner()
+        .data;
+    let setup_token = Zeroizing::new(local.setup_token);
+    let context = match client
+        .managed_agent_secrets_setup_context(
+            &organization_id,
+            &setup_id,
+            &seren::AccessManagedAgentSecretsSetupRequest {
+                setup_token: setup_token.to_string(),
+            },
+        )
+        .await
+    {
+        Ok(response) => response.into_inner().data,
+        Err(error) => return Err(crate::server::seren_error_to_mcp_error(error).await),
+    };
+    if context.setup_id != setup_id || context.organization_id != organization_id {
+        return Err(McpError::invalid_request(
+            "Seren returned a different setup",
+            None,
+        ));
+    }
+    if context.requirements.vault_provisioning.is_some() {
+        return Err(McpError::invalid_request(
+            "This setup creates vaults. Approve it in Seren Passwords with the launch link.",
+            None,
+        ));
+    }
+    let agent_identity_id = match context.agent_identity_id {
+        Some(identity_id) => identity_id,
+        None => {
+            ensure_hosted_employee_identity(
+                client,
+                signing_private,
+                context.deployment_id,
+                &context.deployment_name,
+            )
+            .await?
+        }
+    };
+    let created = passwords_gateway_data(
+        client
+            .delegation_create_managed_agent_setup(&seren::CreateManagedAgentDelegationRequest {
+                agent_identity_id,
+                setup_id,
+                setup_token: setup_token.to_string(),
+            })
+            .await,
+    )
+    .await?
+    .data;
+    let capability = Zeroizing::new(
+        created
+            .participant_capabilities
+            .into_iter()
+            .next()
+            .map(|capability| capability.participant_capability)
+            .ok_or_else(|| {
+                McpError::internal_error(
+                    "Seren Passwords returned no approval for this setup",
+                    None,
+                )
+            })?,
+    );
+    approve_delegation_contribution(client, kem_private, signing_private, &capability, choices)
+        .await
+}
+
+/// Ensure the Employee's hosted Passwords identity, signed by the user as the
+/// Passwords web app does before it creates the setup request.
+async fn ensure_hosted_employee_identity(
+    client: &seren::Client,
+    signing_private: &IdentitySigningPrivateKey,
+    deployment_id: Uuid,
+    display_name: &str,
+) -> Result<Uuid, McpError> {
+    let key_provenance = serde_json::json!({
+        "kind": "managed_agent",
+        "context": format!("managed-deployment:{deployment_id}"),
+        "deployment_id": deployment_id,
+    });
+    let issued_at = jiff::Timestamp::now().as_second();
+    let nonce = Uuid::new_v4().to_string();
+    let canonical = serde_json::to_vec(&serde_json::json!({
+        "display_name": display_name,
+        "key_provenance": key_provenance,
+        "issued_at": issued_at,
+        "nonce": nonce,
+    }))
+    .map_err(|_| McpError::internal_error("Could not encode the Employee identity", None))?;
+    let signature = seren_secrets_crypto::signing::sign(signing_private, &canonical);
+    Ok(passwords_gateway_data(
+        client
+            .agent_identity_ensure_hosted(&seren::CreateHostedAgentIdentityRequest {
+                display_name: display_name.to_string(),
+                issued_at,
+                key_provenance,
+                nonce,
+                signature: BASE64.encode(signature),
+            })
+            .await,
+    )
+    .await?
+    .data
+    .identity_id)
+}
+
 /// Approve one participant's share of a Seren Passwords delegation with the
 /// unlocked user's own keys, as the Passwords web app does in its grant page.
 ///
 /// The signed bytes are built locally from the participant context and the
 /// user's choices. The service's canonical payload must equal them byte for
 /// byte; any difference is refused before the signing key is used.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the setup approval tool calls this once Core returns the setup token"
-    )
-)]
 pub(crate) async fn approve_delegation_contribution(
     client: &seren::Client,
     kem_private: &IdentityKemPrivateKey,
