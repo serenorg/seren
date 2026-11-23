@@ -1300,6 +1300,8 @@ pub fn connector_binding_proposal_apply(
 /// Canonical logical Codex credential slot, not a shell environment variable.
 /// Matches Core's `MANAGED_LLM_CODEX_GRANT_NAME` contract.
 pub const MODEL_LLM_CODEX_SLOT: &str = "seren-llm-codex";
+/// First provider-keys credential's logical slot.
+pub const MODEL_LLM_KEY_SLOT: &str = "seren-llm-key";
 
 /// Project the server-approved Seren Passwords mapping onto the model-credential
 /// apply shape.
@@ -1502,12 +1504,30 @@ pub fn model_credential_proposal_apply(
         .requested_environment_names
         .iter()
         .any(|name| name == MODEL_LLM_CODEX_SLOT);
+    // A key needs its connection's first logical slot and an approved Seren
+    // Passwords result; a ChatGPT sign-in may instead need neither.
+    let configure_slot = match proposal.auth_method {
+        Some(crate::ManagedModelCredentialAuthMethod::ProviderKey { .. }) => MODEL_LLM_KEY_SLOT,
+        _ => MODEL_LLM_CODEX_SLOT,
+    };
+    let signs_in = matches!(
+        proposal.auth_method,
+        Some(crate::ManagedModelCredentialAuthMethod::ChatgptSubscription)
+    );
+    let has_configure_slot = proposal
+        .requested_environment_names
+        .iter()
+        .any(|name| name == configure_slot);
     match proposal.operation {
         crate::ManagedModelCredentialProposalOperation::Configure
-            if !has_codex_slot || !proposal.requires_secret_resolution_result =>
+            if if proposal.requires_secret_resolution_result {
+                !has_configure_slot
+            } else {
+                !signs_in
+            } =>
         {
             return Err(ValidationError::new(format!(
-                "Model configure requires the '{MODEL_LLM_CODEX_SLOT}' logical slot and an approved Seren Passwords result."
+                "Model configure requires the '{configure_slot}' logical slot and an approved Seren Passwords result, unless it is a ChatGPT sign-in."
             )));
         }
         crate::ManagedModelCredentialProposalOperation::Remove
@@ -1558,8 +1578,9 @@ pub fn model_credential_proposal_apply(
             secret_resolution_result_id: Some(request.result_id),
         }
     } else {
+        // A sign-in, reorder or narrowing keeps the deployment's other grants,
+        // which Core still lists as requested names.
         if request.is_some()
-            || !proposal.requested_environment_names.is_empty()
             || proposal.result_id.is_some()
             || proposal.approval_request_id.is_some()
         {
@@ -4530,9 +4551,10 @@ mod tests {
         let detail = managed_detail(deployment_id, revision_id);
         let request = model_secrets_policy_request(organization_id, deployment_id, revision_id);
         for auth in ["api_key", "chatgpt_subscription"] {
+            // Only a ChatGPT sign-in configures without a Seren Passwords result.
             let no_secret =
                 model_proposal(deployment_id, revision_id, "awaiting_review", auth, false);
-            assert!(
+            assert_eq!(
                 model_credential_proposal_apply(
                     organization_id,
                     &detail,
@@ -4540,7 +4562,8 @@ mod tests {
                     &no_secret,
                     no_secret.id
                 )
-                .is_err()
+                .is_err(),
+                auth == "api_key"
             );
             for name in ["PASSWORD", "seren_llm_codex", "SEREN-LLM-CODEX"] {
                 let mut proposal =

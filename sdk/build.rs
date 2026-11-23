@@ -221,6 +221,10 @@ fn remove_unsupported_operations(value: &mut serde_json::Value) -> anyhow::Resul
     // schema; model clients call them, not this SDK.
     const SCHEMALESS_REPLY_OPERATIONS: &[&str] =
         &["post_chat_completions_native", "post_claude_messages"];
+    // Zoom's signed notices, sent by Zoom rather than SDK callers; their
+    // address check and deletion replies are two success types Progenitor
+    // can't return from one method.
+    const PROVIDER_NOTICE_OPERATIONS: &[&str] = &["receive_zoom_app_removal"];
     // Omit this operation while its path template and declared parameters disagree.
     const MISDECLARED_PATH_PARAMETER_OPERATIONS: &[&str] = &["list_managed_agent_template_bundles"];
     const METHODS: [&str; 8] = [
@@ -268,6 +272,9 @@ fn remove_unsupported_operations(value: &mut serde_json::Value) -> anyhow::Resul
                             })
                     || id.is_some_and(|id| TAR_ARCHIVE_OPERATIONS.contains(&id))
                         && operation.to_string().contains("\"application/x-tar\"")
+                    || id.is_some_and(|id| PROVIDER_NOTICE_OPERATIONS.contains(&id))
+                        && operation["responses"]["200"]["content"].is_object()
+                        && operation["responses"].get("204").is_some()
             });
             if omitted {
                 path_item.remove(method);

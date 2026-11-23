@@ -11137,7 +11137,8 @@
         "type": "string",
         "description": "A family of native tools the trusted runtime runs itself.",
         "enum": [
-          "onepassword"
+          "onepassword",
+          "seren_support"
         ]
       },
       "AgentNetworkAccessPreset": {
@@ -29323,9 +29324,9 @@
           },
           {
             "type": "object",
-            "description": "Bill inference to the owner's ChatGPT subscription through a Codex\nsign-in credential.",
+            "description": "Bill inference to the owner's ChatGPT subscription through a ChatGPT\nsign-in connection.",
             "required": [
-              "secret_ref",
+              "oauth_connection_id",
               "method"
             ],
             "properties": {
@@ -29339,14 +29340,15 @@
                 "type": "string",
                 "description": "Name the credential keeps while it stays in `credentials`. Assigned\nby the service; omit it to keep the names already assigned."
               },
-              "secret_ref": {
+              "oauth_connection_id": {
                 "type": "string",
-                "description": "Approved subscription credential reference."
+                "format": "uuid",
+                "description": "The organization's ChatGPT sign-in connection."
               }
             }
           }
         ],
-        "description": "Codex authentication for a managed deployment. The credential is always a\nreference to a Seren Secrets field that the deployment is already granted;\nplaintext credentials are never accepted, stored, or returned."
+        "description": "Codex authentication for a managed deployment: a Seren Secrets reference the\ndeployment is granted, or a ChatGPT sign-in its organization holds. Plaintext\ncredentials are never accepted, stored, or returned."
       },
       "ManagedConnectorBindingMigrationState": {
         "type": "string",
@@ -30653,6 +30655,14 @@
               "null"
             ],
             "description": "Desired model identifier for the resulting connection. Required for `configure`\nand `remove`; the other operations keep the connection's model."
+          },
+          "oauth_connection_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The organization's ChatGPT sign-in connection. Required for a `chatgpt_subscription`\ncredential in `configure` and `add_credential`, and refused for every other method."
           },
           "operation": {
             "$ref": "#/components/schemas/ManagedModelCredentialProposalOperation"
