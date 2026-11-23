@@ -3114,6 +3114,61 @@ pub struct SetSerenAgentTemplateRunFeeParams {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct OwnerModelOrganizationParams {
+    /// The Owner organization.
+    pub organization_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ChatgptSignInParams {
+    /// The Owner organization.
+    pub organization_id: Uuid,
+    /// The `sign_in_id` returned by `start_chatgpt_sign_in`.
+    pub sign_in_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateOwnerModelBudgetParams {
+    /// The Owner organization.
+    pub organization_id: Uuid,
+    pub request: seren::SetOwnerModelBudget,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OwnerTemplateModelParams {
+    /// The Owner organization that publishes the Employee.
+    pub organization_id: Uuid,
+    /// The Employee template's slug.
+    pub slug: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateSerenAgentTemplateModelParams {
+    /// The Owner organization that publishes the Employee.
+    pub organization_id: Uuid,
+    /// The Employee template's slug.
+    pub slug: String,
+    pub request: seren::SetManagedAgentTemplateModel,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateOwnerModelGrantParams {
+    /// The Owner organization that publishes the Employee.
+    pub organization_id: Uuid,
+    /// The Employee template's slug.
+    pub slug: String,
+    /// The Employer organization the grant is for.
+    pub employer_organization_id: Uuid,
+    pub request: seren::SetOwnerModelGrant,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SerenAgentAddonsParams {
     /// Organization that publishes the add-ons.
     pub organization_id: Uuid,
@@ -18545,6 +18600,206 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "Begin, or resume, the Owner organization's pending ChatGPT sign-in, so its Employees can run on the Owner's ChatGPT plan. Show the user the returned user_code and verification_url; the user enters the code there before expires_at. Poll get_chatgpt_sign_in with sign_in_id for the result. Requires the Owner's session or user API key.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn start_chatgpt_sign_in(
+        &self,
+        Parameters(params): Parameters<OwnerModelOrganizationParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .start_chatgpt_sign_in(&params.organization_id)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Check a ChatGPT sign-in started by start_chatgpt_sign_in. state is pending until the user enters the code, connected with the connection_id of the reusable sign-in, or expired after fifteen minutes. Never returns provider tokens. Requires the Owner's session or user API key.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_chatgpt_sign_in(
+        &self,
+        Parameters(params): Parameters<ChatgptSignInParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .get_sign_in(&params.organization_id, &params.sign_in_id)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Read the Seren Private Model an Employee's hires run, its display name, its ordered backup models and the Employee's current revision. Requires the publishing organization's Owner.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_seren_agent_template_model(
+        &self,
+        Parameters(params): Parameters<OwnerTemplateModelParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .get_managed_agent_template_model(&params.organization_id, &params.slug)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Switch the Seren Private Model an Employee's hires run, and its ordered backup models, without a new release, after user authorization. Records the Employee's next revision and shows Employers the Owner's release_note or a note describing the change; existing hires take it under their Employers' update settings, now when rollout is true. Sending the current models again changes nothing. Requires the publishing organization's Owner.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn update_seren_agent_template_model(
+        &self,
+        Parameters(params): Parameters<UpdateSerenAgentTemplateModelParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .set_managed_agent_template_model(
+                &params.organization_id,
+                &params.slug,
+                &params.request,
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List the Employers allowed to run an Employee on the Owner's own model keys or ChatGPT sign-in, with each grant's state and daily and monthly caps in USD atomic units (1,000,000 = $1; null is unlimited). Requires the publishing organization's Owner.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_owner_model_grants(
+        &self,
+        Parameters(params): Parameters<OwnerTemplateModelParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .list_owner_model_grants(&params.organization_id, &params.slug)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Allow or stop one Employer running an Employee on the Owner's own model keys or ChatGPT sign-in, after user authorization. The request replaces the grant: active turns it on or off; per_day_atomic and per_month_atomic cap the Owner-funded spend in USD atomic units (1,000,000 = $1), omitted or null for unlimited, zero for none. Once a cap is reached the Employer's calls use Seren's model at the Employer's cost. Requires the publishing organization's Owner.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn update_owner_model_grant(
+        &self,
+        Parameters(params): Parameters<UpdateOwnerModelGrantParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .update_owner_model_grant(
+                &params.organization_id,
+                &params.slug,
+                &params.employer_organization_id,
+                &params.request,
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Read the Owner organization's monthly budget for model spend on its own keys or ChatGPT sign-in, in USD atomic units (1,000,000 = $1; null is unlimited), and the time zone its daily caps use. Requires the Owner.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_owner_model_budget(
+        &self,
+        Parameters(params): Parameters<OwnerModelOrganizationParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .get_owner_model_budget(&params.organization_id)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Replace the Owner organization's monthly budget for model spend on its own keys or ChatGPT sign-in, after user authorization. per_month_atomic is in USD atomic units (1,000,000 = $1), omitted or null for unlimited; day_timezone is the IANA time zone the daily caps use. Requires the Owner.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn update_owner_model_budget(
+        &self,
+        Parameters(params): Parameters<UpdateOwnerModelBudgetParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .update_owner_model_budget(&params.organization_id, &params.request)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Read the model spend Employers ran on the Owner's own keys or ChatGPT sign-in for an Employee: the Owner's month total, amount held for calls in progress and monthly budget, and each Employer's spend against its grant caps, in USD atomic units (1,000,000 = $1). Requires the publishing organization's Owner.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_owner_model_spend(
+        &self,
+        Parameters(params): Parameters<OwnerTemplateModelParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .get_owner_model_spend(&params.organization_id, &params.slug)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
         description = "List the organization's published add-ons with each one's price in US cents, buyers who were not refunded, and the organization's earnings from their sales in USD atomic units (1,000,000 = $1), plus the listing words buyers read. Requires a built-in Owner or Admin of the publishing organization using an unrestricted direct credential.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
@@ -29165,6 +29420,15 @@ pub(crate) mod tests {
             ("get_seren_agent_template_run_fee", true),
             ("set_seren_agent_template_run_fee", false),
             ("list_seren_agent_template_run_fee_changes", true),
+            ("start_chatgpt_sign_in", false),
+            ("get_chatgpt_sign_in", true),
+            ("get_seren_agent_template_model", true),
+            ("update_seren_agent_template_model", false),
+            ("list_owner_model_grants", true),
+            ("update_owner_model_grant", false),
+            ("get_owner_model_budget", true),
+            ("update_owner_model_budget", false),
+            ("get_owner_model_spend", true),
             ("list_seren_agent_addons", true),
             ("update_seren_agent_addon_listing", false),
             ("set_seren_agent_addon_price", false),

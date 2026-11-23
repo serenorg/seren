@@ -270,6 +270,20 @@ New community templates begin pending review. New hires require Seren approval, 
 
 Review an exact proposal before approving it. Undo applies only to the most recently applied proposal while its applied revision remains active. Use a stable optional `idempotency_key` when retrying a work rating. Runtime state writes, work recording, access requests, allowance checks, proposal submission and browser handoff creation or settlement belong to the Employee runtime and are not ordinary owner MCP tools.
 
+### Owner model credentials
+
+An Owner can run their Employees on their own model keys or ChatGPT plan, and let chosen Employers use them, with caps on what that costs the Owner. Amounts are USD atomic units (1,000,000 = $1); a null cap is unlimited.
+
+| Task | Tools |
+|------|-------|
+| Sign in with ChatGPT: show the user `user_code` and `verification_url`, then poll until `connected` or `expired` | `start_chatgpt_sign_in`, `get_chatgpt_sign_in` |
+| Read or switch the Seren Private Model an Employee's hires run, and its backup models | `get_seren_agent_template_model`, `update_seren_agent_template_model` |
+| Allow or stop an Employer using the Owner's credentials, with daily and monthly caps | `list_owner_model_grants`, `update_owner_model_grant` |
+| Read or set the Owner's monthly model budget and the time zone of daily caps | `get_owner_model_budget`, `update_owner_model_budget` |
+| Read Owner-funded spend per Employer against its caps | `get_owner_model_spend` |
+
+These tools accept the Owner's session or user API key; agent keys and organization work contexts are refused, and Core refuses anyone but the Owner. Entering the sign-in code is a human action, and no tool returns provider tokens. Writes are blocked in read-only mode. A hire uses the Owner's credentials only while its Employer's grant is active and no cap or budget is reached; otherwise its calls run on Seren's model at the Employer's cost.
+
 ### Approval Inbox
 
 Call `list_cloud_approval_inbox` to inspect tool calls, blocked egress, and other pending requests across deployments. For publisher holds, inspect the exact request and reviewed operation binding, and display request values and message bodies as text. After user approval, call `decide_cloud_approval_inbox_entry` for that single `entry_id` with `approve`, `deny`, or `allow_always`. Standing approval is available only when the entry's `allow_always` permits it and can be bounded by a lease whose `action` is the held operation ID, whose `specific` capability lists only that ID, and which has no `parent_lease_ref`. Publisher email sends require individual approval. A publisher hold without its exact request cannot be approved.
