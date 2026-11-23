@@ -31644,21 +31644,21 @@ pub(crate) mod tests {
                         "download_headers": {},
                         "download_expires_at": "2026-10-26T18:00:00Z",
                     }}))
-                    .set_delay(std::time::Duration::from_millis(400)),
+                    .set_delay(std::time::Duration::from_millis(2000)),
             )
             .expect(1)
             .mount(&proxy)
             .await;
         let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
         let mut params = body_object_call("google-drive");
-        params.timeout_ms = Some(100);
+        params.timeout_ms = Some(500);
         let result = server
             .call_publisher(Parameters(params), extensions_with_headers(&[]))
             .await
             .unwrap();
 
-        assert_publisher_call_timed_out(&result, 100);
-        tokio::time::sleep(std::time::Duration::from_millis(450)).await;
+        assert_publisher_call_timed_out(&result, 500);
+        tokio::time::sleep(std::time::Duration::from_millis(2100)).await;
         assert_eq!(requests_to(&proxy, "/signed-download").await, 0);
         assert_eq!(requests_to(&proxy, "/publishers/google-drive").await, 0);
         proxy.verify().await;
