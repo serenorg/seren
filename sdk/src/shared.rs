@@ -1502,13 +1502,18 @@ pub fn model_credential_proposal_apply(
         .requested_environment_names
         .iter()
         .any(|name| name == MODEL_LLM_CODEX_SLOT);
+    // A ChatGPT sign-in selects no Seren Passwords grant; every key does.
+    let signs_in = matches!(
+        proposal.auth_method,
+        Some(crate::ManagedModelCredentialAuthMethod::ChatgptSubscription)
+    );
     match proposal.operation {
         crate::ManagedModelCredentialProposalOperation::Configure
-            if !has_codex_slot || !proposal.requires_secret_resolution_result =>
+            if proposal.requires_secret_resolution_result == signs_in =>
         {
-            return Err(ValidationError::new(format!(
-                "Model configure requires the '{MODEL_LLM_CODEX_SLOT}' logical slot and an approved Seren Passwords result."
-            )));
+            return Err(ValidationError::new(
+                "Model configure requires an approved Seren Passwords result for a key and none for a ChatGPT sign-in.",
+            ));
         }
         crate::ManagedModelCredentialProposalOperation::Remove
             if has_codex_slot

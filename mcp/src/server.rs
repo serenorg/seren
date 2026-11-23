@@ -3453,6 +3453,122 @@ pub struct ApplyModelCredentialProposalParams {
     pub setup_id: Option<Uuid>,
 }
 
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ModelCredentialProposalParams {
+    /// Managed agent deployment UUID (the Owner's own copy)
+    pub deployment_id: Uuid,
+    /// configure or remove the whole connection, or add_credential,
+    /// remove_credential or reorder_credentials on its ordered credential list.
+    pub operation: seren::ManagedModelCredentialProposalOperation,
+    /// Credential kind: "api_key" (Codex with an OpenAI key), "chatgpt_subscription"
+    /// (Codex with a ChatGPT sign-in), or {"provider_key": {"provider", "base_url"?,
+    /// "prices"?}} for provider keys. Required for configure and add_credential.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_method: Option<seren::ManagedModelCredentialAuthMethod>,
+    /// Model the connection runs. Required for configure and remove; refused otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    /// Seren Private Model fallback for configure. Required for provider keys when
+    /// no fallback is configured yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<seren::ManagedOwnerModelFallback>,
+    /// The organization's ChatGPT sign-in connection, for a chatgpt_subscription
+    /// credential in configure or add_credential.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth_connection_id: Option<Uuid>,
+    /// Optional `seren-secrets://` reference to an already stored key. Never a key
+    /// itself: Seren Passwords collects the key after the proposal is created.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_ref: Option<String>,
+    /// Name of the credential remove_credential drops.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<String>,
+    /// Every credential name in the new failover order, for reorder_credentials.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_order: Option<Vec<String>>,
+    /// Replace this active proposal instead of the current one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replace_proposal_id: Option<Uuid>,
+}
+
+const SEREN_SECRETS_REF_PREFIX: &str = "seren-secrets://";
+
+/// Build a model-credential proposal request from non-secret intent, pinning the
+/// revision so a stale proposal fails closed at the server.
+fn model_credential_proposal_request(
+    params: &ModelCredentialProposalParams,
+    expected_active_revision_id: Uuid,
+) -> Result<seren::ModelCredentialProposalRequest, McpError> {
+    if params
+        .secret_ref
+        .as_deref()
+        .is_some_and(|reference| !reference.starts_with(SEREN_SECRETS_REF_PREFIX))
+    {
+        return Err(McpError::invalid_params(
+            "secret_ref must be a seren-secrets:// reference, never a key. Omit it and enter the key in Seren Passwords after the proposal is created.",
+            None,
+        ));
+    }
+    Ok(seren::ModelCredentialProposalRequest {
+        auth_method: params.auth_method.clone(),
+        credential: params.credential.clone(),
+        credential_order: params.credential_order.clone(),
+        expected_active_revision_id,
+        fallback: params.fallback.clone(),
+        model_id: params.model_id.clone(),
+        oauth_connection_id: params.oauth_connection_id,
+        operation: params.operation,
+        replace_proposal_id: params.replace_proposal_id,
+        secret_ref: params.secret_ref.clone(),
+    })
+}
+
+/// What to do with a model-credential proposal Core returned.
+fn model_credential_proposal_next_step(
+    proposal: &seren::ManagedModelCredentialProposal,
+) -> &'static str {
+    match &proposal.state {
+        seren::ManagedModelCredentialProposalState::AwaitingReview => {
+            if proposal.requires_secret_resolution_result {
+                "Call start_seren_agent_passwords_setup with model_credential_proposal_id set to this proposal_id, have the Owner enter and approve the keys in Seren Passwords, then call apply_seren_agent_model_credential_proposal with deployment_id, proposal_id, and setup_id."
+            } else {
+                "No Seren Passwords setup is needed. Call apply_seren_agent_model_credential_proposal with deployment_id and proposal_id and omit setup_id."
+            }
+        }
+        seren::ManagedModelCredentialProposalState::Applied => {
+            "This proposal is already applied. Call get_seren_agent_model_credential_proposal to review it, or create a new proposal to change credentials further."
+        }
+        seren::ManagedModelCredentialProposalState::Superseded => {
+            "This proposal was superseded and can no longer be set up or applied. Call get_seren_agent_model_credential_proposal to find the current proposal."
+        }
+        seren::ManagedModelCredentialProposalState::Other(_) => {
+            "This proposal is in a state this version of Seren doesn't know. Call get_seren_agent_model_credential_proposal to review it."
+        }
+    }
+}
+
+/// The active revision a proposal for this deployment must be based on.
+async fn proposal_base_revision_id(
+    api_client: &seren::Client,
+    deployment_id: &Uuid,
+) -> Result<Uuid, McpError> {
+    let detail = api_client
+        .seren_agent_get_managed_deployment(deployment_id)
+        .into_mcp_result()
+        .await?
+        .into_inner()
+        .data;
+    let detail = seren::managed_agent_deployment_detail(detail)
+        .map_err(|error| McpError::invalid_request(error.to_string(), None))?;
+    detail.active_revision_id.ok_or_else(|| {
+        McpError::invalid_params(
+            "The managed agent deployment has no active revision to base a proposal on",
+            None,
+        )
+    })
+}
+
 /// Summarize the runtime rollout Core started for an applied proposal.
 fn managed_runtime_action_json(
     action: Option<&seren::ManagedRuntimeReconciliationSummary>,
@@ -3681,6 +3797,13 @@ pub struct UpdateSerenAgentDeploymentParams {
     /// Clear the configured fallback model list and restore server defaults
     #[serde(default)]
     pub clear_fallback_models: bool,
+    /// Updated model connection. Core refuses Owner credential changes here; change
+    /// them with create_seren_agent_model_credential_proposal instead.
+    #[serde(default)]
+    pub llm_connection: Option<seren::ManagedAgentLlmConnection>,
+    /// Clear the model connection and run on the organization's Seren Private Model routing
+    #[serde(default)]
+    pub clear_llm_connection: bool,
     /// Updated Python requirements.txt content
     #[serde(default)]
     pub requirements_txt: Option<String>,
@@ -3834,6 +3957,12 @@ fn build_update_seren_agent_deployment_request(
             None,
         ));
     }
+    if params.llm_connection.is_some() && params.clear_llm_connection {
+        return Err(McpError::invalid_params(
+            "Provide either llm_connection or clear_llm_connection, not both.",
+            None,
+        ));
+    }
     if params.credentials.is_some() && params.clear_credentials {
         return Err(McpError::invalid_params(
             "Provide either credentials or clear_credentials, not both.",
@@ -3956,6 +4085,8 @@ fn update_requires_workload_patch(params: &UpdateSerenAgentDeploymentParams) -> 
         || params.model_config.is_some()
         || params.fallback_models.is_some()
         || params.clear_fallback_models
+        || params.llm_connection.is_some()
+        || params.clear_llm_connection
         || params.requirements_txt.is_some()
         || params.clear_requirements_txt
         || params.requirements.is_some()
@@ -3981,14 +4112,14 @@ fn build_managed_workload_patch(
         deployment_bundle_id: params.deployment_bundle_id,
         bundle: None,
         clear_fallback_models: params.clear_fallback_models.then_some(true),
-        clear_llm_connection: None,
+        clear_llm_connection: params.clear_llm_connection.then_some(true),
         clear_model_config: None,
         clear_model_id: None,
         clear_requirements_txt: params.clear_requirements_txt.then_some(true),
         config,
         external_databases: params.external_databases.clone(),
         fallback_models: params.fallback_models.clone(),
-        llm_connection: None,
+        llm_connection: params.llm_connection.clone(),
         model_config,
         model_id: params.model_id.clone(),
         prompt: params.prompt.clone(),
@@ -4241,6 +4372,10 @@ pub struct DeploySerenAgentParams {
     /// Optional fallback model list for transient failures
     #[serde(default)]
     pub fallback_models: Option<Vec<String>>,
+    /// Optional model connection: a Seren Private Model, or the Owner's own Codex or
+    /// provider keys by `seren-secrets://` reference or ChatGPT sign-in, never a key.
+    #[serde(default)]
+    pub llm_connection: Option<seren::ManagedAgentLlmConnection>,
     /// Optional Python requirements.txt content installed before the managed runtime starts
     #[serde(default)]
     pub requirements_txt: Option<String>,
@@ -4384,7 +4519,7 @@ fn build_deploy_seren_agent_request(
                 adapter: None,
                 bundle: bundle_for_prompt(params.prompt),
                 fallback_models: params.fallback_models,
-                llm_connection: None,
+                llm_connection: params.llm_connection,
                 model_config,
                 model_id: params.model_id,
                 requirements_txt: params.requirements_txt,
@@ -19242,20 +19377,8 @@ API endpoint: {endpoint}",
         api_client: &seren::Client,
         params: &PublisherCredentialProposalParams,
     ) -> Result<seren::PublisherCredentialProposalRequest, McpError> {
-        let detail = api_client
-            .seren_agent_get_managed_deployment(&params.deployment_id)
-            .into_mcp_result()
-            .await?
-            .into_inner()
-            .data;
-        let detail = seren::managed_agent_deployment_detail(detail)
-            .map_err(|error| McpError::invalid_request(error.to_string(), None))?;
-        let expected_active_revision_id = detail.active_revision_id.ok_or_else(|| {
-            McpError::invalid_params(
-                "The managed agent deployment has no active revision to base a proposal on",
-                None,
-            )
-        })?;
+        let expected_active_revision_id =
+            proposal_base_revision_id(api_client, &params.deployment_id).await?;
         Ok(seren::PublisherCredentialProposalRequest {
             changes: params.changes.clone(),
             expected_active_revision_id,
@@ -19516,20 +19639,8 @@ API endpoint: {endpoint}",
         api_client: &seren::Client,
         params: &ReferenceEnvCredentialProposalParams,
     ) -> Result<seren::ReferenceEnvCredentialProposalRequest, McpError> {
-        let detail = api_client
-            .seren_agent_get_managed_deployment(&params.deployment_id)
-            .into_mcp_result()
-            .await?
-            .into_inner()
-            .data;
-        let detail = seren::managed_agent_deployment_detail(detail)
-            .map_err(|error| McpError::invalid_request(error.to_string(), None))?;
-        let expected_active_revision_id = detail.active_revision_id.ok_or_else(|| {
-            McpError::invalid_params(
-                "The managed agent deployment has no active revision to base a proposal on",
-                None,
-            )
-        })?;
+        let expected_active_revision_id =
+            proposal_base_revision_id(api_client, &params.deployment_id).await?;
         Ok(seren::ReferenceEnvCredentialProposalRequest {
             changes: params.changes.clone(),
             expected_active_revision_id,
@@ -19968,6 +20079,94 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "Preview a model-credential proposal for the Owner's own managed seren-agent deployment: configure or remove its Codex or provider-keys connection, or add, remove or reorder its credentials. Sends only names, references and sign-in connection IDs, never a key, and returns the exact environment names Seren Passwords will request. Does not create a proposal or change the deployment. Requires a signed-in OAuth user session.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn preview_seren_agent_model_credential_proposal(
+        &self,
+        Parameters(params): Parameters<ModelCredentialProposalParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_account_user_session(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let revision = proposal_base_revision_id(&api_client, &params.deployment_id).await?;
+        let request = model_credential_proposal_request(&params, revision)?;
+        let preview = api_client
+            .seren_cloud_preview_model_credential_proposal(&params.deployment_id, &request)
+            .into_mcp_result()
+            .await?
+            .into_inner()
+            .data;
+        Ok(CallToolResult::success(vec![json_content(
+            &serde_json::json!({
+                "deployment_id": preview.deployment_id,
+                "expected_active_revision_id": preview.expected_active_revision_id,
+                "operation": preview.operation,
+                "model_id": preview.model_id,
+                "auth_method": preview.auth_method,
+                "fallback": preview.fallback,
+                "credential_name": preview.credential_name,
+                "credential_order": preview.credential_order,
+                "proposal_fingerprint": preview.proposal_fingerprint,
+                "requested_environment_names": preview.requested_environment_names,
+                "requires_secret_resolution_result": preview.requires_secret_resolution_result,
+                "next_step": if preview.requires_secret_resolution_result {
+                    "Call create_seren_agent_model_credential_proposal with the same arguments, then start_seren_agent_passwords_setup with its proposal_id."
+                } else {
+                    "Call create_seren_agent_model_credential_proposal with the same arguments; no Seren Passwords setup is needed."
+                },
+            }),
+        )?]))
+    }
+
+    #[tool(
+        description = "Create a revision-bound model-credential proposal for the Owner's own managed seren-agent deployment: configure or remove its Codex or provider-keys connection, or add, remove or reorder its credentials. Sends only names, references and sign-in connection IDs, never a key; the proposal is left awaiting review. next_step names start_seren_agent_passwords_setup when keys are needed, or apply_seren_agent_model_credential_proposal directly for a ChatGPT sign-in or a change that needs no new keys. Requires a signed-in OAuth user session.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn create_seren_agent_model_credential_proposal(
+        &self,
+        Parameters(params): Parameters<ModelCredentialProposalParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_account_user_session(&extensions)?;
+        ensure_managed_deployment_mutation_allowed(&extensions, ManagedDeploymentMutation::Update)?;
+        let api_client = self.api_client(&extensions)?;
+        let revision = proposal_base_revision_id(&api_client, &params.deployment_id).await?;
+        let request = model_credential_proposal_request(&params, revision)?;
+        let proposal = api_client
+            .seren_cloud_create_model_credential_proposal(&params.deployment_id, &request)
+            .into_mcp_result()
+            .await?
+            .into_inner()
+            .data;
+        let next_step = model_credential_proposal_next_step(&proposal);
+        Ok(CallToolResult::success(vec![json_content(
+            &serde_json::json!({
+                "status": proposal.state,
+                "proposal_id": proposal.id,
+                "deployment_id": proposal.deployment_id,
+                "model_id": proposal.model_id,
+                "auth_method": proposal.auth_method,
+                "operation": proposal.operation,
+                "credential_name": proposal.credential_name,
+                "credential_order": proposal.credential_order,
+                "expected_active_revision_id": proposal.expected_active_revision_id,
+                "requested_environment_names": proposal.requested_environment_names,
+                "requires_secret_resolution_result": proposal.requires_secret_resolution_result,
+                "next_step": next_step,
+            }),
+        )?]))
+    }
+
+    #[tool(
         description = "Get the current model-credential proposal for a managed seren-agent deployment, if one is awaiting review or was recently applied. Requires a signed-in OAuth user session.",
         annotations(
             read_only_hint = true,
@@ -20005,6 +20204,9 @@ API endpoint: {endpoint}",
                 "model_id": proposal.model_id,
                 "auth_method": proposal.auth_method,
                 "operation": proposal.operation,
+                "credential_name": proposal.credential_name,
+                "credential_order": proposal.credential_order,
+                "approval_request_id": proposal.approval_request_id,
                 "expected_active_revision_id": proposal.expected_active_revision_id,
                 "requested_environment_names": proposal.requested_environment_names,
                 "requires_secret_resolution_result": proposal.requires_secret_resolution_result,
@@ -36488,6 +36690,8 @@ pub(crate) mod tests {
             model_config: None,
             fallback_models: None,
             clear_fallback_models: false,
+            llm_connection: None,
+            clear_llm_connection: false,
             requirements_txt: None,
             clear_requirements_txt: false,
             max_timeout_seconds: None,
@@ -36545,6 +36749,8 @@ pub(crate) mod tests {
             model_config: None,
             fallback_models: None,
             clear_fallback_models: false,
+            llm_connection: None,
+            clear_llm_connection: false,
             requirements_txt: None,
             clear_requirements_txt: false,
             max_timeout_seconds: None,
@@ -39073,6 +39279,157 @@ pub(crate) mod tests {
             &result,
             "requires_secret_resolution_result"
         ));
+    }
+
+    #[tokio::test]
+    async fn create_model_credential_proposal_posts_only_non_secret_intent() {
+        use wiremock::matchers::{body_json, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let deployment_id = Uuid::from_u128(0x9004);
+        let revision_id = Uuid::from_u128(0x7779);
+        let proposal_id = Uuid::from_u128(0x5556);
+        let sign_in_id = Uuid::from_u128(0x5557);
+        let reference = "seren-secrets://vaults/00000000-0000-0000-0000-000000000001/items/00000000-0000-0000-0000-000000000002";
+
+        let mut detail = managed_agent_detail_fixture(deployment_id);
+        detail["data"]["active_revision_id"] = serde_json::json!(revision_id);
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/managed"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(detail))
+            .mount(&proxy)
+            .await;
+
+        let proposals = format!(
+            "/publishers/seren-cloud/deployments/{deployment_id}/model-credential/proposals"
+        );
+        let proposal =
+            |auth_method: serde_json::Value, names: serde_json::Value, needs_result: bool| {
+                serde_json::json!({
+                    "data": {
+                        "id": proposal_id,
+                        "deployment_id": deployment_id,
+                        "expected_active_revision_id": revision_id,
+                        "operation": "add_credential",
+                        "model_id": "claude-sonnet-5-5",
+                        "auth_method": auth_method,
+                        "credential_name": "seren-llm-provider-2",
+                        "proposal_fingerprint": "fp",
+                        "requirements_fingerprint": "rfp",
+                        "state": "awaiting_review",
+                        "requested_environment_names": names,
+                        "requires_secret_resolution_result": needs_result,
+                    }
+                })
+            };
+        let provider_key = serde_json::json!({"provider_key": {
+            "provider": "anthropic",
+            "prices": {"input": 3000000, "cached": 300000, "output": 15000000}
+        }});
+        Mock::given(method("POST"))
+            .and(path(proposals.clone()))
+            .and(body_json(serde_json::json!({
+                "auth_method": provider_key,
+                "expected_active_revision_id": revision_id,
+                "operation": "add_credential",
+                "secret_ref": reference,
+            })))
+            .respond_with(ResponseTemplate::new(202).set_body_json(proposal(
+                provider_key.clone(),
+                serde_json::json!(["seren-llm-provider-2"]),
+                true,
+            )))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(proposals.clone()))
+            .and(body_json(serde_json::json!({
+                "auth_method": "chatgpt_subscription",
+                "expected_active_revision_id": revision_id,
+                "oauth_connection_id": sign_in_id,
+                "operation": "add_credential",
+            })))
+            .respond_with(ResponseTemplate::new(202).set_body_json(proposal(
+                serde_json::json!("chatgpt_subscription"),
+                serde_json::json!([]),
+                false,
+            )))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let params = |value: serde_json::Value| -> ModelCredentialProposalParams {
+            serde_json::from_value(value).expect("valid proposal arguments")
+        };
+
+        let keyed = server
+            .create_seren_agent_model_credential_proposal(
+                Parameters(params(serde_json::json!({
+                    "deployment_id": deployment_id,
+                    "operation": "add_credential",
+                    "auth_method": provider_key,
+                    "secret_ref": reference,
+                }))),
+                Extensions::default(),
+            )
+            .await
+            .expect("a provider key proposal by reference is created");
+        assert!(result_contains(&keyed, "start_seren_agent_passwords_setup"));
+        assert!(result_contains(&keyed, "seren-llm-provider-2"));
+
+        let signed_in = server
+            .create_seren_agent_model_credential_proposal(
+                Parameters(params(serde_json::json!({
+                    "deployment_id": deployment_id,
+                    "operation": "add_credential",
+                    "auth_method": "chatgpt_subscription",
+                    "oauth_connection_id": sign_in_id,
+                }))),
+                Extensions::default(),
+            )
+            .await
+            .expect("a ChatGPT sign-in proposal is created");
+        assert!(!result_contains(
+            &signed_in,
+            "start_seren_agent_passwords_setup"
+        ));
+        assert!(result_contains(&signed_in, "omit setup_id"));
+
+        let plaintext = server
+            .create_seren_agent_model_credential_proposal(
+                Parameters(params(serde_json::json!({
+                    "deployment_id": deployment_id,
+                    "operation": "add_credential",
+                    "auth_method": provider_key,
+                    "secret_ref": "sk-ant-plaintext-key",
+                }))),
+                Extensions::default(),
+            )
+            .await
+            .expect_err("a key in place of a reference is refused");
+        assert!(plaintext.message.contains("seren-secrets://"));
+        assert!(
+            serde_json::from_value::<ModelCredentialProposalParams>(serde_json::json!({
+                "deployment_id": deployment_id,
+                "operation": "add_credential",
+                "api_key": "sk-ant-plaintext-key",
+            }))
+            .is_err(),
+            "the tool takes no key field"
+        );
+
+        let requests = proxy.received_requests().await.unwrap_or_default();
+        assert!(
+            requests
+                .iter()
+                .all(|request| !String::from_utf8_lossy(&request.body).contains("sk-ant")),
+            "no key reaches Core"
+        );
     }
 
     #[tokio::test]
