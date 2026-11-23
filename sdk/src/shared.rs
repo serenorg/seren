@@ -1419,7 +1419,8 @@ pub fn model_credential_proposal_applied_revision(
         || applied.id != reviewed.id
         || applied.deployment_id != reviewed.deployment_id
         || applied.model_id != reviewed.model_id
-        || applied.auth_method != reviewed.auth_method
+        || serde_json::to_value(&applied.auth_method).ok()
+            != serde_json::to_value(&reviewed.auth_method).ok()
         || applied.operation != reviewed.operation
         || applied.credential_name != reviewed.credential_name
         || applied.credential_order != reviewed.credential_order

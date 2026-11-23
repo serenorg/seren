@@ -466,6 +466,14 @@
             "type": "string",
             "description": "Payment source used"
           },
+          "receipt_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Receipt identifying this publisher call for a managed agent result."
+          },
           "response_bytes": {
             "type": "integer",
             "format": "int64",
@@ -613,6 +621,14 @@
                 "type": "string",
                 "description": "Payment source used"
               },
+              "receipt_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "Receipt identifying this publisher call for a managed agent result."
+              },
               "response_bytes": {
                 "type": "integer",
                 "format": "int64",
@@ -680,7 +696,7 @@
       },
       "Eip712Domain": {
         "type": "object",
-        "description": "EIP-712 domain (matches ethereum.rs Eip712Domain)",
+        "description": "EIP-712 domain (matches seren-core-ethereum Eip712Domain)",
         "required": [
           "name",
           "version",
@@ -1175,7 +1191,7 @@
               "object",
               "null"
             ],
-            "description": "OpenAI's way to set `response_schema`: `{\"type\":\"json_schema\",\"json_schema\":{\"schema\":...}}` sets that schema, `{\"type\":\"json_object\"}` asks for a JSON object, and `{\"type\":\"text\"}` asks for plain text. Send it or `response_schema`, not both."
+            "description": "OpenAI's way to set `response_schema`: `{\"type\":\"json_schema\",\"json_schema\":{\"schema\":...}}` sets that schema, `{\"type\":\"json_object\"}` asks for a JSON object, and `{\"type\":\"text\"}` asks for plain text. Send it or `response_schema`, not both. With `\"strict\": true` in `json_schema`, a schema the model cannot enforce is refused with `400` instead of being sent to the model as an instruction."
           },
           "response_schema": {
             "type": [

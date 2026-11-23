@@ -15763,6 +15763,7 @@ API endpoint: {endpoint}",
             token_exchange_mode: None,
             token_exchange_url: None,
             token_response_field: None,
+            upstream_cost_unit_price: None,
             usage_pricing: None,
         };
 
