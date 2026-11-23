@@ -7965,7 +7965,7 @@
             "description": "Setup credential invalid or expired"
           },
           "403": {
-            "description": "Setup belongs to another principal"
+            "description": "Setup belongs to another principal, or the caller is not a signed-in user session or that user's unrestricted user API key for this organization"
           },
           "409": {
             "description": "Deployment revision or requirements changed"
@@ -8046,6 +8046,63 @@
                 }
               }
             }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/managed-agent-secrets/setups/{setup_id}/local-approval": {
+      "post": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Approve your own managed agent Secrets setup from your own client instead of the hosted Seren Passwords page. Uses the setup's current launch link, which then can't be opened again, and returns the setup credential once.",
+        "operationId": "managed_agent_secrets_setup_local_approval",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "setup_id",
+            "in": "path",
+            "description": "Secrets setup ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Setup credential for the caller's own setup",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentSecretsLocalApproval"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The setup's launch link is expired, cancelled or already used; start the setup again"
+          },
+          "403": {
+            "description": "Signed-in user session, or your unrestricted user API key for this organization, and organization access required"
+          },
+          "404": {
+            "description": "Managed agent secrets setup not found"
           }
         },
         "security": [
@@ -12844,7 +12901,7 @@
           "managed-agent-templates"
         ],
         "summary": "Switch the model the managed agent's hires run, and its ordered backup\nmodels, without a new release.",
-        "description": "Records the managed agent's next revision, which keeps every other setting\nof the current one, and gives Employers the Owner's `release_note` or a\nnote describing the change. Existing hires take it as they take a release,\nunder their Employers' update settings, and a rollback to the previous\nrevision restores the previous model. A later release sets the model its\nown `deploy_defaults` name. Sending the current model and backup models\nagain changes nothing. A Codex managed agent's hires never use the Owner's\nCodex credentials, so for one the request sets the Seren Private Model its\nhires run.",
+        "description": "Records the managed agent's next revision, which keeps every other setting\nof the current one, and gives Employers the Owner's `release_note` or a\nnote describing the change. Existing hires take it as they take a release,\nunder their Employers' update settings, and a rollback to the previous\nrevision restores the previous model. A later release sets the model its\nown `deploy_defaults` name. Sending the current model and backup models\nagain changes nothing. For a Codex or provider-key managed agent, the\nrequest sets the Seren Private Model its hires run when the Owner's\ncredentials don't serve them, and keeps the Owner's model connection.",
         "operationId": "set_managed_agent_template_model",
         "parameters": [
           {
@@ -25246,6 +25303,43 @@
                 "$ref": "#/components/schemas/ManagedAgentRunKindKey"
               },
               "usd": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentSecretsLocalApproval": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "The setup credential for a setup approved from the user's own client.\nDeliberately not `Debug`, so the credential cannot reach logs.",
+            "required": [
+              "setup_token",
+              "expires_at"
+            ],
+            "properties": {
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "setup_token": {
                 "type": "string"
               }
             }
@@ -39359,6 +39453,23 @@
           "until_revoked"
         ]
       },
+      "ManagedAgentSecretsLocalApproval": {
+        "type": "object",
+        "description": "The setup credential for a setup approved from the user's own client.\nDeliberately not `Debug`, so the credential cannot reach logs.",
+        "required": [
+          "setup_token",
+          "expires_at"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "setup_token": {
+            "type": "string"
+          }
+        }
+      },
       "ManagedAgentSecretsParticipant": {
         "type": "object",
         "required": [
@@ -47783,7 +47894,7 @@
           },
           "model_id": {
             "type": "string",
-            "description": "Approved Seren Private Model the managed agent's hires run. For a Codex\nmanaged agent, the Seren Private Model its hires run."
+            "description": "Approved Seren Private Model the managed agent's hires run. For a Codex\nor provider-key managed agent, the Seren Private Model its hires run\nwhen the Owner's credentials don't serve them."
           },
           "release_note": {
             "type": [

@@ -29,6 +29,7 @@ use seren_secrets_crypto::keys::{
 };
 use seren_secrets_crypto::password_generator::PasswordRecipe;
 use seren_secrets_crypto::prose;
+use seren_secrets_crypto::protocol::agent_delegation_policy;
 use seren_secrets_crypto::protocol::attachment::{
     decrypt_blob, decrypt_content_type, decrypt_filename, encrypt_blob, encrypt_content_type,
     encrypt_filename, generate_attachment_key, unwrap_attachment_key, wrap_attachment_key,
@@ -4505,6 +4506,475 @@ where
     }
 }
 
+/// One vault item field the user chose for a requested environment name.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub(crate) struct DelegationFieldChoice {
+    /// Requested environment name this item field fills.
+    pub environment_name: String,
+    /// Vault holding the item.
+    pub vault_id: Uuid,
+    /// Item whose field the Employee may read.
+    pub item_id: Uuid,
+    /// Field of the item, for example `password` or `api_key`.
+    pub field: String,
+}
+
+/// Approve a managed agent's Seren Passwords setup from this client with the
+/// unlocked user's own keys, instead of the hosted Seren Passwords page.
+///
+/// Core hands the setup's user its setup credential (which retires the
+/// setup's launch link), Passwords turns it into a participant capability for
+/// the Employee's identity, and the approval itself is signed locally.
+pub(crate) async fn approve_managed_agent_setup_locally(
+    client: &seren::Client,
+    kem_private: &IdentityKemPrivateKey,
+    signing_private: &IdentitySigningPrivateKey,
+    organization_id: Uuid,
+    setup_id: Uuid,
+    choices: &[DelegationFieldChoice],
+) -> Result<seren::DelegationPolicyRequestView, McpError> {
+    if choices.is_empty() {
+        return Err(McpError::invalid_params(
+            "Choose an item field for each requested name",
+            None,
+        ));
+    }
+    let local = client
+        .managed_agent_secrets_setup_local_approval(&organization_id, &setup_id)
+        .await
+        .map_err(|error| {
+            McpError::invalid_request(
+                format!("Seren could not hand over this setup for local approval: {error}. Start the setup again with start_seren_agent_passwords_setup."),
+                None,
+            )
+        })?
+        .into_inner()
+        .data;
+    let setup_token = Zeroizing::new(local.setup_token);
+    let context = match client
+        .managed_agent_secrets_setup_context(
+            &organization_id,
+            &setup_id,
+            &seren::AccessManagedAgentSecretsSetupRequest {
+                setup_token: setup_token.to_string(),
+            },
+        )
+        .await
+    {
+        Ok(response) => response.into_inner().data,
+        Err(error) => return Err(crate::server::seren_error_to_mcp_error(error).await),
+    };
+    if context.setup_id != setup_id || context.organization_id != organization_id {
+        return Err(McpError::invalid_request(
+            "Seren returned a different setup",
+            None,
+        ));
+    }
+    if context.requirements.vault_provisioning.is_some() {
+        return Err(McpError::invalid_request(
+            "This setup creates vaults. Approve it in Seren Passwords with the launch link.",
+            None,
+        ));
+    }
+    let agent_identity_id = match context.agent_identity_id {
+        Some(identity_id) => identity_id,
+        None => {
+            ensure_hosted_employee_identity(
+                client,
+                signing_private,
+                context.deployment_id,
+                &context.deployment_name,
+            )
+            .await?
+        }
+    };
+    let created = passwords_gateway_data(
+        client
+            .delegation_create_managed_agent_setup(&seren::CreateManagedAgentDelegationRequest {
+                agent_identity_id,
+                setup_id,
+                setup_token: setup_token.to_string(),
+            })
+            .await,
+    )
+    .await?
+    .data;
+    let capability = Zeroizing::new(
+        created
+            .participant_capabilities
+            .into_iter()
+            .next()
+            .map(|capability| capability.participant_capability)
+            .ok_or_else(|| {
+                McpError::internal_error(
+                    "Seren Passwords returned no approval for this setup",
+                    None,
+                )
+            })?,
+    );
+    approve_delegation_contribution(client, kem_private, signing_private, &capability, choices)
+        .await
+}
+
+/// Ensure the Employee's hosted Passwords identity, signed by the user as the
+/// Passwords web app does before it creates the setup request.
+async fn ensure_hosted_employee_identity(
+    client: &seren::Client,
+    signing_private: &IdentitySigningPrivateKey,
+    deployment_id: Uuid,
+    display_name: &str,
+) -> Result<Uuid, McpError> {
+    let key_provenance = serde_json::json!({
+        "kind": "managed_agent",
+        "context": format!("managed-deployment:{deployment_id}"),
+        "deployment_id": deployment_id,
+    });
+    let issued_at = jiff::Timestamp::now().as_second();
+    let nonce = Uuid::new_v4().to_string();
+    let canonical = serde_json::to_vec(&serde_json::json!({
+        "display_name": display_name,
+        "key_provenance": key_provenance,
+        "issued_at": issued_at,
+        "nonce": nonce,
+    }))
+    .map_err(|_| McpError::internal_error("Could not encode the Employee identity", None))?;
+    let signature = seren_secrets_crypto::signing::sign(signing_private, &canonical);
+    Ok(passwords_gateway_data(
+        client
+            .agent_identity_ensure_hosted(&seren::CreateHostedAgentIdentityRequest {
+                display_name: display_name.to_string(),
+                issued_at,
+                key_provenance,
+                nonce,
+                signature: BASE64.encode(signature),
+            })
+            .await,
+    )
+    .await?
+    .data
+    .identity_id)
+}
+
+/// Approve one participant's share of a Seren Passwords delegation with the
+/// unlocked user's own keys, as the Passwords web app does in its grant page.
+///
+/// The signed bytes are built locally from the participant context and the
+/// user's choices. The service's canonical payload must equal them byte for
+/// byte; any difference is refused before the signing key is used.
+pub(crate) async fn approve_delegation_contribution(
+    client: &seren::Client,
+    kem_private: &IdentityKemPrivateKey,
+    signing_private: &IdentitySigningPrivateKey,
+    participant_capability: &str,
+    choices: &[DelegationFieldChoice],
+) -> Result<seren::DelegationPolicyRequestView, McpError> {
+    let context = passwords_gateway_data(
+        client
+            .delegation_participant_context(&seren::DelegationParticipantContextRequest {
+                participant_capability: participant_capability.to_string(),
+            })
+            .await,
+    )
+    .await?
+    .data;
+    if context.scope_kind != seren::DelegationPolicyScopeKind::SecretFields {
+        return Err(McpError::invalid_request(
+            "This setup asks for vault access. Approve it in Seren Passwords with the launch link.",
+            None,
+        ));
+    }
+    let (contribution_id, decision, mappings, vault_grants) =
+        match context.recorded_contribution.clone() {
+            // A recorded answer is resent unchanged: its sealed key wraps
+            // cannot be rebuilt to the same bytes.
+            Some(recorded) => (
+                recorded.contribution_id,
+                recorded.decision,
+                recorded.mappings,
+                recorded.vault_grants,
+            ),
+            None => {
+                if context.participant.status != seren::DelegationParticipantStatus::Pending {
+                    return Err(McpError::invalid_request(
+                        "This setup approval was already answered.",
+                        None,
+                    ));
+                }
+                let (mappings, vault_grants) = build_field_approval_material(
+                    client,
+                    kem_private,
+                    signing_private,
+                    &context,
+                    choices,
+                )
+                .await?;
+                (
+                    Uuid::new_v4(),
+                    seren::DelegationContributionDecision::Approve,
+                    mappings,
+                    vault_grants,
+                )
+            }
+        };
+    let draft = seren::DelegationContributionDraft {
+        acknowledged_destination_organization_id: context.destination_organization_id,
+        contribution_id,
+        decision,
+        mappings,
+        participant_capability: participant_capability.to_string(),
+        vault_grants,
+    };
+    let contribution = delegation_contribution(&context, &draft)?;
+    let local_payload =
+        agent_delegation_policy::agent_delegation_contribution_payload(contribution.clone())
+            .map_err(|_| McpError::invalid_request("Could not build the approval payload", None))?;
+    let server_payload = passwords_gateway_data(client.delegation_signing_payload(&draft).await)
+        .await?
+        .data;
+    if BASE64.encode(&local_payload) != server_payload.payload_b64 {
+        return Err(McpError::invalid_request(
+            "Seren Passwords asked to sign a different approval than the one built here. Nothing was signed.",
+            None,
+        ));
+    }
+    let signature =
+        agent_delegation_policy::sign_agent_delegation_contribution(signing_private, contribution)
+            .map_err(|_| McpError::invalid_request("Could not sign the approval", None))?;
+    let submit = seren::SubmitDelegationContributionRequest {
+        acknowledged_destination_organization_id: draft.acknowledged_destination_organization_id,
+        contribution_id: draft.contribution_id,
+        contribution_signature: BASE64.encode(signature),
+        decision: draft.decision,
+        mappings: draft.mappings,
+        participant_capability: draft.participant_capability,
+        vault_grants: draft.vault_grants,
+    };
+    Ok(
+        passwords_gateway_data(client.delegation_contribute(&submit).await)
+            .await?
+            .data,
+    )
+}
+
+async fn build_field_approval_material(
+    client: &seren::Client,
+    kem_private: &IdentityKemPrivateKey,
+    signing_private: &IdentitySigningPrivateKey,
+    context: &seren::DelegationPolicyParticipantContextView,
+    choices: &[DelegationFieldChoice],
+) -> Result<
+    (
+        Vec<seren::DelegationFieldMapping>,
+        Vec<seren::DelegationPolicyVaultGrant>,
+    ),
+    McpError,
+> {
+    let requested: HashMap<&str, &seren::DelegationRequestedField> = context
+        .requested_fields
+        .iter()
+        .map(|field| (field.environment_name.as_str(), field))
+        .collect();
+    let mut chosen = HashSet::new();
+    for choice in choices {
+        if !requested.contains_key(choice.environment_name.as_str()) {
+            return Err(McpError::invalid_params(
+                format!("{} is not requested by this setup", choice.environment_name),
+                None,
+            ));
+        }
+        if !chosen.insert(choice.environment_name.as_str()) {
+            return Err(McpError::invalid_params(
+                format!("{} is chosen more than once", choice.environment_name),
+                None,
+            ));
+        }
+    }
+    if let Some(missing) = context
+        .requested_fields
+        .iter()
+        .find(|field| !chosen.contains(field.environment_name.as_str()))
+    {
+        return Err(McpError::invalid_params(
+            format!("Choose an item field for {}", missing.environment_name),
+            None,
+        ));
+    }
+
+    let agent_kem_public =
+        decode_kem_public_key_field("agent_kem_public", &context.agent_kem_public)?;
+    let sync = passwords_gateway_data(client.sync_get().await).await?.data;
+    let mut vault_keys: HashMap<Uuid, VaultKey> = HashMap::new();
+    for vault_id in choices.iter().map(|choice| choice.vault_id) {
+        if vault_keys.contains_key(&vault_id) {
+            continue;
+        }
+        let wrapped = sync
+            .vaults
+            .iter()
+            .find(|vault| vault.vault_id == vault_id)
+            .and_then(|vault| vault.wrapped_vault_key.as_deref())
+            .ok_or_else(|| {
+                McpError::invalid_params(format!("Vault {vault_id} is not available"), None)
+            })?;
+        let key = unwrap_vault_key(
+            kem_private,
+            &decode_passwords_b64_field("wrapped_vault_key", wrapped)?,
+        )
+        .map_err(|_| McpError::invalid_request("Could not unwrap vault key", None))?;
+        vault_keys.insert(vault_id, key);
+    }
+
+    let mut mappings = Vec::with_capacity(choices.len());
+    for choice in choices {
+        let vault_key = &vault_keys[&choice.vault_id];
+        let record = fetch_password_item_record(client, choice.vault_id, choice.item_id).await?;
+        ensure_item_record_matches(&record, choice.vault_id, choice.item_id)?;
+        let content_key = unwrap_item_content_key(
+            vault_key,
+            choice.item_id.as_bytes(),
+            &decode_passwords_b64_field("content_key_wrap", &record.content_key_wrap)?,
+        )
+        .map_err(|_| McpError::invalid_request("Could not unwrap item content key", None))?;
+        mappings.push(seren::DelegationFieldMapping {
+            environment_name: choice.environment_name.clone(),
+            field: choice.field.clone(),
+            field_group: requested[choice.environment_name.as_str()]
+                .field_group
+                .clone(),
+            item_id: choice.item_id,
+            item_key_wrap: BASE64.encode(seren_secrets_crypto::kem::seal(
+                &agent_kem_public,
+                content_key.as_bytes(),
+            )),
+            vault_id: choice.vault_id,
+        });
+    }
+
+    let mut vault_grants = Vec::with_capacity(vault_keys.len());
+    for (vault_id, vault_key) in &vault_keys {
+        let wrapped_vault_key = wrap_vault_key_for_identity(vault_key, &agent_kem_public);
+        vault_grants.push(seren::DelegationPolicyVaultGrant {
+            access_level: seren::AccessLevel::Read,
+            granted_signature: membership_grant_signature(
+                signing_private,
+                *vault_id,
+                context.agent_identity_id,
+                seren::AccessLevel::Read,
+                &wrapped_vault_key,
+            ),
+            vault_id: *vault_id,
+            wrapped_vault_key: BASE64.encode(&wrapped_vault_key),
+        });
+    }
+    Ok((mappings, vault_grants))
+}
+
+/// The canonical contribution input, built from the participant context and
+/// the draft exactly as the Passwords verifier rebuilds it.
+fn delegation_contribution(
+    context: &seren::DelegationPolicyParticipantContextView,
+    draft: &seren::DelegationContributionDraft,
+) -> Result<agent_delegation_policy::AgentDelegationContribution, McpError> {
+    use agent_delegation_policy as policy;
+    let access_level = |level: &seren::AccessLevel| match level {
+        seren::AccessLevel::Read => policy::AgentDelegationAccessLevel::Read,
+        seren::AccessLevel::Write => policy::AgentDelegationAccessLevel::Write,
+        seren::AccessLevel::Admin => policy::AgentDelegationAccessLevel::Admin,
+    };
+    let stage = u16::try_from(context.participant.stage)
+        .map_err(|_| McpError::invalid_request("Invalid participant stage", None))?;
+    Ok(policy::AgentDelegationContribution {
+        request_id: context.request_id,
+        result_id: context.result_id,
+        destination_organization_id: context.destination_organization_id,
+        scope_kind: match context.scope_kind {
+            seren::DelegationPolicyScopeKind::SecretFields => {
+                policy::AgentDelegationScopeKind::SecretFields
+            }
+            seren::DelegationPolicyScopeKind::VaultAccess => {
+                policy::AgentDelegationScopeKind::VaultAccess
+            }
+        },
+        deployment_id: context.deployment_id,
+        deployment_revision_id: context.deployment_revision_id,
+        agent_identity_id: context.agent_identity_id,
+        agent_target_kind: match context.agent_target_kind {
+            seren::DelegationAgentTargetKind::Existing => {
+                policy::AgentDelegationTargetKind::Existing
+            }
+            seren::DelegationAgentTargetKind::Bootstrap => {
+                policy::AgentDelegationTargetKind::Bootstrap
+            }
+        },
+        agent_kem_fingerprint: decode_passwords_b64_field(
+            "agent_kem_fingerprint",
+            &context.agent_kem_fingerprint,
+        )?,
+        agent_signing_fingerprint: decode_passwords_b64_field(
+            "agent_signing_fingerprint",
+            &context.agent_signing_fingerprint,
+        )?,
+        allowed_access_levels: context
+            .allowed_access_levels
+            .iter()
+            .map(access_level)
+            .collect(),
+        request_nonce: context.nonce.clone(),
+        expires_at_unix_seconds: context.expires_at.as_second(),
+        participant_id: context.participant.participant_id,
+        role: context.participant.role.clone(),
+        stage,
+        actor_organization_id: context.actor_organization_id,
+        actor_user_id: context.actor_user_id,
+        actor_identity_id: context.actor_identity_id,
+        contribution_id: draft.contribution_id,
+        decision: match draft.decision {
+            seren::DelegationContributionDecision::Approve => {
+                policy::AgentDelegationDecision::Approve
+            }
+            seren::DelegationContributionDecision::Decline => {
+                policy::AgentDelegationDecision::Decline
+            }
+        },
+        mappings: draft
+            .mappings
+            .iter()
+            .map(|mapping| {
+                Ok(policy::AgentDelegationFieldMapping {
+                    environment_name: mapping.environment_name.clone(),
+                    field_group: mapping.field_group.clone(),
+                    vault_id: mapping.vault_id,
+                    item_id: mapping.item_id,
+                    field: mapping.field.clone(),
+                    item_key_wrap: decode_passwords_b64_field(
+                        "item_key_wrap",
+                        &mapping.item_key_wrap,
+                    )?,
+                })
+            })
+            .collect::<Result<_, McpError>>()?,
+        vault_grants: draft
+            .vault_grants
+            .iter()
+            .map(|grant| {
+                Ok(policy::AgentDelegationVaultGrant {
+                    vault_id: grant.vault_id,
+                    access_level: access_level(&grant.access_level),
+                    wrapped_vault_key: decode_passwords_b64_field(
+                        "wrapped_vault_key",
+                        &grant.wrapped_vault_key,
+                    )?,
+                    granted_signature: decode_passwords_b64_field(
+                        "granted_signature",
+                        &grant.granted_signature,
+                    )?,
+                })
+            })
+            .collect::<Result<_, McpError>>()?,
+        vault_provisioning: None,
+    })
+}
+
 fn build_approval_wrapped_key(
     kem_private: &IdentityKemPrivateKey,
     context: &seren::ApproveContext,
@@ -8263,6 +8733,310 @@ mod hosted_grant_tests {
                 &fixture.gateway.received_requests().await.unwrap()
             ));
             fixture.gateway.verify().await;
+        }
+    }
+}
+
+#[cfg(test)]
+mod local_delegation_approval_tests {
+    use super::*;
+    use serde_json::{Value, json};
+    use seren_secrets_crypto::keys::IdentitySigningPublicKey;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
+
+    fn participant_context(
+        agent_kem_public: &IdentityKemPublicKey,
+        agent_identity_id: Uuid,
+    ) -> seren::DelegationPolicyParticipantContextView {
+        let expires_at: jiff::Timestamp = "2035-01-01T00:00:00Z".parse().unwrap();
+        seren::DelegationPolicyParticipantContextView {
+            actor_identity_id: Uuid::new_v4(),
+            actor_organization_id: Uuid::new_v4(),
+            actor_user_id: Uuid::new_v4(),
+            agent_display_name: "Synthetic Employee".to_string(),
+            agent_identity_id,
+            agent_kem_fingerprint: BASE64.encode([1u8; 32]),
+            agent_kem_public: BASE64.encode(agent_kem_public.as_bytes()),
+            agent_signing_fingerprint: BASE64.encode([2u8; 32]),
+            agent_signing_public: BASE64.encode([3u8; 32]),
+            agent_target_kind: seren::DelegationAgentTargetKind::Existing,
+            allowed_access_levels: vec![seren::AccessLevel::Read],
+            deployment_id: Some(Uuid::new_v4()),
+            deployment_revision_id: Some(Uuid::new_v4()),
+            destination_organization_id: Uuid::new_v4(),
+            expires_at,
+            grant_expires_at: None,
+            nonce: "n".repeat(32),
+            participant: seren::DelegationPolicyParticipantView {
+                actor_identity_id: None,
+                actor_organization_id: None,
+                actor_user_id: None,
+                allowed_vault_ids: Vec::new(),
+                can_revoke: false,
+                contribution_id: None,
+                decided_at: None,
+                environment_names: vec!["OPENAI_API_KEY".to_string()],
+                expected_identity_id: None,
+                expected_organization_id: None,
+                expected_user_id: None,
+                field_groups: Vec::new(),
+                metadata_only: false,
+                participant_id: Uuid::new_v4(),
+                role: "owner".to_string(),
+                stage: 0,
+                status: seren::DelegationParticipantStatus::Pending,
+            },
+            progress: seren::DelegationPolicyProgress {
+                active_participants: 1,
+                approved_participants: 0,
+                granted_vaults: 0,
+                mapped_fields: 0,
+                requested_fields: 1,
+                stages: Vec::new(),
+            },
+            recorded_contribution: None,
+            request_id: Uuid::new_v4(),
+            requested_fields: vec![seren::DelegationRequestedField {
+                environment_name: "OPENAI_API_KEY".to_string(),
+                field_group: None,
+                description: None,
+                display_label: None,
+                format_hint: None,
+                selection_constraint: None,
+                source: Some(seren::DelegationRequestedFieldSource::ModelConnection),
+            }],
+            result_id: Uuid::new_v4(),
+            scope_kind: seren::DelegationPolicyScopeKind::SecretFields,
+        }
+    }
+
+    fn approved_view(context: &seren::DelegationPolicyParticipantContextView) -> Value {
+        let view = seren::DelegationPolicyRequestView {
+            agent_display_name: context.agent_display_name.clone(),
+            agent_identity_id: context.agent_identity_id,
+            agent_kem_fingerprint: context.agent_kem_fingerprint.clone(),
+            agent_kem_public: context.agent_kem_public.clone(),
+            agent_signing_fingerprint: context.agent_signing_fingerprint.clone(),
+            agent_signing_public: context.agent_signing_public.clone(),
+            agent_target_kind: seren::DelegationAgentTargetKind::Existing,
+            allowed_access_levels: vec![seren::AccessLevel::Read],
+            applied_at: None,
+            applied_deployment_revision_id: None,
+            created_at: context.expires_at,
+            decided_at: Some(context.expires_at),
+            deployment_id: context.deployment_id,
+            deployment_revision_id: context.deployment_revision_id,
+            destination_organization_id: context.destination_organization_id,
+            effective_mapping: Vec::new(),
+            effective_vault_access: Vec::new(),
+            events: Vec::new(),
+            expires_at: context.expires_at,
+            grant_expires_at: None,
+            nonce: context.nonce.clone(),
+            participants: Vec::new(),
+            policy: seren::DelegationApprovalPolicy {
+                allow_cross_organization: None,
+                allow_same_principal_across_roles: None,
+                stages: Vec::new(),
+            },
+            progress: context.progress.clone(),
+            request_id: context.request_id,
+            requested_fields: context.requested_fields.clone(),
+            requester_identity_id: Uuid::new_v4(),
+            requester_user_id: Uuid::new_v4(),
+            result_id: context.result_id,
+            scope_kind: seren::DelegationPolicyScopeKind::SecretFields,
+            status: seren::DelegationPolicyRequestStatus::Approved,
+            supersedes_request_id: None,
+        };
+        json!({ "data": view })
+    }
+
+    /// Stand-in for the Passwords verifier: it rebuilds the canonical bytes
+    /// from the draft it receives, optionally with a different nonce.
+    struct SigningPayload {
+        context: seren::DelegationPolicyParticipantContextView,
+        alter_nonce: bool,
+    }
+
+    impl Respond for SigningPayload {
+        fn respond(&self, request: &Request) -> ResponseTemplate {
+            let draft: seren::DelegationContributionDraft = request.body_json().unwrap();
+            let mut context = self.context.clone();
+            if self.alter_nonce {
+                context.nonce = "m".repeat(32);
+            }
+            let payload = agent_delegation_policy::agent_delegation_contribution_payload(
+                delegation_contribution(&context, &draft).unwrap(),
+            )
+            .unwrap();
+            ResponseTemplate::new(200).set_body_json(json!({"data": {
+                "payload_b64": BASE64.encode(&payload),
+                "payload_sha256_b64": BASE64.encode(<sha2::Sha256 as sha2::Digest>::digest(&payload)),
+            }}))
+        }
+    }
+
+    /// Stand-in for the Passwords contribution route: it accepts only a
+    /// signature by the user's key over the canonical payload.
+    struct Contribute {
+        context: seren::DelegationPolicyParticipantContextView,
+        signing_public: IdentitySigningPublicKey,
+    }
+
+    impl Respond for Contribute {
+        fn respond(&self, request: &Request) -> ResponseTemplate {
+            let submit: seren::SubmitDelegationContributionRequest = request.body_json().unwrap();
+            let draft = seren::DelegationContributionDraft {
+                acknowledged_destination_organization_id: submit
+                    .acknowledged_destination_organization_id,
+                contribution_id: submit.contribution_id,
+                decision: submit.decision,
+                mappings: submit.mappings,
+                participant_capability: submit.participant_capability,
+                vault_grants: submit.vault_grants,
+            };
+            let payload = agent_delegation_policy::agent_delegation_contribution_payload(
+                delegation_contribution(&self.context, &draft).unwrap(),
+            )
+            .unwrap();
+            let signature = BASE64.decode(&submit.contribution_signature).unwrap();
+            match seren_secrets_crypto::signing::verify(&self.signing_public, &payload, &signature)
+            {
+                Ok(()) => ResponseTemplate::new(200).set_body_json(approved_view(&self.context)),
+                Err(_) => ResponseTemplate::new(400),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn local_approval_signs_the_server_payload_and_refuses_a_different_one() {
+        for alter_nonce in [false, true] {
+            let passwords = MockServer::start().await;
+            let user_kem = IdentityKemKeypair::generate();
+            let user_signing = IdentitySigningKeypair::generate();
+            let agent_kem = IdentityKemKeypair::generate();
+            let agent_identity_id = Uuid::new_v4();
+            let vault_id = Uuid::new_v4();
+            let item_id = Uuid::new_v4();
+            let vault_key = generate_vault_key();
+            let content_key = seren_secrets_crypto::protocol::item::generate_item_content_key();
+            let context = participant_context(&agent_kem.public, agent_identity_id);
+            let capability = "synthetic-participant-capability";
+
+            Mock::given(method("POST"))
+                .and(path(
+                    "/publishers/seren-passwords/delegations/participant-context",
+                ))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(json!({ "data": context.clone() })),
+                )
+                .expect(1)
+                .mount(&passwords)
+                .await;
+            Mock::given(method("GET"))
+                .and(path("/publishers/seren-passwords/sync"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
+                    "vaults": [{
+                        "vault_id": vault_id,
+                        "name_ciphertext": BASE64.encode(encrypt_vault_name(&vault_key, vault_id.as_bytes(), "Keys")),
+                        "wrapped_vault_key": BASE64.encode(wrap_vault_key_for_identity(&vault_key, &user_kem.public)),
+                        "created_at": "2026-11-01T00:00:00Z",
+                        "updated_at": "2026-11-01T00:00:00Z",
+                        "created_by_user_id": Uuid::new_v4(),
+                        "key_rotation_state": "idle",
+                        "owner_kind": "user",
+                        "requires_approval": "never",
+                    }],
+                    "item_overviews": [],
+                    "memberships": [],
+                    "foreign_memberships": [],
+                    "identities": [],
+                    "server_time": "2026-11-01T00:00:00Z",
+                }})))
+                .mount(&passwords)
+                .await;
+            Mock::given(method("GET"))
+                .and(path(format!(
+                    "/publishers/seren-passwords/vaults/{vault_id}/items/{item_id}"
+                )))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
+                    "item_id": item_id,
+                    "vault_id": vault_id,
+                    "content_ciphertext": "",
+                    "content_key_wrap": BASE64.encode(wrap_item_content_key(&vault_key, item_id.as_bytes(), &content_key)),
+                    "metadata_ciphertext": "",
+                    "title_ciphertext": "",
+                    "title_blind_index": "",
+                    "created_at": "2026-11-01T00:00:00Z",
+                    "updated_at": "2026-11-01T00:00:00Z",
+                }})))
+                .mount(&passwords)
+                .await;
+            Mock::given(method("POST"))
+                .and(path(
+                    "/publishers/seren-passwords/delegations/signing-payload",
+                ))
+                .respond_with(SigningPayload {
+                    context: context.clone(),
+                    alter_nonce,
+                })
+                .expect(1)
+                .mount(&passwords)
+                .await;
+            Mock::given(method("POST"))
+                .and(path(
+                    "/publishers/seren-passwords/delegations/contributions",
+                ))
+                .respond_with(Contribute {
+                    context: context.clone(),
+                    signing_public: user_signing.public,
+                })
+                .expect(if alter_nonce { 0 } else { 1 })
+                .mount(&passwords)
+                .await;
+
+            let client = seren::Client::new(&passwords.uri());
+            let result = approve_delegation_contribution(
+                &client,
+                &user_kem.private,
+                &user_signing.private,
+                capability,
+                &[DelegationFieldChoice {
+                    environment_name: "OPENAI_API_KEY".to_string(),
+                    vault_id,
+                    item_id,
+                    field: "api_key".to_string(),
+                }],
+            )
+            .await;
+
+            if alter_nonce {
+                let error = result.unwrap_err();
+                assert!(error.message.contains("Nothing was signed"), "{error:?}");
+            } else {
+                let view = result.unwrap();
+                assert_eq!(view.status, seren::DelegationPolicyRequestStatus::Approved);
+                let requests = passwords.received_requests().await.unwrap();
+                let submitted: seren::SubmitDelegationContributionRequest = requests
+                    .iter()
+                    .find(|request| request.url.path().ends_with("/delegations/contributions"))
+                    .unwrap()
+                    .body_json()
+                    .unwrap();
+                assert_eq!(submitted.participant_capability, capability);
+                assert_eq!(submitted.vault_grants.len(), 1);
+                assert_eq!(
+                    submitted.vault_grants[0].access_level,
+                    seren::AccessLevel::Read
+                );
+                // The Employee can open the item key sealed to its own KEM key.
+                let wrap = BASE64.decode(&submitted.mappings[0].item_key_wrap).unwrap();
+                let opened = seren_secrets_crypto::kem::unseal(&agent_kem.private, &wrap).unwrap();
+                assert_eq!(opened.as_slice(), content_key.as_bytes());
+            }
+            passwords.verify().await;
         }
     }
 }

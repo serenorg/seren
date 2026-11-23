@@ -3381,6 +3381,17 @@ pub struct StartSerenAgentPasswordsSetupParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ApproveSerenAgentPasswordsSetupParams {
+    /// Managed agent deployment UUID the setup belongs to.
+    pub deployment_id: Uuid,
+    /// Setup UUID returned by start_seren_agent_passwords_setup.
+    pub setup_id: Uuid,
+    /// One vault item field for each requested environment name.
+    pub mappings: Vec<crate::passwords::DelegationFieldChoice>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct SerenAgentPasswordsSetupParams {
     /// Setup UUID returned by start_seren_agent_passwords_setup
     pub setup_id: Uuid,
@@ -19403,6 +19414,70 @@ API endpoint: {endpoint}",
                     | seren::ManagedAgentSecretsSetupState::PartiallyApproved => "An approval for this setup is already in progress. Open launch_url to resume it in Seren Passwords, then call get_seren_agent_passwords_setup_status with setup_id.",
                     _ => "Open launch_url, unlock Seren Passwords, and approve the exact field mapping. Then call get_seren_agent_passwords_setup_status with setup_id.",
                 },
+            }),
+        )?]))
+    }
+
+    #[tool(
+        description = "Approve a managed seren-agent deployment's Seren Passwords setup from this local MCP with the unlocked vault keys, instead of opening launch_url. Local MCP modes only, after passwords_unlock. mappings names one vault item field (vault_id, item_id, field) for each requested environment name. The approval is signed here only when Seren Passwords asks to sign exactly the approval built here. Using it retires the setup's launch link. Hosted MCP returns guidance to open launch_url instead.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn approve_seren_agent_passwords_setup(
+        &self,
+        Parameters(params): Parameters<ApproveSerenAgentPasswordsSetupParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_deployment_mutation_allowed(&extensions, ManagedDeploymentMutation::Update)?;
+        if !self.passwords_local_mode {
+            return Ok(CallToolResult::success(vec![json_content(
+                &serde_json::json!({
+                    "status": "ui_action_required",
+                    "setup_id": params.setup_id,
+                    "deployment_id": params.deployment_id,
+                    "next_step": "Hosted MCP cannot hold vault keys. Open the launch_url returned by start_seren_agent_passwords_setup to approve the setup in Seren Passwords, then call get_seren_agent_passwords_setup_status with setup_id.",
+                }),
+            )?]));
+        }
+        let (bearer, kem_private, signing_private) =
+            self.passwords_user_signing_auth(&extensions).await?;
+        let client = self.api_client_for_bearer(&bearer, &extensions)?;
+        let organization_id = client
+            .seren_agent_list_deployments()
+            .into_mcp_result()
+            .await?
+            .into_inner()
+            .data
+            .iter()
+            .find_map(|deployment| match deployment {
+                seren::CloudDeploymentView::CloudDeploymentSummary(summary)
+                    if summary.id == params.deployment_id && summary.managed_agent.is_some() =>
+                {
+                    Some(summary.organization_id)
+                }
+                _ => None,
+            })
+            .ok_or_else(|| McpError::invalid_params("Managed agent deployment not found", None))?;
+        let request = crate::passwords::approve_managed_agent_setup_locally(
+            &client,
+            &kem_private,
+            &signing_private,
+            organization_id,
+            params.setup_id,
+            &params.mappings,
+        )
+        .await?;
+        Ok(CallToolResult::success(vec![json_content(
+            &serde_json::json!({
+                "status": request.status,
+                "setup_id": params.setup_id,
+                "deployment_id": params.deployment_id,
+                "mapped_fields": request.progress.mapped_fields,
+                "requested_fields": request.progress.requested_fields,
+                "next_step": "Call get_seren_agent_passwords_setup_status with setup_id, then the apply tool it names.",
             }),
         )?]))
     }
