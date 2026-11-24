@@ -53,6 +53,63 @@ pub const REFRESH_TOKEN_TTL_HOURS: i64 = 10 * 365 * 24; // 10 years
 /// Minimum interval between sliding-expiry renewals (write throttling).
 pub const SLIDING_EXPIRY_RENEWAL_INTERVAL_HOURS: i64 = 24;
 
+/// Every stored column that holds an encrypted token or agent credential, grouped by table.
+const STORED_TOKEN_COLUMNS: &[(&str, &str)] = &[
+    ("refresh_tokens", "upstream_access_token"),
+    ("refresh_tokens", "upstream_refresh_token"),
+    ("authorization_codes", "upstream_access_token"),
+    ("authorization_codes", "upstream_refresh_token"),
+    ("hosted_passwords_agents", "credential_ciphertext"),
+    ("hosted_passwords_agent_requests", "credential_ciphertext"),
+];
+
+/// Most rewrites and deletions one start-up sweep makes per table.
+pub const STORED_TOKEN_SWEEP_CHANGE_LIMIT: usize = 10_000;
+
+/// Counts one table's stored values by what the start-up sweep found. Holds no values.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredTokenSweepReport {
+    pub table: &'static str,
+    /// Values found under each key position of `OAUTH_TOKEN_ENCRYPTION_KEYS`.
+    pub values_by_key: Vec<u64>,
+    pub unencrypted: u64,
+    /// Encrypted values that open with no listed key.
+    pub unopenable: u64,
+    pub rewritten: u64,
+    pub deleted: u64,
+    changes_planned: usize,
+}
+
+impl StoredTokenSweepReport {
+    fn new(table: &'static str, key_count: usize) -> Self {
+        Self {
+            table,
+            values_by_key: vec![0; key_count],
+            unencrypted: 0,
+            unopenable: 0,
+            rewritten: 0,
+            deleted: 0,
+            changes_planned: 0,
+        }
+    }
+
+    /// The sweep's log line for this table: counts only.
+    pub fn log_message(&self) -> String {
+        let by_key = self
+            .values_by_key
+            .iter()
+            .enumerate()
+            .map(|(position, count)| format!("key {position}: {count}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "Stored token sweep of mcp_oauth.{}: values by key position [{by_key}], \
+             unencrypted {}, opened by no key {}, rewritten {}, deleted {}",
+            self.table, self.unencrypted, self.unopenable, self.rewritten, self.deleted
+        )
+    }
+}
+
 /// OAuth2 Client registration
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Client {
@@ -348,23 +405,29 @@ pub struct TokenStore {
     /// LRU cache for client metadata (client_id -> Client)
     /// Wrapped in Arc<Mutex<>> for interior mutability across clones
     client_cache: Arc<Mutex<LruCache<String, Client>>>,
-    token_cipher: Option<TokenCipher>,
+    token_cipher: TokenCipher,
 }
 
 impl TokenStore {
-    /// Create a new token store with default cache size (100 clients)
-    pub fn new(pool: PgPool) -> Self {
-        Self::with_cache_size(pool, 100)
+    /// Create a new token store with default cache size (100 clients).
+    ///
+    /// A store persists upstream tokens and agent credentials, so it always needs a cipher.
+    pub(crate) fn new(pool: PgPool, token_cipher: TokenCipher) -> Self {
+        Self::with_cache_size(pool, 100, token_cipher)
     }
 
     /// Create a new token store with custom cache size
-    pub fn with_cache_size(pool: PgPool, cache_size: usize) -> Self {
+    pub(crate) fn with_cache_size(
+        pool: PgPool,
+        cache_size: usize,
+        token_cipher: TokenCipher,
+    ) -> Self {
         Self {
             pool,
             client_cache: Arc::new(Mutex::new(LruCache::new(
                 NonZeroUsize::new(cache_size).unwrap(),
             ))),
-            token_cipher: None,
+            token_cipher,
         }
     }
 
@@ -373,6 +436,11 @@ impl TokenStore {
     pub async fn connect(database_url: &str) -> Result<Self> {
         use sqlx::postgres::PgPoolOptions;
         use std::time::Duration;
+
+        // Read the keys before connecting: a store without a cipher must never exist.
+        let token_cipher = TokenCipher::from_env()?.ok_or_else(|| {
+            McpError::Config("OAUTH_TOKEN_ENCRYPTION_KEYS is required to store tokens".into())
+        })?;
 
         let pool = PgPoolOptions::new()
             .max_connections(20) // Limit concurrent connections
@@ -384,10 +452,7 @@ impl TokenStore {
             .await
             .map_err(McpError::Database)?;
 
-        let token_cipher = TokenCipher::from_env()?;
-        let mut store = Self::new(pool);
-        store.token_cipher = token_cipher;
-        Ok(store)
+        Ok(Self::new(pool, token_cipher))
     }
 
     /// Get the underlying connection pool
@@ -395,42 +460,224 @@ impl TokenStore {
         &self.pool
     }
 
-    /// Whether upstream OAuth tokens will be encrypted at rest when stored in Postgres.
-    pub fn token_encryption_enabled(&self) -> bool {
-        self.token_cipher.is_some()
-    }
-
     #[allow(clippy::result_large_err)]
     fn encrypt_upstream_token(&self, token: &str) -> Result<String> {
-        match self.token_cipher.as_ref() {
-            Some(cipher) => cipher.encrypt(token),
-            None => Ok(token.to_string()),
-        }
+        self.token_cipher.encrypt(token)
     }
 
+    /// Opens the stored upstream tokens of one row. Returns `None`, after one log event naming
+    /// the table and the row's hash, when a value is unencrypted or no listed key opens it:
+    /// callers then treat the row as absent and the client signs in again. The flag says
+    /// whether a value opened with a key other than the first.
+    fn open_upstream_tokens(
+        &self,
+        table: &'static str,
+        row_hash: &str,
+        access_token: &str,
+        refresh_token: Option<&str>,
+    ) -> Option<(String, Option<String>, bool)> {
+        let open = |value: &str| match self.token_cipher.decrypt_with_key_position(value) {
+            Ok(opened) => Some(opened),
+            Err(error) => {
+                tracing::warn!(
+                    event = "stored_token_unusable",
+                    table,
+                    row_hash = %row_hash,
+                    reason = %error,
+                    "Stored token is unusable; the client must sign in again"
+                );
+                None
+            }
+        };
+        let (access, access_position) = open(access_token)?;
+        let (refresh, refresh_position) = match refresh_token {
+            Some(value) => {
+                let (refresh, position) = open(value)?;
+                (Some(refresh), position)
+            }
+            None => (None, 0),
+        };
+        Some((
+            access,
+            refresh,
+            access_position != 0 || refresh_position != 0,
+        ))
+    }
+
+    /// Opens a refresh-token row and, when a value is under an older key, rewrites it under
+    /// the first key. Returns `None` when the row is unusable.
+    async fn open_refresh_token(&self, mut token: RefreshToken) -> Option<RefreshToken> {
+        let stored_access = std::mem::take(&mut token.upstream_access_token);
+        let stored_refresh = token.upstream_refresh_token.take();
+        let (access, refresh, stale) = self.open_upstream_tokens(
+            "refresh_tokens",
+            &token.token_hash,
+            &stored_access,
+            stored_refresh.as_deref(),
+        )?;
+        if stale {
+            self.rewrite_stored_value("refresh_tokens", "upstream_access_token", &stored_access)
+                .await;
+            if let Some(stored_refresh) = stored_refresh.as_deref() {
+                self.rewrite_stored_value(
+                    "refresh_tokens",
+                    "upstream_refresh_token",
+                    stored_refresh,
+                )
+                .await;
+            }
+        }
+        token.upstream_access_token = access;
+        token.upstream_refresh_token = refresh;
+        Some(token)
+    }
+
+    /// Opens a hosted Seren Passwords credential and, when it is under an older key, rewrites
+    /// it under the first key. Unencrypted or unopenable credentials are refused.
     #[allow(clippy::result_large_err)]
-    fn decrypt_upstream_token(&self, token: &str) -> Result<String> {
-        match self.token_cipher.as_ref() {
-            Some(cipher) => cipher.decrypt_or_plain(token),
-            None => {
-                if TokenCipher::is_encrypted(token) {
-                    return Err(McpError::Config(
-                        "Encrypted upstream tokens present but OAUTH_TOKEN_ENCRYPTION_KEYS is not configured"
-                            .into(),
-                    ));
-                }
-                Ok(token.to_string())
+    async fn open_hosted_passwords_credential(
+        &self,
+        table: &'static str,
+        stored: &str,
+    ) -> Result<Zeroizing<String>> {
+        let (plaintext, position) = self.token_cipher.decrypt_with_key_position(stored)?;
+        let plaintext = Zeroizing::new(plaintext);
+        if position != 0 {
+            self.rewrite_stored_value(table, "credential_ciphertext", stored)
+                .await;
+        }
+        Ok(plaintext)
+    }
+
+    /// Rewrites one stored value under the first key. The update matches the old stored value,
+    /// so a concurrent writer or another replica's sweep is never overwritten. Best-effort:
+    /// returns how many rows changed and logs a failure without failing the caller.
+    async fn rewrite_stored_value(
+        &self,
+        table: &'static str,
+        column: &'static str,
+        stored: &str,
+    ) -> u64 {
+        if !STORED_TOKEN_COLUMNS.contains(&(table, column)) {
+            return 0;
+        }
+        let rewritten = match self.token_cipher.decrypt(stored) {
+            Ok(plaintext) => {
+                let plaintext = Zeroizing::new(plaintext);
+                self.token_cipher.encrypt(&plaintext)
+            }
+            Err(error) => Err(error),
+        };
+        let rewritten = match rewritten {
+            Ok(rewritten) => rewritten,
+            Err(error) => {
+                tracing::warn!(event = "stored_token_rewrite_failed", table, column, reason = %error);
+                return 0;
+            }
+        };
+        let query = format!("UPDATE mcp_oauth.{table} SET {column} = $1 WHERE {column} = $2");
+        // Table and column names come only from STORED_TOKEN_COLUMNS (checked above).
+        match sqlx::query(sqlx::AssertSqlSafe(query))
+            .bind(&rewritten)
+            .bind(stored)
+            .execute(&self.pool)
+            .await
+        {
+            Ok(result) => result.rows_affected(),
+            Err(error) => {
+                tracing::warn!(event = "stored_token_rewrite_failed", table, column, error = %error);
+                0
             }
         }
     }
 
-    #[allow(clippy::result_large_err)]
-    fn hosted_passwords_agent_cipher(&self, action: &str) -> Result<&TokenCipher> {
-        self.token_cipher.as_ref().ok_or_else(|| {
-            McpError::Config(format!(
-                "OAUTH_TOKEN_ENCRYPTION_KEYS must be configured before {action} hosted Seren Passwords agents"
-            ))
-        })
+    /// Start-up sweep over every stored token and agent credential. Rewrites values under an
+    /// older key to the first key and deletes rows whose value is unencrypted or opens with no
+    /// listed key. Each table makes at most `change_limit` changes per run. Every update and
+    /// delete matches the stored value it read, so replicas can run it at the same time.
+    /// Logs, per table, counts only: values found under each key position, unencrypted values,
+    /// unopenable values, rewrites and deletions.
+    pub async fn sweep_stored_tokens(
+        &self,
+        change_limit: usize,
+    ) -> Result<Vec<StoredTokenSweepReport>> {
+        use futures::TryStreamExt;
+
+        let mut reports: Vec<StoredTokenSweepReport> = Vec::new();
+        for &(table, column) in STORED_TOKEN_COLUMNS {
+            if reports.last().is_none_or(|report| report.table != table) {
+                reports.push(StoredTokenSweepReport::new(
+                    table,
+                    self.token_cipher.key_count(),
+                ));
+            }
+            let report = reports.last_mut().expect("report pushed above");
+
+            let mut to_rewrite = Vec::new();
+            let mut to_delete = Vec::new();
+            // Table and column names come only from STORED_TOKEN_COLUMNS.
+            let query =
+                format!("SELECT {column} FROM mcp_oauth.{table} WHERE {column} IS NOT NULL");
+            let mut rows =
+                sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(query)).fetch(&self.pool);
+            while let Some(stored) = rows.try_next().await.map_err(McpError::Database)? {
+                let changes = report.changes_planned;
+                if !TokenCipher::is_encrypted(&stored) {
+                    report.unencrypted += 1;
+                    if changes < change_limit {
+                        report.changes_planned += 1;
+                        to_delete.push(stored);
+                    }
+                    continue;
+                }
+                match self.token_cipher.decrypt_with_key_position(&stored) {
+                    Ok((plaintext, position)) => {
+                        drop(Zeroizing::new(plaintext));
+                        report.values_by_key[position] += 1;
+                        if position != 0 && changes < change_limit {
+                            report.changes_planned += 1;
+                            to_rewrite.push(stored);
+                        }
+                    }
+                    Err(_) => {
+                        report.unopenable += 1;
+                        if changes < change_limit {
+                            report.changes_planned += 1;
+                            to_delete.push(stored);
+                        }
+                    }
+                }
+            }
+            drop(rows);
+
+            let delete = format!("DELETE FROM mcp_oauth.{table} WHERE {column} = $1");
+            for stored in &to_delete {
+                let result = sqlx::query(sqlx::AssertSqlSafe(delete.clone()))
+                    .bind(stored)
+                    .execute(&self.pool)
+                    .await
+                    .map_err(McpError::Database)?;
+                report.deleted += result.rows_affected();
+            }
+            for stored in &to_rewrite {
+                report.rewritten += self.rewrite_stored_value(table, column, stored).await;
+            }
+        }
+
+        for report in &reports {
+            tracing::info!(
+                event = "stored_token_key_sweep",
+                table = report.table,
+                values_by_key = ?report.values_by_key,
+                unencrypted = report.unencrypted,
+                unopenable = report.unopenable,
+                rewritten = report.rewritten,
+                deleted = report.deleted,
+                "{}",
+                report.log_message()
+            );
+        }
+        Ok(reports)
     }
 
     // === Client operations ===
@@ -489,9 +736,7 @@ impl TokenStore {
             Zeroizing::new(serde_json::to_string(&credential_bundle).map_err(|e| {
                 McpError::Config(format!("Hosted passwords credential encode failed: {e}"))
             })?);
-        let credential_ciphertext = self
-            .hosted_passwords_agent_cipher("storing")?
-            .encrypt(&credential_json)?;
+        let credential_ciphertext = self.token_cipher.encrypt(&credential_json)?;
 
         sqlx::query(
             r#"
@@ -535,9 +780,7 @@ impl TokenStore {
             Zeroizing::new(serde_json::to_string(&credential_bundle).map_err(|e| {
                 McpError::Config(format!("Hosted passwords request encode failed: {e}"))
             })?);
-        let credential_ciphertext = self
-            .hosted_passwords_agent_cipher("storing pending")?
-            .encrypt(&credential_json)?;
+        let credential_ciphertext = self.token_cipher.encrypt(&credential_json)?;
 
         sqlx::query(
             r#"
@@ -611,10 +854,12 @@ impl TokenStore {
                 "Hosted passwords pending credential is not encrypted".into(),
             ));
         }
-        let credential_json = Zeroizing::new(
-            self.hosted_passwords_agent_cipher("reading pending")?
-                .decrypt_or_plain(&row.credential_ciphertext)?,
-        );
+        let credential_json = self
+            .open_hosted_passwords_credential(
+                "hosted_passwords_agent_requests",
+                &row.credential_ciphertext,
+            )
+            .await?;
         let bundle: HostedPasswordsAgentRequestSecretBundle =
             serde_json::from_str(&credential_json).map_err(|e| {
                 McpError::Config(format!("Hosted passwords request decode failed: {e}"))
@@ -672,10 +917,12 @@ impl TokenStore {
                 "Hosted passwords pending credential is not encrypted".into(),
             ));
         }
-        let credential_json = Zeroizing::new(
-            self.hosted_passwords_agent_cipher("reading pending")?
-                .decrypt_or_plain(&row.credential_ciphertext)?,
-        );
+        let credential_json = self
+            .open_hosted_passwords_credential(
+                "hosted_passwords_agent_requests",
+                &row.credential_ciphertext,
+            )
+            .await?;
         let bundle: HostedPasswordsAgentRequestSecretBundle =
             serde_json::from_str(&credential_json).map_err(|e| {
                 McpError::Config(format!("Hosted passwords request decode failed: {e}"))
@@ -739,10 +986,12 @@ impl TokenStore {
                 "Hosted passwords pending credential is not encrypted".into(),
             ));
         }
-        let credential_json = Zeroizing::new(
-            self.hosted_passwords_agent_cipher("reading pending")?
-                .decrypt_or_plain(&row.credential_ciphertext)?,
-        );
+        let credential_json = self
+            .open_hosted_passwords_credential(
+                "hosted_passwords_agent_requests",
+                &row.credential_ciphertext,
+            )
+            .await?;
         let bundle: HostedPasswordsAgentRequestSecretBundle =
             serde_json::from_str(&credential_json).map_err(|e| {
                 McpError::Config(format!("Hosted passwords request decode failed: {e}"))
@@ -846,10 +1095,9 @@ impl TokenStore {
                 "Hosted passwords agent credential is not encrypted".into(),
             ));
         }
-        let credential_json = Zeroizing::new(
-            self.hosted_passwords_agent_cipher("reading")?
-                .decrypt_or_plain(&row.credential_ciphertext)?,
-        );
+        let credential_json = self
+            .open_hosted_passwords_credential("hosted_passwords_agents", &row.credential_ciphertext)
+            .await?;
         let bundle: HostedPasswordsAgentSecretBundle = serde_json::from_str(&credential_json)
             .map_err(|e| {
                 McpError::Config(format!("Hosted passwords credential decode failed: {e}"))
@@ -984,7 +1232,7 @@ impl TokenStore {
         &self,
         code: &str,
     ) -> Result<Option<AuthorizationCode>> {
-        let mut auth_code = sqlx::query_as::<_, AuthorizationCode>(
+        let auth_code = sqlx::query_as::<_, AuthorizationCode>(
             r#"
             DELETE FROM mcp_oauth.authorization_codes
             WHERE code = $1 AND expires_at > NOW()
@@ -998,16 +1246,21 @@ impl TokenStore {
         .await
         .map_err(McpError::Database)?;
 
-        if let Some(ref mut auth_code) = auth_code {
-            auth_code.upstream_access_token =
-                self.decrypt_upstream_token(&auth_code.upstream_access_token)?;
-            auth_code.upstream_refresh_token = match auth_code.upstream_refresh_token.as_deref() {
-                Some(token) => Some(self.decrypt_upstream_token(token)?),
-                None => None,
-            };
-        }
-
-        Ok(auth_code)
+        // The code is already consumed, so a value under an older key needs no rewrite.
+        let Some(mut auth_code) = auth_code else {
+            return Ok(None);
+        };
+        let Some((access, refresh, _)) = self.open_upstream_tokens(
+            "authorization_codes",
+            &Self::hash_refresh_token(&auth_code.code),
+            &auth_code.upstream_access_token,
+            auth_code.upstream_refresh_token.as_deref(),
+        ) else {
+            return Ok(None);
+        };
+        auth_code.upstream_access_token = access;
+        auth_code.upstream_refresh_token = refresh;
+        Ok(Some(auth_code))
     }
 
     // === Refresh token operations ===
@@ -1046,7 +1299,7 @@ impl TokenStore {
     /// Get a refresh token (includes upstream token vault)
     pub async fn get_refresh_token(&self, token: &str) -> Result<Option<RefreshToken>> {
         let token_hash = Self::hash_refresh_token(token);
-        let mut refresh_token = sqlx::query_as::<_, RefreshToken>(
+        let refresh_token = sqlx::query_as::<_, RefreshToken>(
             r#"
             SELECT token_hash, client_id, user_id, scope, expires_at, created_at,
                 upstream_access_token, upstream_refresh_token, upstream_expires_at
@@ -1080,17 +1333,10 @@ impl TokenStore {
             .await;
         }
 
-        if let Some(ref mut refresh_token) = refresh_token {
-            refresh_token.upstream_access_token =
-                self.decrypt_upstream_token(&refresh_token.upstream_access_token)?;
-            refresh_token.upstream_refresh_token =
-                match refresh_token.upstream_refresh_token.as_deref() {
-                    Some(token) => Some(self.decrypt_upstream_token(token)?),
-                    None => None,
-                };
+        match refresh_token {
+            Some(refresh_token) => Ok(self.open_refresh_token(refresh_token).await),
+            None => Ok(None),
         }
-
-        Ok(refresh_token)
     }
 
     /// Get a refresh token by its hash (for session-linked lookups).
@@ -1102,7 +1348,7 @@ impl TokenStore {
         &self,
         token_hash: &str,
     ) -> Result<Option<RefreshToken>> {
-        let mut refresh_token = sqlx::query_as::<_, RefreshToken>(
+        let refresh_token = sqlx::query_as::<_, RefreshToken>(
             r#"
             SELECT token_hash, client_id, user_id, scope, expires_at, created_at,
                 upstream_access_token, upstream_refresh_token, upstream_expires_at
@@ -1116,17 +1362,10 @@ impl TokenStore {
         .await
         .map_err(McpError::Database)?;
 
-        if let Some(ref mut refresh_token) = refresh_token {
-            refresh_token.upstream_access_token =
-                self.decrypt_upstream_token(&refresh_token.upstream_access_token)?;
-            refresh_token.upstream_refresh_token =
-                match refresh_token.upstream_refresh_token.as_deref() {
-                    Some(token) => Some(self.decrypt_upstream_token(token)?),
-                    None => None,
-                };
+        match refresh_token {
+            Some(refresh_token) => Ok(self.open_refresh_token(refresh_token).await),
+            None => Ok(None),
         }
-
-        Ok(refresh_token)
     }
 
     /// Revoke a refresh token
@@ -1270,9 +1509,10 @@ impl TokenStore {
             Self::hash_refresh_token(refresh_token_or_hash)
         };
 
-        let result: Option<(String, jiff_sqlx::Timestamp)> = sqlx::query_as(
+        let refresh_token = sqlx::query_as::<_, RefreshToken>(
             r#"
-            SELECT upstream_access_token, upstream_expires_at
+            SELECT token_hash, client_id, user_id, scope, expires_at, created_at,
+                upstream_access_token, upstream_refresh_token, upstream_expires_at
             FROM mcp_oauth.refresh_tokens
             WHERE (token_hash = $1 OR token_hash = $2)
             AND (expires_at IS NULL OR expires_at > NOW())
@@ -1284,13 +1524,13 @@ impl TokenStore {
         .await
         .map_err(McpError::Database)?;
 
-        match result {
-            Some((token, expires_at)) => {
-                let token = self.decrypt_upstream_token(&token)?;
-                Ok(Some((token, expires_at.to_jiff())))
-            }
-            None => Ok(None),
-        }
+        let Some(refresh_token) = refresh_token else {
+            return Ok(None);
+        };
+        Ok(self
+            .open_refresh_token(refresh_token)
+            .await
+            .map(|token| (token.upstream_access_token, token.upstream_expires_at)))
     }
 
     /// Find refresh token by user and client (for looking up upstream tokens during auth)
@@ -1339,44 +1579,12 @@ impl TokenStore {
                     ),
                 }
             }
-
-            let stored_upstream_access_token = token.upstream_access_token.clone();
-            let stored_upstream_refresh_token = token.upstream_refresh_token.clone();
-
-            token.upstream_access_token =
-                self.decrypt_upstream_token(&stored_upstream_access_token)?;
-            token.upstream_refresh_token = match stored_upstream_refresh_token.as_deref() {
-                Some(token) => Some(self.decrypt_upstream_token(token)?),
-                None => None,
-            };
-
-            // If encryption is enabled, upgrade legacy plaintext upstream tokens to encrypted storage.
-            if self.token_cipher.is_some()
-                && (!TokenCipher::is_encrypted(&stored_upstream_access_token)
-                    || stored_upstream_refresh_token
-                        .as_deref()
-                        .is_some_and(|v| !TokenCipher::is_encrypted(v)))
-            {
-                // Best-effort: don't fail requests if the upgrade write fails.
-                if let Err(e) = self
-                    .update_upstream_tokens(
-                        &token.token_hash,
-                        &token.upstream_access_token,
-                        token.upstream_refresh_token.as_deref(),
-                        token.upstream_expires_at,
-                    )
-                    .await
-                {
-                    tracing::warn!(
-                        event = "upstream_token_encrypt_upgrade_failed",
-                        error = %e,
-                        "Failed to upgrade upstream tokens to encrypted storage"
-                    );
-                }
-            }
         }
 
-        Ok(refresh_token)
+        match refresh_token {
+            Some(refresh_token) => Ok(self.open_refresh_token(refresh_token).await),
+            None => Ok(None),
+        }
     }
 
     // === Consent operations ===
@@ -1587,6 +1795,12 @@ pub(crate) fn integration_tests_enabled() -> bool {
         .is_some_and(|v| v == "1" || v == "true" || v == "yes" || v == "on")
 }
 
+/// Fixture cipher for tests that need a store.
+#[cfg(test)]
+pub(crate) fn test_token_cipher() -> TokenCipher {
+    TokenCipher::from_keys(&["synthetic-token-encryption-key-32-bytes"]).unwrap()
+}
+
 #[cfg(test)]
 pub(crate) async fn test_token_store() -> (
     testcontainers::ContainerAsync<testcontainers::GenericImage>,
@@ -1631,9 +1845,7 @@ pub(crate) async fn test_token_store() -> (
     let migrator = sqlx::migrate::Migrator::new(migrations_dir).await.unwrap();
     migrator.run(&pool).await.unwrap();
 
-    let mut store = TokenStore::new(pool);
-    store.token_cipher =
-        Some(TokenCipher::from_keys(&["synthetic-token-encryption-key-32-bytes"]).unwrap());
+    let store = TokenStore::new(pool, test_token_cipher());
     (container, store)
 }
 
@@ -1641,27 +1853,206 @@ pub(crate) async fn test_token_store() -> (
 mod tests {
     use super::*;
 
-    fn store_without_token_cipher() -> TokenStore {
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .connect_lazy("postgresql://localhost/seren_mcp_test")
-            .expect("lazy pool");
-        TokenStore::new(pool)
+    #[tokio::test]
+    async fn store_without_token_cipher_cannot_be_created() {
+        // The keys are checked before any connection, so an unreachable database is enough.
+        let result = temp_env::async_with_vars(
+            [("OAUTH_TOKEN_ENCRYPTION_KEYS", None::<&str>)],
+            TokenStore::connect("postgresql://postgres@127.0.0.1:1/unreachable"),
+        )
+        .await;
+        match result {
+            Err(McpError::Config(message)) => {
+                assert!(message.contains("OAUTH_TOKEN_ENCRYPTION_KEYS"), "{message}");
+            }
+            Err(other) => panic!("unexpected error: {other:?}"),
+            Ok(_) => panic!("a store without a cipher must not be created"),
+        }
+    }
+
+    async fn insert_refresh_token_row(pool: &PgPool, token_hash: &str, access: &str) {
+        sqlx::query(
+            "INSERT INTO mcp_oauth.refresh_tokens
+                (token_hash, client_id, user_id, scope, expires_at,
+                upstream_access_token, upstream_refresh_token, upstream_expires_at)
+            VALUES ($1, 'key-client', $2, 'api', NULL, $3, NULL, NOW() + INTERVAL '1 hour')",
+        )
+        .bind(token_hash)
+        .bind(Uuid::new_v4())
+        .bind(access)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn stored_access_token(pool: &PgPool, token_hash: &str) -> Option<String> {
+        sqlx::query_scalar(
+            "SELECT upstream_access_token FROM mcp_oauth.refresh_tokens WHERE token_hash = $1",
+        )
+        .bind(token_hash)
+        .fetch_optional(pool)
+        .await
+        .unwrap()
     }
 
     #[tokio::test]
-    async fn hosted_passwords_agent_storage_requires_token_cipher() {
-        let store = store_without_token_cipher();
-        let err = match store.hosted_passwords_agent_cipher("storing") {
-            Ok(_) => panic!("missing token cipher must fail closed"),
-            Err(err) => err,
-        };
-        match err {
-            McpError::Config(message) => {
-                assert!(message.contains("OAUTH_TOKEN_ENCRYPTION_KEYS"));
-                assert!(message.contains("storing"));
-            }
-            other => panic!("unexpected error: {other:?}"),
+    async fn stored_tokens_are_refused_moved_to_the_first_key_and_swept() {
+        if !integration_tests_enabled() {
+            eprintln!("skipping: set SEREN_MCP_INTEGRATION_TESTS=1 to run Postgres tests");
+            return;
         }
+        let (_container, store) = test_token_store().await;
+        let pool = store.pool().clone();
+        sqlx::query(
+            "INSERT INTO mcp_oauth.clients (id, name, redirect_uris, grants, scopes)
+            VALUES ('key-client', 'Key client', ARRAY['http://localhost/callback'],
+                ARRAY['authorization_code'], ARRAY['api'])",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        const OLD_KEY: &str = "old-synthetic-token-encryption-key-32b";
+        const NEW_KEY: &str = "new-synthetic-token-encryption-key-32b";
+        const LOST_KEY: &str = "lost-synthetic-token-encryption-key-32";
+        let old = TokenCipher::from_keys(&[OLD_KEY]).unwrap();
+        let lost = TokenCipher::from_keys(&[LOST_KEY]).unwrap();
+        let rotated = TokenStore::new(
+            pool.clone(),
+            TokenCipher::from_keys(&[NEW_KEY, OLD_KEY]).unwrap(),
+        );
+        let only_new = TokenCipher::from_keys(&[NEW_KEY]).unwrap();
+
+        // An unencrypted stored value is refused: the row reads as absent (sign in again).
+        let plain_hash = TokenStore::hash_refresh_token("plain-row");
+        insert_refresh_token_row(&pool, &plain_hash, "plain-upstream-token").await;
+        assert!(
+            rotated
+                .get_refresh_token_by_hash(&plain_hash)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            rotated
+                .get_refresh_token("plain-row")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            rotated
+                .get_upstream_token(&plain_hash)
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        // A value under the second key is under the first key after one read.
+        let read_hash = TokenStore::hash_refresh_token("read-row");
+        insert_refresh_token_row(&pool, &read_hash, &old.encrypt("read-access").unwrap()).await;
+        let token = rotated
+            .get_refresh_token_by_hash(&read_hash)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(token.upstream_access_token, "read-access");
+        let stored = stored_access_token(&pool, &read_hash).await.unwrap();
+        assert_eq!(only_new.decrypt(&stored).unwrap(), "read-access");
+
+        // An idle value under the second key moves with the sweep, without any read.
+        let idle_hash = TokenStore::hash_refresh_token("idle-row");
+        insert_refresh_token_row(&pool, &idle_hash, &old.encrypt("idle-access").unwrap()).await;
+        // A value no listed key opens is deleted by the sweep.
+        let lost_hash = TokenStore::hash_refresh_token("lost-row");
+        let lost_value = lost.encrypt("lost-access").unwrap();
+        insert_refresh_token_row(&pool, &lost_hash, &lost_value).await;
+        // An unencrypted hosted passwords credential is deleted too.
+        sqlx::query(
+            "INSERT INTO mcp_oauth.hosted_passwords_agents
+                (user_id, credential_subject, identity_id, display_name,
+                credential_ciphertext, granted_vaults)
+            VALUES ($1, 'user', $2, 'Plain', 'plain-credential', '[]'::jsonb)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(Uuid::new_v4())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let reports = rotated
+            .sweep_stored_tokens(STORED_TOKEN_SWEEP_CHANGE_LIMIT)
+            .await
+            .unwrap();
+        let refresh = reports
+            .iter()
+            .find(|r| r.table == "refresh_tokens")
+            .unwrap();
+        assert_eq!(refresh.values_by_key, vec![1, 1]);
+        assert_eq!(refresh.unencrypted, 1);
+        assert_eq!(refresh.unopenable, 1);
+        assert_eq!(refresh.rewritten, 1);
+        assert_eq!(refresh.deleted, 2);
+        let message = refresh.log_message();
+        assert!(message.contains("opened by no key 1"), "{message}");
+        assert!(message.contains("deleted 2"), "{message}");
+        for secret in [
+            "plain-upstream-token",
+            "idle-access",
+            "lost-access",
+            lost_value.as_str(),
+        ] {
+            assert!(!message.contains(secret), "{message}");
+        }
+        let agents = reports
+            .iter()
+            .find(|r| r.table == "hosted_passwords_agents")
+            .unwrap();
+        assert_eq!((agents.unencrypted, agents.deleted), (1, 1));
+
+        let stored = stored_access_token(&pool, &idle_hash).await.unwrap();
+        assert_eq!(only_new.decrypt(&stored).unwrap(), "idle-access");
+        assert!(stored_access_token(&pool, &lost_hash).await.is_none());
+        assert!(stored_access_token(&pool, &plain_hash).await.is_none());
+
+        // A second run finds nothing under the old key and nothing to clear.
+        let reports = rotated
+            .sweep_stored_tokens(STORED_TOKEN_SWEEP_CHANGE_LIMIT)
+            .await
+            .unwrap();
+        for report in &reports {
+            assert_eq!(report.values_by_key[1], 0, "{}", report.log_message());
+            assert_eq!(
+                report.unencrypted + report.unopenable,
+                0,
+                "{}",
+                report.log_message()
+            );
+        }
+
+        // The retired session table is gone and cleanup still runs.
+        let exists: bool =
+            sqlx::query_scalar("SELECT to_regclass('mcp_oauth.mcp_sessions') IS NOT NULL")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(!exists);
+        store.cleanup_expired(Some(10)).await.unwrap();
+    }
+
+    #[test]
+    fn sweep_log_message_carries_counts_only() {
+        let mut report = StoredTokenSweepReport::new("refresh_tokens", 2);
+        report.values_by_key = vec![4, 1];
+        report.unencrypted = 2;
+        report.unopenable = 3;
+        report.rewritten = 1;
+        report.deleted = 5;
+        assert_eq!(
+            report.log_message(),
+            "Stored token sweep of mcp_oauth.refresh_tokens: values by key position \
+             [key 0: 4, key 1: 1], unencrypted 2, opened by no key 3, rewritten 1, deleted 5"
+        );
     }
 
     #[test]
@@ -1887,7 +2278,7 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        let mut store = TokenStore::new(pool.clone());
+        let mut store = TokenStore::new(pool.clone(), test_token_cipher());
         let now = Timestamp::from_microsecond(Timestamp::now().as_microsecond()).unwrap();
         let future = now + SignedDuration::from_hours(1);
         for (index, expiry) in [None, Some(future), Some(now - SignedDuration::from_mins(1))]
@@ -1971,7 +2362,7 @@ mod tests {
         store.token_cipher = temp_env::with_var(
             "OAUTH_TOKEN_ENCRYPTION_KEYS",
             Some("0707070707070707070707070707070707070707070707070707070707070707"),
-            || TokenCipher::from_env().unwrap(),
+            || TokenCipher::from_env().unwrap().expect("key set"),
         );
         let request_id = Uuid::new_v4();
         for expiry in [future, future + SignedDuration::from_mins(30)] {

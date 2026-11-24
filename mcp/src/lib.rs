@@ -1898,20 +1898,29 @@ async fn run_oauth(config: Config) -> Result<()> {
         }
     };
 
-    // Connect to token store
+    // Connect to token store. Hosted OAuth mode stores upstream OAuth tokens in Postgres, so
+    // the store refuses to start without OAUTH_TOKEN_ENCRYPTION_KEYS.
     let store = TokenStore::connect(&database_url).await?;
     tracing::info!("Connected to OAuth database");
-
-    // Hosted OAuth mode stores upstream OAuth tokens in Postgres.
-    // Require encryption at rest for start:server mode.
-    if !store.token_encryption_enabled() {
-        anyhow::bail!("OAUTH_TOKEN_ENCRYPTION_KEYS is required for start:server mode.");
-    }
 
     // Run database migrations (embedded at compile time)
     tracing::info!("Running database migrations");
     sqlx::migrate!("./migrations").run(store.pool()).await?;
     tracing::info!("Database migrations completed");
+
+    // Move stored values to the first key and clear what no key opens. Runs in the background
+    // so start-up is not held; each replica may run it, and its writes never overwrite another's.
+    tokio::spawn({
+        let store = store.clone();
+        async move {
+            if let Err(e) = store
+                .sweep_stored_tokens(oauth::store::STORED_TOKEN_SWEEP_CHANGE_LIMIT)
+                .await
+            {
+                tracing::warn!(event = "stored_token_key_sweep_failed", error = %e);
+            }
+        }
+    });
 
     let api_base_url = config.api_base_url.clone();
     let passwords_api_base_url = config.passwords_api_base_url.clone();
@@ -3302,7 +3311,7 @@ mod tests {
             .acquire_timeout(std::time::Duration::from_millis(250))
             .connect_lazy("postgresql://postgres@127.0.0.1:1/unreachable")
             .expect("lazy pool");
-        let store = TokenStore::new(pool);
+        let store = TokenStore::new(pool, oauth::store::test_token_cipher());
         let oauth_token_cache = empty_oauth_token_cache();
         let oauth_state = Arc::new(OAuthState {
             store: store.clone(),

@@ -130,6 +130,29 @@ Download pre-built binaries from GitHub Releases (tagged versions): https://gith
 | `READ_ONLY` | Enable read-only mode (blocks write operations) | `false` |
 | `RUST_LOG` | Log level | `seren_mcp=info` |
 
+### Stored token encryption keys
+
+The hosted server keeps upstream sign-in tokens and hosted Seren Passwords agent credentials in
+Postgres, encrypted with the first key in `OAUTH_TOKEN_ENCRYPTION_KEYS`. The other keys only open
+values stored under them. The server refuses to start without a key, never stores a value
+unencrypted, and treats a stored value that is unencrypted or that no listed key opens as absent:
+the client is asked to sign in again.
+
+When a value opens with a key other than the first, the server rewrites it under the first key
+in the same request. At start-up each replica also runs a bounded sweep over the stored tokens
+and credentials that rewrites values under older keys and deletes rows that are unencrypted or
+that no listed key opens. It logs one `stored_token_key_sweep` line per table with counts only:
+values under each key position, unencrypted values, values no key opens, rewrites and deletions.
+
+To replace a key:
+
+1. Put the new key first and keep the old one after it, for example
+   `OAUTH_TOKEN_ENCRYPTION_KEYS="new-key,old-key"`.
+2. Deploy, and wait until every replica's `stored_token_key_sweep` lines report nothing under
+   key position 1 (redeploy or restart to run the sweep again if a table had more changes than
+   one run makes).
+3. Remove the old key and deploy again.
+
 ### Claude Desktop Setup
 
 #### Method 1: Using the Hosted Remote Server (Recommended)

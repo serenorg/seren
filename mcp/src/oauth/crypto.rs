@@ -92,15 +92,24 @@ impl TokenCipher {
         Ok(format!("{TOKEN_PREFIX}{nonce_b64}.{ciphertext_b64}"))
     }
 
-    #[allow(clippy::result_large_err)]
-    pub(crate) fn decrypt_or_plain(&self, value: &str) -> Result<String> {
-        if !Self::is_encrypted(value) {
-            return Ok(value.to_string());
-        }
+    /// Number of configured keys; position 0 is the key that encrypts.
+    pub(crate) fn key_count(&self) -> usize {
+        1 + self.fallbacks.len()
+    }
 
-        let value = value
-            .strip_prefix(TOKEN_PREFIX)
-            .expect("prefix check performed above");
+    /// Decrypts a stored value. A value without the `enc_v1:` prefix is refused.
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn decrypt(&self, value: &str) -> Result<String> {
+        self.decrypt_with_key_position(value)
+            .map(|(plaintext, _)| plaintext)
+    }
+
+    /// Decrypts a stored value and returns the position of the key that opened it.
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn decrypt_with_key_position(&self, value: &str) -> Result<(String, usize)> {
+        let Some(value) = value.strip_prefix(TOKEN_PREFIX) else {
+            return Err(McpError::Config("Stored token is not encrypted".into()));
+        };
 
         let (nonce_b64, ciphertext_b64) = value.split_once('.').ok_or_else(|| {
             McpError::Config("Invalid encrypted token format (missing '.')".into())
@@ -117,9 +126,13 @@ impl TokenCipher {
             McpError::Config("Invalid encrypted token format (ciphertext decode)".into())
         })?;
 
-        for cipher in std::iter::once(&self.primary).chain(self.fallbacks.iter()) {
+        for (position, cipher) in std::iter::once(&self.primary)
+            .chain(self.fallbacks.iter())
+            .enumerate()
+        {
             if let Ok(plaintext) = cipher.decrypt(&nonce.into(), ciphertext.as_ref()) {
                 return String::from_utf8(plaintext)
+                    .map(|plaintext| (plaintext, position))
                     .map_err(|_| McpError::Config("Decrypted token is not UTF-8".into()));
             }
         }
@@ -195,7 +208,7 @@ mod tests {
         let encrypted = cipher.encrypt(plaintext).unwrap();
         assert!(encrypted.starts_with(TOKEN_PREFIX));
 
-        let decrypted = cipher.decrypt_or_plain(&encrypted).unwrap();
+        let decrypted = cipher.decrypt(&encrypted).unwrap();
         assert_eq!(decrypted, plaintext);
     }
 
@@ -215,8 +228,22 @@ mod tests {
 
         let plaintext = "test-token-value";
         let encrypted = old_cipher.encrypt(plaintext).unwrap();
-        let decrypted = new_cipher.decrypt_or_plain(&encrypted).unwrap();
+        let (decrypted, position) = new_cipher.decrypt_with_key_position(&encrypted).unwrap();
         assert_eq!(decrypted, plaintext);
+        assert_eq!(position, 1);
+        let reencrypted = new_cipher.encrypt(&decrypted).unwrap();
+        assert_eq!(
+            new_cipher.decrypt_with_key_position(&reencrypted).unwrap(),
+            (plaintext.to_string(), 0)
+        );
+    }
+
+    #[test]
+    fn refuses_values_without_the_encryption_prefix() {
+        assert!(matches!(
+            zero_key_cipher().decrypt("plain-upstream-token"),
+            Err(McpError::Config(message)) if message == "Stored token is not encrypted"
+        ));
     }
 
     // AES-256-GCM zero-key/nonce known-answer vector, encoded in the stored token format.
@@ -233,7 +260,7 @@ mod tests {
     #[test]
     fn decrypts_existing_token_format_known_answer() {
         assert_eq!(
-            zero_key_cipher().decrypt_or_plain(STORED_TOKEN).unwrap(),
+            zero_key_cipher().decrypt(STORED_TOKEN).unwrap(),
             "\0".repeat(16)
         );
     }
@@ -249,7 +276,7 @@ mod tests {
             ciphertext,
         );
         assert!(matches!(
-            cipher.decrypt_or_plain(&format!("{prefix}.{encoded}")),
+            cipher.decrypt(&format!("{prefix}.{encoded}")),
             Err(McpError::Config(message)) if message == "Token decryption failed"
         ));
         let wrong_key = TokenCipher {
@@ -257,7 +284,7 @@ mod tests {
             fallbacks: vec![],
         };
         assert!(matches!(
-            wrong_key.decrypt_or_plain(STORED_TOKEN),
+            wrong_key.decrypt(STORED_TOKEN),
             Err(McpError::Config(message)) if message == "Token decryption failed"
         ));
     }
@@ -272,7 +299,7 @@ mod tests {
                 vec![0u8; length],
             );
             assert!(matches!(
-                cipher.decrypt_or_plain(&format!("{TOKEN_PREFIX}{nonce}.{ciphertext}")),
+                cipher.decrypt(&format!("{TOKEN_PREFIX}{nonce}.{ciphertext}")),
                 Err(McpError::Config(message))
                     if message == "Invalid encrypted token format (nonce length)"
             ));
