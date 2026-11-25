@@ -473,7 +473,7 @@ seren agent managed-held-releases <organization-id> refuse <held-release-id> --n
 3. `SEREN_RELEASE_KEY` (an organization release key)
 4. Your signed-in browser session (releasing in person; requires `seren auth login` with browser login, not an API key)
 
-`seren agent managed-release <organization-id> <folder>` releases an Employee folder in one step. It reads `<folder>/seren-release.json` (or `--settings <path>`), packages the folder (excluding the resolved release settings file when it lives inside the folder), gets a release pass using the proof order above (printing the proof used to standard error), uploads the bundle with that pass, and publishes the release using `--commit <sha>` or `git -C <folder> rev-parse HEAD` (a full 40- or 64-character hex commit SHA). When `rollout` is `true`, the publish call uses a 600-second timeout.
+`seren agent managed-release <organization-id> <folder>` releases an Employee folder in one step. It reads `<folder>/seren-release.json` (or `--settings <path>`), packages the folder (including a top-level `.skills/` directory while skipping other hidden entries and hidden entries inside `.skills/`, and excluding the resolved release settings file when it lives inside the folder), gets a release pass using the proof order above (printing the proof used to standard error), uploads the bundle with that pass, and publishes the release using `--commit <sha>` or `git -C <folder> rev-parse HEAD` (a full 40- or 64-character hex commit SHA). When `rollout` is `true`, the publish call uses a 600-second timeout.
 
 The `seren-release.json` settings file rejects unknown fields and accepts:
 
@@ -763,7 +763,7 @@ print(json.dumps({"fixture_verified": True}))
 **Packaging a bundle you can check.** `seren agent managed-files <deployment-id> --path ./employee` packages the folder like this:
 
 - Top-level `SKILL.md`, `IDENTITY.md`, `SOUL.md`, `AGENTS.md`, `TOOLS.md`, `MEMORY.md`, `HEARTBEAT.md`, `USER.md` and `EVAL.md` become instructions. Every other file, at any depth, becomes an asset.
-- Names that start with `.` are skipped at every depth, so `.git` and `.env` never ship.
+- Names that start with `.` are skipped at every depth except a top-level `.skills/` directory (whose own hidden entries are still skipped), so `.git` and `.env` never ship.
 - Symlinks are followed when they stay inside the folder and refused when they point outside it.
 - A top-level `requirements.txt` isn't part of the bundle and is left unchanged on the deployment.
 - Limits: 256 files, 1 MiB per instruction, 8 MiB per asset and 16 MiB in total.
