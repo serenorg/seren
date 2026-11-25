@@ -3394,4 +3394,575 @@ mod tests {
             "invitation_create must document JSON extractor failures",
         );
     }
+
+    #[tokio::test]
+    async fn release_sources_passes_and_held_releases_http_contract() {
+        use wiremock::matchers::query_param;
+
+        let server = MockServer::start().await;
+        let organization_id = Uuid::from_u128(501);
+        let source_id = Uuid::from_u128(502);
+        let key_source_id = Uuid::from_u128(503);
+        let approver_id = Uuid::from_u128(504);
+        let held_id = Uuid::from_u128(505);
+        let fingerprint = "a".repeat(64);
+        let timestamp = "2026-11-24T12:00:00Z";
+        let expires_at = "2026-12-24T12:00:00Z";
+
+        let signed_run_source = json!({
+            "id": source_id,
+            "organization_id": organization_id,
+            "kind": "signed_run",
+            "label": "Main CI",
+            "approved_by_user_id": approver_id,
+            "ci_product": "github_actions",
+            "issuer": "https://token.actions.githubusercontent.com",
+            "repository": "example/employees",
+            "branch": "main",
+            "environment": "production",
+            "templates": ["analyst"],
+            "last_used_at": timestamp,
+            "created_at": timestamp,
+            "updated_at": timestamp
+        });
+        let key_source = json!({
+            "id": key_source_id,
+            "organization_id": organization_id,
+            "kind": "release_key",
+            "label": "Temporary key",
+            "approved_by_user_id": approver_id,
+            "key_prefix": "serenrk_0123",
+            "expires_at": expires_at,
+            "templates": ["analyst"],
+            "created_at": timestamp,
+            "updated_at": timestamp
+        });
+        let mut created_key_source = key_source.clone();
+        created_key_source["release_key"] = json!("serenrk_synthetic_secret_once");
+        let mut updated_source = signed_run_source.clone();
+        updated_source
+            .as_object_mut()
+            .unwrap()
+            .remove("environment");
+        let mut revoked_source = signed_run_source.clone();
+        revoked_source["revoked_at"] = json!(timestamp);
+        revoked_source["revoked_by_user_id"] = json!(approver_id);
+
+        let run_wire = json!({
+            "product": "github_actions",
+            "repository": "example/employees",
+            "repository_id": "12345",
+            "commit": "b".repeat(40),
+            "run_id": "98765",
+            "run_attempt": "1"
+        });
+        let access_changes_wire = json!([
+            {
+                "change": "network_host_added",
+                "rule": {
+                    "host": "api.example.com",
+                    "port": 443,
+                    "protocol": "rest"
+                }
+            }
+        ]);
+        let comparison_wire = json!({
+            "kind": "access",
+            "access_changes": access_changes_wire,
+            "content_changes": {
+                "added": ["SKILL.md"],
+                "changed": ["TOOLS.md"],
+                "removed": []
+            }
+        });
+        let held_summary_wire = json!({
+            "id": held_id,
+            "slug": "analyst",
+            "reason": "access_change",
+            "comparison": comparison_wire,
+            "changes_fingerprint": fingerprint,
+            "run": run_wire,
+            "source_label": "Main CI",
+            "status": "pending",
+            "created_at": timestamp
+        });
+        let release_response_wire = json!({
+            "slug": "analyst",
+            "revision": 3,
+            "created": false,
+            "revision_added": true,
+            "active": true,
+            "listed": true,
+            "review_state": "approved",
+            "providers": [],
+            "access_changes": access_changes_wire
+        });
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/organizations/{organization_id}/release-sources"
+            )))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({"data": [signed_run_source, key_source]})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/release-sources"
+            )))
+            .and(body_json(json!({
+                "kind": "signed_run",
+                "label": "Main CI",
+                "ci_product": "github_actions",
+                "repository": "example/employees",
+                "branch": "main",
+                "environment": "production",
+                "templates": ["analyst"]
+            })))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({"data": signed_run_source})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/release-sources"
+            )))
+            .and(body_json(json!({
+                "kind": "release_key",
+                "label": "Temporary key",
+                "expires_in_days": 14,
+                "templates": ["analyst"]
+            })))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({"data": created_key_source})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("PATCH"))
+            .and(path(format!(
+                "/organizations/{organization_id}/release-sources/{source_id}"
+            )))
+            .and(body_json(json!({"environment": null})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": updated_source})))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("DELETE"))
+            .and(path(format!(
+                "/organizations/{organization_id}/release-sources/{source_id}"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": revoked_source})))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/release-passes"
+            )))
+            .and(body_json(
+                json!({"proof": "signed_run", "token": "synthetic-oidc"}),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
+                "pass": "serenpass_signed_run",
+                "expires_at": timestamp,
+                "release_source_id": source_id,
+                "templates": ["analyst"]
+            }})))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/release-passes"
+            )))
+            .and(body_json(
+                json!({"proof": "release_key", "key": "serenrk_synthetic"}),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
+                "pass": "serenpass_release_key",
+                "expires_at": timestamp,
+                "release_source_id": key_source_id,
+                "templates": ["analyst"]
+            }})))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/release-passes"
+            )))
+            .and(body_json(json!({"proof": "session"})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
+                "pass": "serenpass_in_person",
+                "expires_at": timestamp
+            }})))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/organizations/{organization_id}/held-releases"
+            )))
+            .and(query_param("status", "pending"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({"data": [held_summary_wire]})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/held-releases/{held_id}/approve"
+            )))
+            .and(body_json(json!({"changes_fingerprint": fingerprint})))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({"data": release_response_wire})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/held-releases/{held_id}/refuse"
+            )))
+            .and(body_json(json!({"note": "Wait for review"})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
+                "id": held_id,
+                "status": "refused"
+            }})))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!("/organizations/{organization_id}/templates")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": [
+                {
+                    "slug": "analyst",
+                    "display_name": "Analyst",
+                    "active": true,
+                    "listed": true,
+                    "current_revision": 3,
+                    "review_state": "approved",
+                    "release": {
+                        "source_label": "Main CI",
+                        "source_kind": "signed_run",
+                        "run": run_wire,
+                        "approved_by_user_id": approver_id
+                    }
+                },
+                {
+                    "slug": "legacy-agent",
+                    "display_name": "Legacy Agent",
+                    "active": true,
+                    "listed": false,
+                    "current_revision": 1,
+                    "review_state": "pending",
+                    "release": null
+                }
+            ]})))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = Client::new(&server.uri());
+
+        let listed = client
+            .list_managed_agent_release_sources(&organization_id)
+            .await
+            .unwrap()
+            .into_inner()
+            .data;
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0].kind, crate::ReleaseSourceKind::SignedRun);
+        assert_eq!(
+            listed[0].ci_product,
+            Some(crate::ReleaseCiProduct::GithubActions)
+        );
+        assert_eq!(listed[1].kind, crate::ReleaseSourceKind::ReleaseKey);
+        assert_eq!(listed[1].key_prefix.as_deref(), Some("serenrk_0123"));
+
+        let created_ci = client
+            .create_managed_agent_release_source(
+                &organization_id,
+                &crate::CreateManagedAgentReleaseSourceRequest::SignedRun {
+                    label: "Main CI".into(),
+                    ci_product: crate::ReleaseCiProduct::GithubActions,
+                    issuer: None,
+                    repository: "example/employees".into(),
+                    branch: "main".into(),
+                    environment: Some("production".into()),
+                    templates: vec!["analyst".into()],
+                },
+            )
+            .await
+            .unwrap()
+            .into_inner()
+            .data;
+        assert_eq!(created_ci.id, source_id);
+        assert!(created_ci.release_key.is_none());
+
+        let created_key = client
+            .create_managed_agent_release_source(
+                &organization_id,
+                &crate::CreateManagedAgentReleaseSourceRequest::ReleaseKey {
+                    label: "Temporary key".into(),
+                    expires_in_days: 14,
+                    templates: vec!["analyst".into()],
+                },
+            )
+            .await
+            .unwrap()
+            .into_inner()
+            .data;
+        assert_eq!(created_key.id, key_source_id);
+        assert_eq!(
+            created_key.release_key.as_deref(),
+            Some("serenrk_synthetic_secret_once")
+        );
+
+        let updated = client
+            .update_managed_agent_release_source(
+                &organization_id,
+                &source_id,
+                &crate::UpdateManagedAgentReleaseSourceRequest {
+                    environment: Some(None),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap()
+            .into_inner()
+            .data;
+        assert!(updated.environment.is_none());
+
+        let revoked = client
+            .revoke_managed_agent_release_source(&organization_id, &source_id)
+            .await
+            .unwrap()
+            .into_inner()
+            .data;
+        assert!(revoked.revoked_at.is_some());
+        assert_eq!(revoked.revoked_by_user_id, Some(approver_id));
+
+        let signed_pass = client
+            .create_managed_agent_release_pass(
+                &organization_id,
+                &crate::CreateManagedAgentReleasePassRequest::SignedRun {
+                    token: "synthetic-oidc".into(),
+                },
+            )
+            .await
+            .unwrap()
+            .into_inner()
+            .data;
+        assert_eq!(signed_pass.pass, "serenpass_signed_run");
+        assert_eq!(signed_pass.release_source_id, Some(source_id));
+        assert_eq!(signed_pass.templates, Some(vec!["analyst".into()]));
+
+        let key_pass = client
+            .create_managed_agent_release_pass(
+                &organization_id,
+                &crate::CreateManagedAgentReleasePassRequest::ReleaseKey {
+                    key: "serenrk_synthetic".into(),
+                },
+            )
+            .await
+            .unwrap()
+            .into_inner()
+            .data;
+        assert_eq!(key_pass.pass, "serenpass_release_key");
+        assert_eq!(key_pass.release_source_id, Some(key_source_id));
+
+        let session_pass = client
+            .create_managed_agent_release_pass(
+                &organization_id,
+                &crate::CreateManagedAgentReleasePassRequest::Session,
+            )
+            .await
+            .unwrap()
+            .into_inner()
+            .data;
+        assert_eq!(session_pass.pass, "serenpass_in_person");
+        assert!(session_pass.release_source_id.is_none());
+        assert!(session_pass.templates.is_none());
+
+        let held = client
+            .list_managed_agent_held_releases(
+                &organization_id,
+                Some(crate::HeldReleaseStatus::Pending),
+            )
+            .await
+            .unwrap()
+            .into_inner()
+            .data;
+        assert_eq!(held.len(), 1);
+        assert_eq!(held[0].id, held_id);
+        assert_eq!(held[0].reason, crate::HeldReleaseReason::AccessChange);
+        assert_eq!(held[0].status, crate::HeldReleaseStatus::Pending);
+        assert_eq!(held[0].changes_fingerprint, fingerprint);
+        assert_eq!(
+            held[0].comparison.as_ref().unwrap().kind,
+            crate::TemplateUpdateKind::Access
+        );
+        assert_eq!(held[0].comparison.as_ref().unwrap().access_changes.len(), 1);
+
+        let approved = client
+            .approve_managed_agent_held_release(
+                &organization_id,
+                &held_id,
+                &crate::ApproveHeldReleaseRequest {
+                    changes_fingerprint: fingerprint.clone(),
+                },
+            )
+            .await
+            .unwrap()
+            .into_inner()
+            .data;
+        assert_eq!(approved.revision, 3);
+        assert_eq!(approved.access_changes.as_ref().map(Vec::len), Some(1));
+
+        let refused = client
+            .refuse_managed_agent_held_release(
+                &organization_id,
+                &held_id,
+                &crate::RefuseHeldReleaseRequest {
+                    note: "Wait for review".parse().unwrap(),
+                },
+            )
+            .await
+            .unwrap()
+            .into_inner()
+            .data;
+        assert_eq!(refused.id, held_id);
+        assert_eq!(refused.status, crate::HeldReleaseStatus::Refused);
+
+        let templates = client
+            .list_organization_managed_agent_templates(&organization_id)
+            .await
+            .unwrap()
+            .into_inner()
+            .data;
+        assert_eq!(templates.len(), 2);
+        let release = templates[0]
+            .release
+            .as_ref()
+            .expect("release metadata present");
+        assert_eq!(release.source_label.as_deref(), Some("Main CI"));
+        assert_eq!(
+            release.source_kind,
+            Some(crate::ReleaseSourceKind::SignedRun)
+        );
+        assert_eq!(release.approved_by_user_id, Some(approver_id));
+        assert_eq!(
+            release.run.as_ref().map(|run| run.repository.as_str()),
+            Some("example/employees")
+        );
+        assert!(templates[1].release.is_none());
+
+        server.verify().await;
+    }
+
+    #[tokio::test]
+    async fn template_release_and_held_release_approval_preserve_conflict_bodies() {
+        let server = MockServer::start().await;
+        let organization_id = Uuid::from_u128(601);
+        let held_id = Uuid::from_u128(602);
+        let fingerprint = "c".repeat(64);
+        let held_body = json!({
+            "error": "managed_agent_release_held",
+            "message": "This release waits for an Owner or Admin to approve it.",
+            "details": {
+                "held_release_id": held_id,
+                "reason": "access_change",
+                "changes_fingerprint": fingerprint,
+                "approve_path": format!("/organizations/{organization_id}/held-releases/{held_id}/approve")
+            }
+        });
+        let changed_body = json!({
+            "error": "managed_agent_held_release_changed",
+            "message": "This release changed while waiting for approval.",
+            "details": {
+                "changes_fingerprint": "d".repeat(64)
+            }
+        });
+
+        let request_wire = template_release_request_wire();
+        let release_request: crate::PublishManagedAgentTemplateReleaseRequest =
+            serde_json::from_value(request_wire).unwrap();
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/templates/release-test/releases"
+            )))
+            .respond_with(ResponseTemplate::new(409).set_body_json(held_body.clone()))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/held-releases/{held_id}/approve"
+            )))
+            .respond_with(ResponseTemplate::new(409).set_body_json(changed_body.clone()))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = Client::new(&server.uri());
+
+        let release_err = client
+            .publish_managed_agent_template_release(
+                &organization_id,
+                "release-test",
+                &release_request,
+            )
+            .await
+            .expect_err("held release 409 must remain an error");
+        let crate::Error::UnexpectedResponse(release_resp) = release_err else {
+            panic!("held release 409 must retain its raw HTTP response");
+        };
+        assert_eq!(release_resp.status().as_u16(), 409);
+        assert_eq!(
+            release_resp.json::<serde_json::Value>().await.unwrap(),
+            held_body
+        );
+
+        let approve_err = client
+            .approve_managed_agent_held_release(
+                &organization_id,
+                &held_id,
+                &crate::ApproveHeldReleaseRequest {
+                    changes_fingerprint: fingerprint,
+                },
+            )
+            .await
+            .expect_err("stale fingerprint 409 must remain an error");
+        let crate::Error::UnexpectedResponse(approve_resp) = approve_err else {
+            panic!("stale fingerprint 409 must retain its raw HTTP response");
+        };
+        assert_eq!(approve_resp.status().as_u16(), 409);
+        assert_eq!(
+            approve_resp.json::<serde_json::Value>().await.unwrap(),
+            changed_body
+        );
+
+        server.verify().await;
+    }
 }
