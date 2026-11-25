@@ -193,6 +193,8 @@ pub enum ManagedAction {
         #[arg(long)]
         request: PathBuf,
     },
+    /// Get a short-lived release pass for an organization
+    ManagedReleasePass { organization_id: Uuid },
 }
 
 #[derive(Subcommand)]
@@ -529,6 +531,9 @@ async fn print_run_timeline(
 }
 
 pub async fn execute(action: ManagedAction, ctx: &CommandContext) -> Result<()> {
+    if let ManagedAction::ManagedReleasePass { organization_id } = action {
+        return super::release_pass::execute(organization_id, ctx).await;
+    }
     // These operations use the caller's owner credential. Core enforces ownership and rejects runtime/work-context credentials.
     let client = ctx.client().await?;
     macro_rules! respond {
@@ -845,6 +850,7 @@ pub async fn execute(action: ManagedAction, ctx: &CommandContext) -> Result<()> 
                 &request
             ));
         }
+        ManagedAction::ManagedReleasePass { .. } => unreachable!("handled above"),
     }
     Ok(())
 }
