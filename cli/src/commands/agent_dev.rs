@@ -206,6 +206,16 @@ pub fn package_agent_directory(options: &DevAgentOptions) -> Result<AgentSpecDra
 /// [`MAX_BUNDLE_TOTAL_BYTES`]) up-front so an oversized directory fails locally
 /// with a clear error instead of being rejected after a long upload.
 pub fn package_agent_bundle(dir: &Path) -> Result<AgentBundleDraft> {
+    package_agent_bundle_excluding(dir, None)
+}
+
+/// Package repository files into the managed-agent bundle wire format,
+/// optionally excluding a single file (such as the CLI release settings file)
+/// when it resides inside `dir`.
+pub(crate) fn package_agent_bundle_excluding(
+    dir: &Path,
+    excluded_file: Option<&Path>,
+) -> Result<AgentBundleDraft> {
     if !dir.is_dir() {
         anyhow::bail!("'{}' is not a directory", dir.display());
     }
@@ -215,12 +225,21 @@ pub fn package_agent_bundle(dir: &Path) -> Result<AgentBundleDraft> {
     let root_canonical = dir
         .canonicalize()
         .with_context(|| format!("Could not canonicalize '{}'", dir.display()))?;
+    let excluded = excluded_file.map(|path| resolve_excluded_bundle_file(path, &root_canonical));
 
     // Walk the directory in sorted order so the resulting bundle is stable
     // across runs and platforms. The map is keyed by the bundle-relative
     // path so each file's intended target slot is explicit.
     let mut entries: BTreeMap<String, CollectedFile> = BTreeMap::new();
-    collect_files(dir, dir, &root_canonical, false, &mut entries)?;
+    collect_files(
+        dir,
+        dir,
+        &root_canonical,
+        &root_canonical,
+        false,
+        excluded.as_ref(),
+        &mut entries,
+    )?;
 
     let mut instructions: Vec<seren::AgentInstructionFile> = Vec::new();
     let mut assets: Vec<seren::AgentAssetFile> = Vec::new();
@@ -345,6 +364,34 @@ struct CollectedFile {
     via_symlink: bool,
 }
 
+/// A single file excluded from bundle collection (for example, `seren-release.json`).
+struct ExcludedBundleFile {
+    /// Entry location formed from the canonicalized parent directory plus the
+    /// literal entry name, checked before following an entry's own symlink so
+    /// an excluded settings symlink pointing outside the bundle root is skipped.
+    entry_location: Option<PathBuf>,
+    /// Canonicalized target path when it resolves inside the bundle root.
+    canonical_target: Option<PathBuf>,
+}
+
+fn resolve_excluded_bundle_file(excluded_file: &Path, root_canonical: &Path) -> ExcludedBundleFile {
+    let entry_location = excluded_file.file_name().and_then(|file_name| {
+        let parent = match excluded_file.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent,
+            _ => Path::new("."),
+        };
+        parent.canonicalize().ok().map(|dir| dir.join(file_name))
+    });
+    let canonical_target = excluded_file
+        .canonicalize()
+        .ok()
+        .filter(|path| path.starts_with(root_canonical));
+    ExcludedBundleFile {
+        entry_location,
+        canonical_target,
+    }
+}
+
 /// Recursively walk `dir`, populating `entries` with bundle-relative paths
 /// for every regular file under the input directory. Hidden entries are
 /// skipped at every depth. Symlinks whose canonical target escapes
@@ -352,8 +399,10 @@ struct CollectedFile {
 fn collect_files(
     dir: &std::path::Path,
     root: &std::path::Path,
+    dir_canonical: &std::path::Path,
     root_canonical: &std::path::Path,
     via_symlink: bool,
+    excluded: Option<&ExcludedBundleFile>,
     entries: &mut BTreeMap<String, CollectedFile>,
 ) -> Result<()> {
     for entry in std::fs::read_dir(dir)
@@ -369,6 +418,13 @@ fn collect_files(
         }
         let path = entry.path();
         let file_type = entry.file_type()?;
+
+        if !file_type.is_dir()
+            && let Some(excluded) = excluded
+            && excluded.entry_location.as_deref() == Some(dir_canonical.join(&name).as_path())
+        {
+            continue;
+        }
 
         // Both files and dirs reached via symlinks have to canonicalize back
         // inside the root. Resolving here covers the symlink-to-outside case
@@ -388,14 +444,22 @@ fn collect_files(
             collect_files(
                 &path,
                 root,
+                &canonical,
                 root_canonical,
                 via_symlink || file_type.is_symlink(),
+                excluded,
                 entries,
             )?;
             continue;
         }
 
         if !(file_type.is_file() || (file_type.is_symlink() && canonical.is_file())) {
+            continue;
+        }
+
+        if let Some(excluded) = excluded
+            && excluded.canonical_target.as_deref() == Some(canonical.as_path())
+        {
             continue;
         }
 
