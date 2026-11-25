@@ -1,6 +1,10 @@
 //! Owner-facing managed agent operations. Runtime-only record writes and browser relay APIs belong to the deployed runtime.
 
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    io::{BufRead, IsTerminal, Write},
+    path::PathBuf,
+};
 
 use anyhow::{Context, Result};
 use clap::{Subcommand, ValueEnum};
@@ -56,6 +60,47 @@ pub enum InboxDecision {
     Approve,
     AllowAlways,
     Deny,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum ReleaseSourceProduct {
+    #[value(alias = "github_actions")]
+    GithubActions,
+    Gitlab,
+    Circleci,
+}
+
+impl From<ReleaseSourceProduct> for seren::ReleaseCiProduct {
+    fn from(product: ReleaseSourceProduct) -> Self {
+        match product {
+            ReleaseSourceProduct::GithubActions => Self::GithubActions,
+            ReleaseSourceProduct::Gitlab => Self::Gitlab,
+            ReleaseSourceProduct::Circleci => Self::Circleci,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum HeldReleaseStatusFilter {
+    Pending,
+    Approved,
+    Refused,
+    Replaced,
+    Lapsed,
+    Cancelled,
+}
+
+impl From<HeldReleaseStatusFilter> for seren::HeldReleaseStatus {
+    fn from(status: HeldReleaseStatusFilter) -> Self {
+        match status {
+            HeldReleaseStatusFilter::Pending => Self::Pending,
+            HeldReleaseStatusFilter::Approved => Self::Approved,
+            HeldReleaseStatusFilter::Refused => Self::Refused,
+            HeldReleaseStatusFilter::Replaced => Self::Replaced,
+            HeldReleaseStatusFilter::Lapsed => Self::Lapsed,
+            HeldReleaseStatusFilter::Cancelled => Self::Cancelled,
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -195,6 +240,105 @@ pub enum ManagedAction {
     },
     /// Get a short-lived release pass for an organization
     ManagedReleasePass { organization_id: Uuid },
+    /// List, approve, edit, or revoke Employee release sources
+    ManagedReleaseSources {
+        organization_id: Uuid,
+        #[command(subcommand)]
+        action: ReleaseSourceAction,
+    },
+    /// List, approve, or refuse held Employee releases
+    ManagedHeldReleases {
+        organization_id: Uuid,
+        #[command(subcommand)]
+        action: HeldReleaseAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ReleaseSourceAction {
+    /// List approved release sources for the organization
+    List,
+    /// Approve a CI repository and branch as a signed-run release source; requires browser login
+    Approve {
+        /// CI product that signs release runs
+        #[arg(long, value_enum)]
+        product: ReleaseSourceProduct,
+        /// Repository as named by the CI product (`owner/name`, GitLab project path, or `host/org/repo`)
+        #[arg(long)]
+        repository: String,
+        /// Branch name, not a `refs/` path
+        #[arg(long)]
+        branch: String,
+        /// CI environment required on the run, if any
+        #[arg(long)]
+        environment: Option<String>,
+        /// Token issuer URL (optional for GitLab, required for CircleCI)
+        #[arg(long)]
+        issuer: Option<String>,
+        /// Human-readable label for this release source
+        #[arg(long)]
+        label: String,
+        /// Employee template slug this source may release (repeat for multiple)
+        #[arg(long = "template", value_name = "SLUG", required = true)]
+        templates: Vec<String>,
+    },
+    /// Create a short-lived organization release key (1 to 30 days); requires browser login
+    CreateKey {
+        /// Human-readable label for this release key
+        #[arg(long)]
+        label: String,
+        /// Lifetime in days, from 1 to 30
+        #[arg(long, value_parser = clap::value_parser!(i64).range(1..=30))]
+        days: i64,
+        /// Employee template slug this key may release (repeat for multiple)
+        #[arg(long = "template", value_name = "SLUG", required = true)]
+        templates: Vec<String>,
+    },
+    /// Edit an approved release source; requires browser login
+    Edit {
+        release_source_id: Uuid,
+        /// Replace the release source label
+        #[arg(long)]
+        label: Option<String>,
+        /// Replace the branch for a signed-run source
+        #[arg(long)]
+        branch: Option<String>,
+        /// Set or replace the required CI environment for a signed-run source
+        #[arg(long)]
+        environment: Option<String>,
+        /// Remove the CI environment requirement from a signed-run source
+        #[arg(long, conflicts_with = "environment")]
+        clear_environment: bool,
+        /// Replace the Employee template slugs this source may release (repeat for multiple)
+        #[arg(long = "template", value_name = "SLUG")]
+        templates: Vec<String>,
+    },
+    /// Revoke an approved release source; requires browser login
+    Revoke { release_source_id: Uuid },
+}
+
+#[derive(Subcommand)]
+pub enum HeldReleaseAction {
+    /// List held releases for the organization (pending by default)
+    List {
+        /// Filter by held release status
+        #[arg(long, value_enum)]
+        status: Option<HeldReleaseStatusFilter>,
+    },
+    /// Approve a held release after reviewing its changes
+    Approve {
+        held_release_id: Uuid,
+        /// Fingerprint of the reviewed changes; omitted to fetch, show, and approve current changes
+        #[arg(long)]
+        fingerprint: Option<String>,
+    },
+    /// Refuse a held release with an explanation
+    Refuse {
+        held_release_id: Uuid,
+        /// Reason for refusing the release (1 to 2000 characters)
+        #[arg(long)]
+        note: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -439,8 +583,737 @@ fn reload_request(
     })
 }
 
+const TEMPLATE_ROLLOUT_TIMEOUT_SECS: u64 = 600;
+const RELEASE_KEY_STORE_ONCE_NOTICE: &str = "Store it now. Seren will not show it again.";
+
 fn template_publication_timeout(rollout: Option<bool>) -> Option<u64> {
-    (rollout == Some(true)).then_some(600)
+    (rollout == Some(true)).then_some(TEMPLATE_ROLLOUT_TIMEOUT_SECS)
+}
+
+async fn client_with_timeout(ctx: &CommandContext, timeout_secs: u64) -> Result<seren::Client> {
+    let bearer_token = super::auth::get_bearer_token(ctx.api_key.clone()).await?;
+    seren::Client::from_config(
+        &seren::ClientConfig::new(bearer_token)
+            .with_base_url(ctx.api_base())
+            .with_timeout(timeout_secs),
+    )
+    .map_err(|e| anyhow::anyhow!("Failed to create API client: {e}"))
+}
+
+fn edit_release_source_request(
+    label: Option<String>,
+    branch: Option<String>,
+    environment: Option<String>,
+    clear_environment: bool,
+    templates: Vec<String>,
+) -> Result<seren::UpdateManagedAgentReleaseSourceRequest> {
+    if clear_environment && environment.is_some() {
+        anyhow::bail!("--clear-environment cannot be combined with --environment.");
+    }
+    let environment = if clear_environment {
+        Some(None)
+    } else {
+        environment.map(Some)
+    };
+    let templates = (!templates.is_empty()).then_some(templates);
+    if label.is_none() && branch.is_none() && environment.is_none() && templates.is_none() {
+        anyhow::bail!(
+            "Specify at least one of --label, --branch, --environment, --clear-environment, or --template."
+        );
+    }
+    Ok(seren::UpdateManagedAgentReleaseSourceRequest {
+        label,
+        branch,
+        environment,
+        templates,
+    })
+}
+
+fn owner_connection_label(value: &str) -> &str {
+    match value {
+        "mail_and_files" => "mail and files",
+        "mail_read" => "mail read",
+        "sign_in_only" => "sign-in only",
+        other => other,
+    }
+}
+
+fn network_protocol_label(protocol: seren::AgentNetworkProtocol) -> &'static str {
+    match protocol {
+        seren::AgentNetworkProtocol::Tcp => "TCP",
+        seren::AgentNetworkProtocol::Rest => "REST",
+        seren::AgentNetworkProtocol::Sse => "SSE",
+        seren::AgentNetworkProtocol::Websocket => "WebSocket",
+    }
+}
+
+fn deployment_mode_label(mode: seren::CloudDeploymentMode) -> &'static str {
+    match mode {
+        seren::CloudDeploymentMode::AlwaysOn => "always-on",
+        seren::CloudDeploymentMode::Cron => "cron",
+        seren::CloudDeploymentMode::Job => "job",
+    }
+}
+
+fn model_policy_label(policy: seren::ManagedAgentModelPolicy) -> &'static str {
+    match policy {
+        seren::ManagedAgentModelPolicy::Fast => "fast",
+        seren::ManagedAgentModelPolicy::Balanced => "balanced",
+        seren::ManagedAgentModelPolicy::Deep => "deep",
+    }
+}
+
+fn owner_model_fallback_label(fallback: &seren::ManagedOwnerModelFallback) -> String {
+    let provider = match fallback.provider {
+        seren::ManagedOwnerModelFallbackProvider::SerenPrivateModels => "Seren Private Models",
+    };
+    if fallback.fallback_models.is_empty() {
+        format!("{provider} {}", fallback.model_id)
+    } else {
+        format!(
+            "{provider} {} (then {})",
+            fallback.model_id,
+            fallback.fallback_models.join(", ")
+        )
+    }
+}
+
+fn llm_connection_label(connection: Option<&seren::ManagedAgentTemplateLlmConnection>) -> String {
+    match connection {
+        None => "default Seren Private Model".to_string(),
+        Some(seren::ManagedAgentTemplateLlmConnection::SerenPrivateModels {
+            model_id: None,
+            fallback_models,
+        }) if fallback_models.is_empty() => "default Seren Private Model".to_string(),
+        Some(seren::ManagedAgentTemplateLlmConnection::SerenPrivateModels {
+            model_id: None,
+            fallback_models,
+        }) => format!(
+            "default Seren Private Model (fallback: {})",
+            fallback_models.join(", ")
+        ),
+        Some(seren::ManagedAgentTemplateLlmConnection::SerenPrivateModels {
+            model_id: Some(model_id),
+            fallback_models,
+        }) if fallback_models.is_empty() => format!("Seren Private Models ({model_id})"),
+        Some(seren::ManagedAgentTemplateLlmConnection::SerenPrivateModels {
+            model_id: Some(model_id),
+            fallback_models,
+        }) => format!(
+            "Seren Private Models ({model_id}; fallback: {})",
+            fallback_models.join(", ")
+        ),
+        Some(seren::ManagedAgentTemplateLlmConnection::Codex { model_id, fallback }) => format!(
+            "Codex ({model_id}; fallback: {})",
+            owner_model_fallback_label(fallback)
+        ),
+        Some(seren::ManagedAgentTemplateLlmConnection::ProviderKeys { model_id, fallback }) => {
+            format!(
+                "provider keys ({model_id}; fallback: {})",
+                owner_model_fallback_label(fallback)
+            )
+        }
+        Some(seren::ManagedAgentTemplateLlmConnection::SerenModels { model_id }) => {
+            format!("Seren Models ({model_id})")
+        }
+    }
+}
+
+fn guarded_purchase_rule_label(rule: &seren::GuardedPurchaseRule) -> String {
+    let form_fields = if rule.form_fields.is_some() {
+        " with form fields"
+    } else {
+        ""
+    };
+    format!(
+        "{} {}{} ({}{form_fields})",
+        rule.method, rule.host, rule.path_pattern, rule.checkout
+    )
+}
+
+fn guarded_submission_rule_label(rule: &seren::GuardedSubmissionRule) -> String {
+    let ops = match rule.graphql_operation_names.as_deref() {
+        Some(names) if !names.is_empty() => format!(" (GraphQL: {})", names.join(", ")),
+        _ => String::new(),
+    };
+    format!("{} {}{}{ops}", rule.method, rule.host, rule.path_pattern)
+}
+
+fn format_rule_list(items: Vec<String>) -> String {
+    if items.is_empty() {
+        "none".to_string()
+    } else {
+        items.join(", ")
+    }
+}
+
+fn cardano_signing_label(cfg: &seren::ManagedAgentTemplateCardanoSigning) -> String {
+    format!(
+        "builder {}, debt_asset {}, payout_assets [{}], lender_scripts [{}], swap_scripts [{}], venue_scripts [{}], mint_policies [{}], max_borrow_ratio_bps {}, max_loan_rate_bps {}, max_lend_rate_bps {}",
+        cfg.builder_script,
+        cfg.debt_asset,
+        cfg.payout_assets.join(", "),
+        cfg.lender_scripts.join(", "),
+        cfg.swap_scripts.join(", "),
+        cfg.venue_scripts.join(", "),
+        cfg.mint_policies.join(", "),
+        cfg.max_borrow_ratio_bps,
+        cfg.max_loan_rate_bps,
+        cfg.max_lend_rate_bps,
+    )
+}
+
+fn browser_defaults_label(browser: &seren::ManagedAgentTemplateBrowserDefaults) -> String {
+    let display = match browser.display {
+        seren::BrowserDisplay::Headless => "headless",
+        seren::BrowserDisplay::Headed => "headed",
+    };
+    let mut parts = vec![
+        display.to_string(),
+        format!("max session {}s", browser.max_session_seconds),
+    ];
+    if let Some(links) = browser.links {
+        let links_label = match links {
+            seren::BrowserLinks::Any => "any HTTPS link",
+            seren::BrowserLinks::SentOnly => "conversation links only",
+        };
+        parts.push(links_label.to_string());
+    }
+    if browser.public_web == Some(true) {
+        parts.push("public web reader enabled".to_string());
+    }
+    parts.join(", ")
+}
+
+fn runtime_class_label(class: Option<seren::ManagedAgentTemplateRuntimeClass>) -> &'static str {
+    match class {
+        None => "default",
+        Some(seren::ManagedAgentTemplateRuntimeClass::Gvisor) => "gvisor",
+        Some(seren::ManagedAgentTemplateRuntimeClass::Kata) => "kata",
+    }
+}
+
+fn native_tools_label(tools: &[seren::AgentNativeToolSet]) -> String {
+    if tools.is_empty() {
+        "none".to_string()
+    } else {
+        tools
+            .iter()
+            .map(|tool| match tool {
+                seren::AgentNativeToolSet::Onepassword => "1Password",
+                seren::AgentNativeToolSet::SerenSupport => "Seren Support",
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
+fn describe_access_change(change: &seren::TemplateAccessChange) -> String {
+    match change {
+        seren::TemplateAccessChange::OwnerConnectionChanged { before, after } => format!(
+            "Employer account connection changed from {} to {}.",
+            owner_connection_label(before),
+            owner_connection_label(after)
+        ),
+        seren::TemplateAccessChange::PublisherGrantAdded { grant } => {
+            let operation = grant
+                .operation_id
+                .as_deref()
+                .map(|id| format!(" [{id}]"))
+                .unwrap_or_default();
+            let approval = if grant.require_approval {
+                " (requires approval)"
+            } else {
+                ""
+            };
+            format!(
+                "Added script access to {} {} {}{operation}{approval}.",
+                grant.publisher_slug, grant.method, grant.path
+            )
+        }
+        seren::TemplateAccessChange::PublisherGrantRemoved { grant } => {
+            let operation = grant
+                .operation_id
+                .as_deref()
+                .map(|id| format!(" [{id}]"))
+                .unwrap_or_default();
+            format!(
+                "Removed script access to {} {} {}{operation}.",
+                grant.publisher_slug, grant.method, grant.path
+            )
+        }
+        seren::TemplateAccessChange::PublisherGrantChanged { before, after } => {
+            let operation = after
+                .operation_id
+                .as_deref()
+                .map(|id| format!(" [{id}]"))
+                .unwrap_or_default();
+            format!(
+                "Changed script access approval for {} {} {}{operation} from {} to {}.",
+                after.publisher_slug,
+                after.method,
+                after.path,
+                if before.require_approval {
+                    "approval required"
+                } else {
+                    "no approval required"
+                },
+                if after.require_approval {
+                    "approval required"
+                } else {
+                    "no approval required"
+                }
+            )
+        }
+        seren::TemplateAccessChange::NetworkHostAdded { rule } => format!(
+            "Added outbound network host {}:{} ({}).",
+            rule.host,
+            rule.port,
+            network_protocol_label(rule.protocol)
+        ),
+        seren::TemplateAccessChange::NetworkHostRemoved { rule } => format!(
+            "Removed outbound network host {}:{} ({}).",
+            rule.host,
+            rule.port,
+            network_protocol_label(rule.protocol)
+        ),
+        seren::TemplateAccessChange::GuardedPurchasesChanged { before, after } => format!(
+            "Changed guarded purchase rules from {} to {}.",
+            format_rule_list(before.iter().map(guarded_purchase_rule_label).collect()),
+            format_rule_list(after.iter().map(guarded_purchase_rule_label).collect()),
+        ),
+        seren::TemplateAccessChange::GuardedSubmissionsChanged { before, after } => format!(
+            "Changed guarded submission rules from {} to {}.",
+            format_rule_list(before.iter().map(guarded_submission_rule_label).collect()),
+            format_rule_list(after.iter().map(guarded_submission_rule_label).collect()),
+        ),
+        seren::TemplateAccessChange::CardanoSigningChanged { before, after } => {
+            match (before.as_ref(), after.as_ref()) {
+                (None, Some(after)) => format!(
+                    "Enabled Cardano transaction signing ({}).",
+                    cardano_signing_label(after)
+                ),
+                (Some(before), None) => format!(
+                    "Disabled Cardano transaction signing (was {}).",
+                    cardano_signing_label(before)
+                ),
+                (Some(before), Some(after)) => format!(
+                    "Changed Cardano transaction signing from {} to {}.",
+                    cardano_signing_label(before),
+                    cardano_signing_label(after)
+                ),
+                (None, None) => "Changed Cardano transaction signing rules.".to_string(),
+            }
+        }
+        seren::TemplateAccessChange::WorkloadEgressChanged { before, after } => format!(
+            "Changed workload network egress from {} to {}.",
+            if *before { "enabled" } else { "disabled" },
+            if *after { "enabled" } else { "disabled" }
+        ),
+        seren::TemplateAccessChange::ScriptModelKeyChanged { before, after } => format!(
+            "Changed script model key access from {} to {}.",
+            if *before { "enabled" } else { "disabled" },
+            if *after { "enabled" } else { "disabled" }
+        ),
+        seren::TemplateAccessChange::PackagesChanged { added, removed } => {
+            let mut parts = Vec::new();
+            if !added.is_empty() {
+                parts.push(format!("added {}", added.join(", ")));
+            }
+            if !removed.is_empty() {
+                parts.push(format!("removed {}", removed.join(", ")));
+            }
+            if parts.is_empty() {
+                "Changed Python package requirements.".to_string()
+            } else {
+                format!("Changed Python packages: {}.", parts.join("; "))
+            }
+        }
+        seren::TemplateAccessChange::ModeChanged { before, after } => format!(
+            "Changed deployment mode from {} to {}.",
+            deployment_mode_label(*before),
+            deployment_mode_label(*after)
+        ),
+        seren::TemplateAccessChange::ModelPolicyChanged { before, after } => format!(
+            "Changed model policy from {} to {}.",
+            model_policy_label(*before),
+            model_policy_label(*after)
+        ),
+        seren::TemplateAccessChange::ModelConnectionChanged { before, after } => format!(
+            "Changed model connection from {} to {}.",
+            llm_connection_label(before.as_ref()),
+            llm_connection_label(after.as_ref())
+        ),
+        seren::TemplateAccessChange::BrowserChanged { before, after } => format!(
+            "Changed browser settings from {} to {}.",
+            browser_defaults_label(before),
+            browser_defaults_label(after)
+        ),
+        seren::TemplateAccessChange::RuntimeClassChanged { before, after } => format!(
+            "Changed runtime class from {} to {}.",
+            runtime_class_label(*before),
+            runtime_class_label(*after)
+        ),
+        seren::TemplateAccessChange::NativeToolsChanged { before, after } => format!(
+            "Changed native tools from {} to {}.",
+            native_tools_label(before),
+            native_tools_label(after)
+        ),
+        seren::TemplateAccessChange::MaxRuntimeChanged {
+            before_seconds,
+            after_seconds,
+        } => format!("Changed maximum runtime from {before_seconds}s to {after_seconds}s."),
+        seren::TemplateAccessChange::CronScheduleChanged { before, after } => {
+            format!("Changed schedule from `{before}` to `{after}`.")
+        }
+        seren::TemplateAccessChange::SkillSpecificationChanged { path, file_change } => {
+            let verb = match file_change {
+                seren::TemplateFileChange::Added => "added",
+                seren::TemplateFileChange::Changed => "changed",
+                seren::TemplateFileChange::Removed => "removed",
+                seren::TemplateFileChange::Other(other) => other.as_str(),
+            };
+            format!("Skill specification `{path}` was {verb}.")
+        }
+        seren::TemplateAccessChange::SkillToolsChanged {
+            path,
+            before,
+            after,
+        } => {
+            let format_tools = |tools: Option<&Vec<String>>| match tools {
+                None => "unrestricted".to_string(),
+                Some(list) if list.is_empty() => "none".to_string(),
+                Some(list) => list.join(", "),
+            };
+            format!(
+                "Changed allowed tools in `{path}` from {} to {}.",
+                format_tools(before.as_ref()),
+                format_tools(after.as_ref())
+            )
+        }
+    }
+}
+
+fn comparison_change_sentences(comparison: &seren::TemplateRevisionComparison) -> Vec<String> {
+    let mut sentences: Vec<String> = comparison
+        .access_changes
+        .iter()
+        .map(describe_access_change)
+        .collect();
+    if !comparison.content_changes.added.is_empty() {
+        sentences.push(format!(
+            "Added files: {}.",
+            comparison.content_changes.added.join(", ")
+        ));
+    }
+    if !comparison.content_changes.changed.is_empty() {
+        sentences.push(format!(
+            "Changed files: {}.",
+            comparison.content_changes.changed.join(", ")
+        ));
+    }
+    if !comparison.content_changes.removed.is_empty() {
+        sentences.push(format!(
+            "Removed files: {}.",
+            comparison.content_changes.removed.join(", ")
+        ));
+    }
+    sentences
+}
+
+fn held_release_reason_label(reason: &seren::HeldReleaseReason) -> String {
+    match reason {
+        seren::HeldReleaseReason::FirstRelease => "First release".to_string(),
+        seren::HeldReleaseReason::AccessChange => "Access change".to_string(),
+        seren::HeldReleaseReason::Other(other) => other.clone(),
+    }
+}
+
+fn held_release_status_label(status: seren::HeldReleaseStatus) -> &'static str {
+    match status {
+        seren::HeldReleaseStatus::Pending => "pending",
+        seren::HeldReleaseStatus::Approved => "approved",
+        seren::HeldReleaseStatus::Refused => "refused",
+        seren::HeldReleaseStatus::Replaced => "replaced",
+        seren::HeldReleaseStatus::Lapsed => "lapsed",
+        seren::HeldReleaseStatus::Cancelled => "cancelled",
+    }
+}
+
+fn held_release_change_sentences(hold: &seren::HeldReleaseSummary) -> Vec<String> {
+    if let Some(comparison) = hold.comparison.as_ref() {
+        let sentences = comparison_change_sentences(comparison);
+        if !sentences.is_empty() {
+            return sentences;
+        }
+    }
+    match &hold.reason {
+        seren::HeldReleaseReason::FirstRelease => {
+            vec!["First release of this Employee (no previous revision to compare).".to_string()]
+        }
+        seren::HeldReleaseReason::AccessChange => {
+            vec!["No itemized changes reported.".to_string()]
+        }
+        seren::HeldReleaseReason::Other(other) => {
+            vec![format!("Held for review ({other}).")]
+        }
+    }
+}
+
+fn format_release_run(run: &seren::ReleaseRun) -> String {
+    let mut parts = vec![format!("{} {}", run.product, run.repository)];
+    if !run.commit.is_empty() {
+        let short_commit: String = run.commit.chars().take(12).collect();
+        parts.push(format!("commit {short_commit}"));
+    }
+    if !run.run_id.is_empty() {
+        parts.push(format!("run {}", run.run_id));
+    }
+    parts.join(", ")
+}
+
+fn held_release_table_rows(hold: &seren::HeldReleaseSummary) -> Vec<(&'static str, String)> {
+    let mut rows = vec![
+        ("id", hold.id.to_string()),
+        ("employee", hold.slug.clone()),
+        ("status", held_release_status_label(hold.status).to_string()),
+        ("reason", held_release_reason_label(&hold.reason)),
+        ("source", hold.source_label.clone()),
+    ];
+    if let Some(run) = hold.run.as_ref() {
+        rows.push(("run", format_release_run(run)));
+    }
+    rows.push(("created_at", hold.created_at.to_string()));
+    rows.push(("changes", held_release_change_sentences(hold).join("\n")));
+    rows.push(("changes_fingerprint", hold.changes_fingerprint.clone()));
+    if let Some(decided_at) = hold.decided_at {
+        rows.push(("decided_at", decided_at.to_string()));
+    }
+    if let Some(decided_by) = hold.decided_by_user_id {
+        rows.push(("decided_by_user_id", decided_by.to_string()));
+    }
+    if let Some(note) = hold.note.as_ref() {
+        rows.push(("note", note.clone()));
+    }
+    rows
+}
+
+fn write_create_key_output<T: Serialize>(
+    payload: &T,
+    format: OutputFormat,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+) -> Result<()> {
+    match format {
+        OutputFormat::Json => {
+            writeln!(stdout, "{}", serde_json::to_string_pretty(payload)?)?;
+            writeln!(stderr, "{RELEASE_KEY_STORE_ONCE_NOTICE}")?;
+        }
+        OutputFormat::Table => {
+            let value = serde_json::to_value(payload)?;
+            let data = value.get("data").unwrap_or(&value);
+            if let Value::Object(fields) = data {
+                let mut table = comfy_table::Table::new();
+                table
+                    .load_style(comfy_table::presets::UTF8_FULL)
+                    .set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
+                table.set_header(vec![
+                    comfy_table::Cell::new("Field").fg(comfy_table::Color::Green),
+                    comfy_table::Cell::new("Value").fg(comfy_table::Color::Green),
+                ]);
+                for (key, val) in fields {
+                    let text = match val {
+                        Value::String(text) => text.clone(),
+                        Value::Null => "-".to_string(),
+                        _ => serde_json::to_string_pretty(val)?,
+                    };
+                    table.add_row(vec![
+                        comfy_table::Cell::new(key),
+                        comfy_table::Cell::new(text),
+                    ]);
+                }
+                output::keep_id_columns_whole(&mut table);
+                writeln!(stdout, "{table}")?;
+            } else {
+                writeln!(stdout, "{data}")?;
+            }
+            writeln!(stdout, "{RELEASE_KEY_STORE_ONCE_NOTICE}")?;
+        }
+    }
+    Ok(())
+}
+
+fn held_release_review_text(hold: &seren::HeldReleaseSummary) -> String {
+    let sentences = held_release_change_sentences(hold);
+    let mut lines = vec![format!(
+        "Held release {} for {} ({}):",
+        hold.id,
+        hold.slug,
+        held_release_reason_label(&hold.reason)
+    )];
+    for sentence in sentences {
+        lines.push(format!("- {sentence}"));
+    }
+    lines.push(format!("Fingerprint: {}", hold.changes_fingerprint));
+    lines.join("\n")
+}
+
+struct ApprovalPrompt<'a, R, W> {
+    interactive: bool,
+    reader: &'a mut R,
+    out: &'a mut W,
+}
+
+fn confirm_held_release_approval<R: BufRead, W: Write>(
+    organization_id: Uuid,
+    hold: &seren::HeldReleaseSummary,
+    prompt: &mut ApprovalPrompt<'_, R, W>,
+) -> Result<()> {
+    writeln!(prompt.out, "{}", held_release_review_text(hold))?;
+    if !prompt.interactive {
+        anyhow::bail!(
+            "Cannot approve held release {} without --fingerprint on a non-interactive terminal. Review the changes above and re-run: seren agent managed-held-releases {organization_id} approve {} --fingerprint {}",
+            hold.id,
+            hold.id,
+            hold.changes_fingerprint
+        );
+    }
+    write!(prompt.out, "Type 'yes' to approve these changes: ")?;
+    prompt.out.flush()?;
+    let mut response = String::new();
+    prompt.reader.read_line(&mut response)?;
+    if response.trim() != "yes" {
+        anyhow::bail!("Held release approval cancelled.");
+    }
+    Ok(())
+}
+
+async fn approve_held_release<R: BufRead, W: Write>(
+    client: &seren::Client,
+    organization_id: Uuid,
+    held_release_id: Uuid,
+    fingerprint: Option<String>,
+    ctx: &CommandContext,
+    prompt: &mut ApprovalPrompt<'_, R, W>,
+) -> Result<()> {
+    let changes_fingerprint = match fingerprint {
+        Some(fingerprint) => fingerprint,
+        None => {
+            let holds = match client
+                .list_managed_agent_held_releases(
+                    &organization_id,
+                    Some(seren::HeldReleaseStatus::Pending),
+                )
+                .await
+            {
+                Ok(response) => response.into_inner().data,
+                Err(error) => {
+                    return Err(super::agent::anyhow_from_seren_error(
+                        "Managed agent request failed",
+                        error,
+                    )
+                    .await);
+                }
+            };
+            let hold = holds
+                .into_iter()
+                .find(|hold| hold.id == held_release_id)
+                .ok_or_else(|| {
+                    anyhow::anyhow!("No pending held release found with ID {held_release_id}.")
+                })?;
+            confirm_held_release_approval(organization_id, &hold, prompt)?;
+            hold.changes_fingerprint
+        }
+    };
+    let approve_client = client_with_timeout(ctx, TEMPLATE_ROLLOUT_TIMEOUT_SECS).await?;
+    let response = match approve_client
+        .approve_managed_agent_held_release(
+            &organization_id,
+            &held_release_id,
+            &seren::ApproveHeldReleaseRequest {
+                changes_fingerprint,
+            },
+        )
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            return Err(format_held_release_approval_error(
+                organization_id,
+                held_release_id,
+                error,
+            )
+            .await);
+        }
+    };
+    print_response(&response.into_inner(), ctx)
+}
+
+fn format_held_release_changed_conflict(
+    organization_id: Uuid,
+    held_release_id: Uuid,
+    body: &str,
+) -> Option<String> {
+    let payload: Value = serde_json::from_str(body).ok()?;
+    if payload.get("error").and_then(Value::as_str) != Some("managed_agent_held_release_changed") {
+        return None;
+    }
+    let message = payload
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("This held release has changed. Review the current changes before approving.");
+    let details = payload.get("details");
+    let comparison: Option<seren::TemplateRevisionComparison> = details
+        .and_then(|details| details.get("comparison"))
+        .filter(|value| !value.is_null())
+        .and_then(|value| serde_json::from_value(value.clone()).ok());
+    let new_fingerprint = details
+        .and_then(|details| details.get("changes_fingerprint"))
+        .and_then(Value::as_str);
+
+    let mut lines = vec![message.to_string()];
+    if let Some(comparison) = comparison.as_ref() {
+        let sentences = comparison_change_sentences(comparison);
+        if !sentences.is_empty() {
+            lines.push("Current changes:".to_string());
+            for sentence in sentences {
+                lines.push(format!("- {sentence}"));
+            }
+        }
+    } else {
+        lines.push(format!(
+            "Review the updated release with: seren agent managed-held-releases {organization_id} list"
+        ));
+    }
+    if let Some(fingerprint) = new_fingerprint {
+        lines.push(format!("New fingerprint: {fingerprint}"));
+        lines.push(format!(
+            "To approve after reviewing, run: seren agent managed-held-releases {organization_id} approve {held_release_id} --fingerprint {fingerprint}"
+        ));
+    }
+    Some(lines.join("\n"))
+}
+
+async fn format_held_release_approval_error(
+    organization_id: Uuid,
+    held_release_id: Uuid,
+    error: seren::Error<()>,
+) -> anyhow::Error {
+    match error {
+        seren::Error::UnexpectedResponse(response)
+            if response.status() == reqwest::StatusCode::CONFLICT =>
+        {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            if let Some(formatted) =
+                format_held_release_changed_conflict(organization_id, held_release_id, &body)
+            {
+                return anyhow::anyhow!(formatted);
+            }
+            anyhow::anyhow!("Managed agent request failed: unexpected response {status} - {body}")
+        }
+        other => super::agent::anyhow_from_seren_error("Managed agent request failed", other).await,
+    }
 }
 
 pub(crate) fn print_response<T: Serialize>(payload: &T, ctx: &CommandContext) -> Result<()> {
@@ -835,12 +1708,7 @@ pub async fn execute(action: ManagedAction, ctx: &CommandContext) -> Result<()> 
         } => {
             let request: seren::PublishManagedAgentTemplateReleaseRequest = request_file(&request)?;
             let client = if let Some(timeout) = template_publication_timeout(request.rollout) {
-                let bearer_token = super::auth::get_bearer_token(ctx.api_key.clone()).await?;
-                seren::Client::from_config(
-                    &seren::ClientConfig::new(bearer_token)
-                        .with_base_url(ctx.api_base())
-                        .with_timeout(timeout),
-                )?
+                client_with_timeout(ctx, timeout).await?
             } else {
                 client
             };
@@ -851,6 +1719,183 @@ pub async fn execute(action: ManagedAction, ctx: &CommandContext) -> Result<()> 
             ));
         }
         ManagedAction::ManagedReleasePass { .. } => unreachable!("handled above"),
+        ManagedAction::ManagedReleaseSources {
+            organization_id,
+            action,
+        } => match action {
+            ReleaseSourceAction::List => {
+                respond!(client.list_managed_agent_release_sources(&organization_id));
+            }
+            ReleaseSourceAction::Approve {
+                product,
+                repository,
+                branch,
+                environment,
+                issuer,
+                label,
+                templates,
+            } => {
+                ctx.require_user_session("Approving a release source")
+                    .await?;
+                let request = seren::CreateManagedAgentReleaseSourceRequest::SignedRun {
+                    label,
+                    ci_product: product.into(),
+                    issuer,
+                    repository,
+                    branch,
+                    environment,
+                    templates,
+                };
+                respond!(client.create_managed_agent_release_source(&organization_id, &request));
+            }
+            ReleaseSourceAction::CreateKey {
+                label,
+                days,
+                templates,
+            } => {
+                ctx.require_user_session("Creating a release key").await?;
+                let request = seren::CreateManagedAgentReleaseSourceRequest::ReleaseKey {
+                    label,
+                    expires_in_days: days,
+                    templates,
+                };
+                let response = match client
+                    .create_managed_agent_release_source(&organization_id, &request)
+                    .await
+                {
+                    Ok(response) => response.into_inner(),
+                    Err(error) => {
+                        return Err(super::agent::anyhow_from_seren_error(
+                            "Managed agent request failed",
+                            error,
+                        )
+                        .await);
+                    }
+                };
+                let mut stdout = std::io::stdout().lock();
+                let mut stderr = std::io::stderr().lock();
+                write_create_key_output(&response, ctx.format, &mut stdout, &mut stderr)?;
+            }
+            ReleaseSourceAction::Edit {
+                release_source_id,
+                label,
+                branch,
+                environment,
+                clear_environment,
+                templates,
+            } => {
+                let request = edit_release_source_request(
+                    label,
+                    branch,
+                    environment,
+                    clear_environment,
+                    templates,
+                )?;
+                ctx.require_user_session("Editing a release source").await?;
+                respond!(client.update_managed_agent_release_source(
+                    &organization_id,
+                    &release_source_id,
+                    &request
+                ));
+            }
+            ReleaseSourceAction::Revoke { release_source_id } => {
+                ctx.require_user_session("Revoking a release source")
+                    .await?;
+                respond!(
+                    client
+                        .revoke_managed_agent_release_source(&organization_id, &release_source_id)
+                );
+            }
+        },
+        ManagedAction::ManagedHeldReleases {
+            organization_id,
+            action,
+        } => match action {
+            HeldReleaseAction::List { status } => {
+                let response = match client
+                    .list_managed_agent_held_releases(&organization_id, status.map(Into::into))
+                    .await
+                {
+                    Ok(response) => response.into_inner(),
+                    Err(error) => {
+                        return Err(super::agent::anyhow_from_seren_error(
+                            "Managed agent request failed",
+                            error,
+                        )
+                        .await);
+                    }
+                };
+                match ctx.format {
+                    OutputFormat::Json => output::print_json(&response)?,
+                    OutputFormat::Table => {
+                        if response.data.is_empty() {
+                            println!("No results found");
+                        } else {
+                            for hold in &response.data {
+                                let rows = held_release_table_rows(hold);
+                                output::print_key_value_table(None, &rows);
+                            }
+                        }
+                    }
+                }
+            }
+            HeldReleaseAction::Approve {
+                held_release_id,
+                fingerprint,
+            } => {
+                let interactive = std::io::stdin().is_terminal();
+                let mut stdin = std::io::stdin().lock();
+                match ctx.format {
+                    OutputFormat::Json => {
+                        let mut stderr = std::io::stderr().lock();
+                        let mut prompt = ApprovalPrompt {
+                            interactive,
+                            reader: &mut stdin,
+                            out: &mut stderr,
+                        };
+                        approve_held_release(
+                            &client,
+                            organization_id,
+                            held_release_id,
+                            fingerprint,
+                            ctx,
+                            &mut prompt,
+                        )
+                        .await?;
+                    }
+                    OutputFormat::Table => {
+                        let mut stdout = std::io::stdout().lock();
+                        let mut prompt = ApprovalPrompt {
+                            interactive,
+                            reader: &mut stdin,
+                            out: &mut stdout,
+                        };
+                        approve_held_release(
+                            &client,
+                            organization_id,
+                            held_release_id,
+                            fingerprint,
+                            ctx,
+                            &mut prompt,
+                        )
+                        .await?;
+                    }
+                }
+            }
+            HeldReleaseAction::Refuse {
+                held_release_id,
+                note,
+            } => {
+                let note = note
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("Note must be 1 to 2000 characters."))?;
+                respond!(client.refuse_managed_agent_held_release(
+                    &organization_id,
+                    &held_release_id,
+                    &seren::RefuseHeldReleaseRequest { note }
+                ));
+            }
+        },
     }
     Ok(())
 }
@@ -1464,5 +2509,765 @@ mod tests {
         .unwrap_err();
         assert!(error.to_string().contains("interactive OAuth user session"));
         assert!(server.received_requests().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn release_source_and_held_release_commands_cover_wire_and_session_rules() {
+        use wiremock::matchers::{body_json, header, method, path, query_param};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let org_id = Uuid::from_u128(701);
+        let source_id = Uuid::from_u128(702);
+        let key_source_id = Uuid::from_u128(703);
+        let approver_id = Uuid::from_u128(704);
+        let held_id = Uuid::from_u128(705);
+        let org_str = org_id.to_string();
+        let source_str = source_id.to_string();
+        let held_str = held_id.to_string();
+        let fp_old = "a".repeat(64);
+        let fp_new = "b".repeat(64);
+        let timestamp = "2026-11-25T09:00:00Z";
+        let expires_at = "2026-12-09T09:00:00Z";
+
+        // Parse checks for flags, ranges, and conflicts.
+        assert!(
+            ManagedCli::try_parse_from([
+                "agent",
+                "managed-release-sources",
+                &org_str,
+                "approve",
+                "--product",
+                "github-actions",
+                "--repository",
+                "example/employees",
+                "--branch",
+                "main",
+                "--environment",
+                "production",
+                "--label",
+                "Main CI",
+                "--template",
+                "analyst",
+                "--template",
+                "reviewer",
+            ])
+            .is_ok()
+        );
+        assert!(
+            ManagedCli::try_parse_from([
+                "agent",
+                "managed-release-sources",
+                &org_str,
+                "approve",
+                "--product",
+                "github_actions",
+                "--repository",
+                "example/employees",
+                "--branch",
+                "main",
+                "--label",
+                "Main CI",
+                "--template",
+                "analyst",
+            ])
+            .is_ok()
+        );
+        assert!(
+            ManagedCli::try_parse_from([
+                "agent",
+                "managed-release-sources",
+                &org_str,
+                "create-key",
+                "--label",
+                "Temp key",
+                "--days",
+                "0",
+                "--template",
+                "analyst",
+            ])
+            .is_err()
+        );
+        assert!(
+            ManagedCli::try_parse_from([
+                "agent",
+                "managed-release-sources",
+                &org_str,
+                "create-key",
+                "--label",
+                "Temp key",
+                "--days",
+                "31",
+                "--template",
+                "analyst",
+            ])
+            .is_err()
+        );
+        assert!(
+            ManagedCli::try_parse_from([
+                "agent",
+                "managed-release-sources",
+                &org_str,
+                "edit",
+                &source_str,
+                "--environment",
+                "prod",
+                "--clear-environment",
+            ])
+            .is_err()
+        );
+        assert!(
+            ManagedCli::try_parse_from([
+                "agent",
+                "managed-held-releases",
+                &org_str,
+                "approve",
+                &held_str,
+            ])
+            .is_ok()
+        );
+        assert!(
+            ManagedCli::try_parse_from([
+                "agent",
+                "managed-held-releases",
+                &org_str,
+                "refuse",
+                &held_str,
+                "--note",
+                "Needs security review",
+            ])
+            .is_ok()
+        );
+
+        // Source write actions must refuse API keys before issuing any HTTP request.
+        let server = MockServer::start().await;
+        let api_key_ctx = CommandContext::new(
+            Some(server.uri()),
+            Some("seren_test_key".into()),
+            OutputFormat::Json,
+        );
+        for action in [
+            ManagedAction::ManagedReleaseSources {
+                organization_id: org_id,
+                action: ReleaseSourceAction::Approve {
+                    product: ReleaseSourceProduct::GithubActions,
+                    repository: "example/employees".into(),
+                    branch: "main".into(),
+                    environment: None,
+                    issuer: None,
+                    label: "Main CI".into(),
+                    templates: vec!["analyst".into()],
+                },
+            },
+            ManagedAction::ManagedReleaseSources {
+                organization_id: org_id,
+                action: ReleaseSourceAction::CreateKey {
+                    label: "Temp key".into(),
+                    days: 14,
+                    templates: vec!["analyst".into()],
+                },
+            },
+            ManagedAction::ManagedReleaseSources {
+                organization_id: org_id,
+                action: ReleaseSourceAction::Edit {
+                    release_source_id: source_id,
+                    label: Some("Renamed".into()),
+                    branch: None,
+                    environment: None,
+                    clear_environment: false,
+                    templates: vec![],
+                },
+            },
+            ManagedAction::ManagedReleaseSources {
+                organization_id: org_id,
+                action: ReleaseSourceAction::Revoke {
+                    release_source_id: source_id,
+                },
+            },
+        ] {
+            let error = execute(action, &api_key_ctx).await.unwrap_err();
+            assert!(
+                error.to_string().contains("interactive OAuth user session"),
+                "unexpected error: {error}"
+            );
+        }
+        assert!(server.received_requests().await.unwrap().is_empty());
+
+        // Empty edit and empty refusal note fail locally before HTTP.
+        let session_ctx = CommandContext::new(
+            Some(server.uri()),
+            Some("oauth-session-token".into()),
+            OutputFormat::Table,
+        );
+        assert!(
+            execute(
+                ManagedAction::ManagedReleaseSources {
+                    organization_id: org_id,
+                    action: ReleaseSourceAction::Edit {
+                        release_source_id: source_id,
+                        label: None,
+                        branch: None,
+                        environment: None,
+                        clear_environment: false,
+                        templates: vec![],
+                    },
+                },
+                &session_ctx,
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            execute(
+                ManagedAction::ManagedHeldReleases {
+                    organization_id: org_id,
+                    action: HeldReleaseAction::Refuse {
+                        held_release_id: held_id,
+                        note: String::new(),
+                    },
+                },
+                &session_ctx,
+            )
+            .await
+            .is_err()
+        );
+        assert!(server.received_requests().await.unwrap().is_empty());
+
+        let signed_run_source = json!({
+            "id": source_id,
+            "organization_id": org_id,
+            "kind": "signed_run",
+            "label": "Main CI",
+            "approved_by_user_id": approver_id,
+            "ci_product": "github_actions",
+            "issuer": "https://token.actions.githubusercontent.com",
+            "repository": "example/employees",
+            "branch": "main",
+            "environment": "production",
+            "templates": ["analyst"],
+            "created_at": timestamp,
+            "updated_at": timestamp
+        });
+        let created_key_source = json!({
+            "id": key_source_id,
+            "organization_id": org_id,
+            "kind": "release_key",
+            "label": "Fallback key",
+            "approved_by_user_id": approver_id,
+            "key_prefix": "serenrk_0123",
+            "expires_at": expires_at,
+            "templates": ["analyst"],
+            "created_at": timestamp,
+            "updated_at": timestamp,
+            "release_key": "serenrk_synthetic_once_value"
+        });
+        let mut cleared_env_source = signed_run_source.clone();
+        cleared_env_source
+            .as_object_mut()
+            .unwrap()
+            .remove("environment");
+        let mut revoked_source = signed_run_source.clone();
+        revoked_source["revoked_at"] = json!(timestamp);
+        revoked_source["revoked_by_user_id"] = json!(approver_id);
+
+        let comparison_old = json!({
+            "kind": "access",
+            "access_changes": [
+                {
+                    "change": "network_host_added",
+                    "rule": { "host": "api.example.com", "port": 443, "protocol": "rest" }
+                }
+            ],
+            "content_changes": { "added": ["SKILL.md"], "changed": [], "removed": [] }
+        });
+        let comparison_new = json!({
+            "kind": "access",
+            "access_changes": [
+                {
+                    "change": "network_host_added",
+                    "rule": { "host": "data.example.com", "port": 443, "protocol": "rest" }
+                }
+            ],
+            "content_changes": { "added": [], "changed": ["TOOLS.md"], "removed": [] }
+        });
+        let held_summary_wire = json!({
+            "id": held_id,
+            "slug": "analyst",
+            "reason": "access_change",
+            "comparison": comparison_old,
+            "changes_fingerprint": fp_old,
+            "source_label": "Main CI",
+            "status": "pending",
+            "created_at": timestamp
+        });
+        let held_summary: seren::HeldReleaseSummary =
+            serde_json::from_value(held_summary_wire.clone()).unwrap();
+        let rows = held_release_table_rows(&held_summary);
+        assert!(rows.iter().any(|(k, v)| *k == "changes"
+            && v.contains("Added outbound network host api.example.com:443 (REST).")));
+        assert!(
+            rows.iter()
+                .any(|(k, v)| *k == "changes_fingerprint" && v == &fp_old)
+        );
+
+        // Mount mocks for full source & held-release lifecycle.
+        Mock::given(method("GET"))
+            .and(path(format!("/organizations/{org_id}/release-sources")))
+            .and(header("Authorization", "Bearer seren_test_key"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({"data": [signed_run_source]})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!("/organizations/{org_id}/release-sources")))
+            .and(header("Authorization", "Bearer oauth-session-token"))
+            .and(body_json(json!({
+                "kind": "signed_run",
+                "label": "Main CI",
+                "ci_product": "github_actions",
+                "repository": "example/employees",
+                "branch": "main",
+                "environment": "production",
+                "templates": ["analyst"]
+            })))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({"data": signed_run_source})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!("/organizations/{org_id}/release-sources")))
+            .and(header("Authorization", "Bearer oauth-session-token"))
+            .and(body_json(json!({
+                "kind": "release_key",
+                "label": "Fallback key",
+                "expires_in_days": 14,
+                "templates": ["analyst"]
+            })))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({"data": created_key_source})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("PATCH"))
+            .and(path(format!(
+                "/organizations/{org_id}/release-sources/{source_id}"
+            )))
+            .and(header("Authorization", "Bearer oauth-session-token"))
+            .and(body_json(json!({"environment": null})))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({"data": cleared_env_source})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("DELETE"))
+            .and(path(format!(
+                "/organizations/{org_id}/release-sources/{source_id}"
+            )))
+            .and(header("Authorization", "Bearer oauth-session-token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": revoked_source})))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!("/organizations/{org_id}/held-releases")))
+            .and(wiremock::matchers::query_param_is_missing("status"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({"data": [held_summary_wire]})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!("/organizations/{org_id}/held-releases")))
+            .and(query_param("status", "pending"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({"data": [held_summary_wire]})),
+            )
+            .expect(4)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{org_id}/held-releases/{held_id}/approve"
+            )))
+            .and(body_json(json!({"changes_fingerprint": fp_old})))
+            .respond_with(ResponseTemplate::new(409).set_body_json(json!({
+                "error": "managed_agent_held_release_changed",
+                "message": "This held release has changed. Review the current changes before approving.",
+                "details": {
+                    "comparison": comparison_new,
+                    "changes_fingerprint": fp_new
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{org_id}/held-releases/{held_id}/approve"
+            )))
+            .and(body_json(json!({"changes_fingerprint": fp_new})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": {
+                    "slug": "analyst",
+                    "revision": 4,
+                    "created": false,
+                    "revision_added": true,
+                    "active": true,
+                    "listed": true,
+                    "review_state": "approved",
+                    "providers": []
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{org_id}/held-releases/{held_id}/refuse"
+            )))
+            .and(body_json(json!({"note": "Wait for review"})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": { "id": held_id, "status": "refused" }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        // Verify detailed access-change sentences expose fallbacks, guarded hosts/paths/ops, and Cardano scripts/assets/limits.
+        let fallback_change: seren::TemplateAccessChange = serde_json::from_value(json!({
+            "change": "model_connection_changed",
+            "before": {
+                "provider": "codex",
+                "model_id": "gpt-5",
+                "fallback": { "provider": "seren_private_models", "model_id": "model-a" }
+            },
+            "after": {
+                "provider": "codex",
+                "model_id": "gpt-5",
+                "fallback": { "provider": "seren_private_models", "model_id": "model-b", "fallback_models": ["model-c"] }
+            }
+        }))
+        .unwrap();
+        let fallback_text = describe_access_change(&fallback_change);
+        assert!(
+            fallback_text.contains("model-a")
+                && fallback_text.contains("model-b")
+                && fallback_text.contains("model-c"),
+            "{fallback_text}"
+        );
+
+        let guarded_purchase_change: seren::TemplateAccessChange = serde_json::from_value(json!({
+            "change": "guarded_purchases_changed",
+            "before": [],
+            "after": [{ "checkout": "best_buy", "host": "shop.example.com", "method": "POST", "path_pattern": "/orders/*/submit" }]
+        }))
+        .unwrap();
+        let purchase_text = describe_access_change(&guarded_purchase_change);
+        assert!(
+            purchase_text.contains("shop.example.com/orders/*/submit")
+                && purchase_text.contains("best_buy"),
+            "{purchase_text}"
+        );
+
+        let guarded_submission_change: seren::TemplateAccessChange = serde_json::from_value(json!({
+            "change": "guarded_submissions_changed",
+            "before": [],
+            "after": [{ "host": "forms.example.com", "method": "POST", "path_pattern": "/graphql", "graphql_operation_names": ["SubmitTax"] }]
+        }))
+        .unwrap();
+        let submission_text = describe_access_change(&guarded_submission_change);
+        assert!(
+            submission_text.contains("forms.example.com/graphql")
+                && submission_text.contains("SubmitTax"),
+            "{submission_text}"
+        );
+
+        let cardano_change: seren::TemplateAccessChange = serde_json::from_value(json!({
+            "change": "cardano_signing_changed",
+            "before": {
+                "builder_script": "scripts/build.py",
+                "debt_asset": "a".repeat(56),
+                "lender_scripts": ["script1old"],
+                "max_borrow_ratio_bps": 5000,
+                "max_lend_rate_bps": 1000,
+                "max_loan_rate_bps": 1200,
+                "mint_policies": ["script1mint1"],
+                "payout_assets": ["lovelace"],
+                "swap_scripts": ["script1swap1"],
+                "venue_scripts": ["script1venue1"]
+            },
+            "after": {
+                "builder_script": "scripts/build_v2.py",
+                "debt_asset": "b".repeat(56),
+                "lender_scripts": ["script1new"],
+                "max_borrow_ratio_bps": 6500,
+                "max_lend_rate_bps": 1000,
+                "max_loan_rate_bps": 1500,
+                "mint_policies": ["script1mint2"],
+                "payout_assets": ["lovelace"],
+                "swap_scripts": ["script1swap2"],
+                "venue_scripts": ["script1venue2"]
+            }
+        }))
+        .unwrap();
+        let cardano_text = describe_access_change(&cardano_change);
+        assert!(
+            cardano_text.contains("scripts/build.py")
+                && cardano_text.contains("scripts/build_v2.py")
+                && cardano_text.contains("script1old")
+                && cardano_text.contains("script1new")
+                && cardano_text.contains("6500"),
+            "{cardano_text}"
+        );
+
+        // Verify create-key output places the show-once notice on stdout in table mode and stderr in JSON mode.
+        let created_key_envelope = json!({"data": created_key_source});
+        let (mut table_out, mut table_err) = (Vec::new(), Vec::new());
+        write_create_key_output(
+            &created_key_envelope,
+            OutputFormat::Table,
+            &mut table_out,
+            &mut table_err,
+        )
+        .unwrap();
+        let table_stdout = String::from_utf8(table_out).unwrap();
+        assert!(table_stdout.contains("serenrk_synthetic_once_value"));
+        assert!(table_stdout.contains(RELEASE_KEY_STORE_ONCE_NOTICE));
+        assert!(table_err.is_empty());
+
+        let (mut json_out, mut json_err) = (Vec::new(), Vec::new());
+        write_create_key_output(
+            &created_key_envelope,
+            OutputFormat::Json,
+            &mut json_out,
+            &mut json_err,
+        )
+        .unwrap();
+        let parsed_json: Value = serde_json::from_slice(&json_out).unwrap();
+        assert_eq!(
+            parsed_json["data"]["release_key"],
+            "serenrk_synthetic_once_value"
+        );
+        assert!(
+            String::from_utf8(json_err)
+                .unwrap()
+                .contains(RELEASE_KEY_STORE_ONCE_NOTICE)
+        );
+
+        // Listing sources works with an unrestricted personal API key.
+        execute(
+            ManagedAction::ManagedReleaseSources {
+                organization_id: org_id,
+                action: ReleaseSourceAction::List,
+            },
+            &api_key_ctx,
+        )
+        .await
+        .unwrap();
+
+        // Source writes succeed with a user session token.
+        execute(
+            ManagedAction::ManagedReleaseSources {
+                organization_id: org_id,
+                action: ReleaseSourceAction::Approve {
+                    product: ReleaseSourceProduct::GithubActions,
+                    repository: "example/employees".into(),
+                    branch: "main".into(),
+                    environment: Some("production".into()),
+                    issuer: None,
+                    label: "Main CI".into(),
+                    templates: vec!["analyst".into()],
+                },
+            },
+            &session_ctx,
+        )
+        .await
+        .unwrap();
+
+        execute(
+            ManagedAction::ManagedReleaseSources {
+                organization_id: org_id,
+                action: ReleaseSourceAction::CreateKey {
+                    label: "Fallback key".into(),
+                    days: 14,
+                    templates: vec!["analyst".into()],
+                },
+            },
+            &session_ctx,
+        )
+        .await
+        .unwrap();
+
+        execute(
+            ManagedAction::ManagedReleaseSources {
+                organization_id: org_id,
+                action: ReleaseSourceAction::Edit {
+                    release_source_id: source_id,
+                    label: None,
+                    branch: None,
+                    environment: None,
+                    clear_environment: true,
+                    templates: vec![],
+                },
+            },
+            &session_ctx,
+        )
+        .await
+        .unwrap();
+
+        execute(
+            ManagedAction::ManagedReleaseSources {
+                organization_id: org_id,
+                action: ReleaseSourceAction::Revoke {
+                    release_source_id: source_id,
+                },
+            },
+            &session_ctx,
+        )
+        .await
+        .unwrap();
+
+        // Held release list omits `status` by default and forwards explicit `--status`.
+        execute(
+            ManagedAction::ManagedHeldReleases {
+                organization_id: org_id,
+                action: HeldReleaseAction::List { status: None },
+            },
+            &session_ctx,
+        )
+        .await
+        .unwrap();
+        execute(
+            ManagedAction::ManagedHeldReleases {
+                organization_id: org_id,
+                action: HeldReleaseAction::List {
+                    status: Some(HeldReleaseStatusFilter::Pending),
+                },
+            },
+            &session_ctx,
+        )
+        .await
+        .unwrap();
+
+        // Without --fingerprint on a non-interactive terminal, approve shows the changes and refuses without posting.
+        let session_client = session_ctx.client().await.unwrap();
+        let mut non_tty_out = Vec::new();
+        let mut non_tty_in = std::io::Cursor::new(b"yes\n");
+        let mut non_tty_prompt = ApprovalPrompt {
+            interactive: false,
+            reader: &mut non_tty_in,
+            out: &mut non_tty_out,
+        };
+        let non_tty_err = approve_held_release(
+            &session_client,
+            org_id,
+            held_id,
+            None,
+            &session_ctx,
+            &mut non_tty_prompt,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            non_tty_err.to_string().contains("--fingerprint"),
+            "{non_tty_err}"
+        );
+        assert!(
+            String::from_utf8(non_tty_out)
+                .unwrap()
+                .contains("Added outbound network host api.example.com:443 (REST).")
+        );
+
+        // Declining interactive confirmation cancels without posting approve.
+        let mut cancel_out = Vec::new();
+        let mut cancel_in = std::io::Cursor::new(b"no\n");
+        let mut cancel_prompt = ApprovalPrompt {
+            interactive: true,
+            reader: &mut cancel_in,
+            out: &mut cancel_out,
+        };
+        let cancel_err = approve_held_release(
+            &session_client,
+            org_id,
+            held_id,
+            None,
+            &session_ctx,
+            &mut cancel_prompt,
+        )
+        .await
+        .unwrap_err();
+        assert!(cancel_err.to_string().contains("cancelled"), "{cancel_err}");
+
+        // Confirming interactive review posts the shown fingerprint and surfaces 409 managed_agent_held_release_changed.
+        let mut confirm_out = Vec::new();
+        let mut confirm_in = std::io::Cursor::new(b"yes\n");
+        let mut confirm_prompt = ApprovalPrompt {
+            interactive: true,
+            reader: &mut confirm_in,
+            out: &mut confirm_out,
+        };
+        let conflict = approve_held_release(
+            &session_client,
+            org_id,
+            held_id,
+            None,
+            &session_ctx,
+            &mut confirm_prompt,
+        )
+        .await
+        .unwrap_err();
+        let conflict_text = conflict.to_string();
+        assert!(
+            conflict_text.contains("Added outbound network host data.example.com:443 (REST)."),
+            "missing updated change sentence: {conflict_text}"
+        );
+        assert!(
+            conflict_text.contains(&fp_new),
+            "missing updated fingerprint: {conflict_text}"
+        );
+
+        // Explicit --fingerprint approves directly without needing a prompt.
+        execute(
+            ManagedAction::ManagedHeldReleases {
+                organization_id: org_id,
+                action: HeldReleaseAction::Approve {
+                    held_release_id: held_id,
+                    fingerprint: Some(fp_new),
+                },
+            },
+            &session_ctx,
+        )
+        .await
+        .unwrap();
+
+        execute(
+            ManagedAction::ManagedHeldReleases {
+                organization_id: org_id,
+                action: HeldReleaseAction::Refuse {
+                    held_release_id: held_id,
+                    note: "Wait for review".into(),
+                },
+            },
+            &session_ctx,
+        )
+        .await
+        .unwrap();
+
+        server.verify().await;
     }
 }
