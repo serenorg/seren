@@ -2536,6 +2536,101 @@
         ]
       }
     },
+    "/notices/unsubscribe/{code}": {
+      "get": {
+        "tags": [
+          "notices"
+        ],
+        "summary": "Confirm an unsubscribe from account notices. This page changes nothing; its\nbutton posts back to the same URL.",
+        "operationId": "confirm_account_notice_unsubscribe",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "description": "Unsubscribe code from an account notice",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmation page",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown or expired link",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "notices"
+        ],
+        "summary": "Update the account-notice email preference for a link's code. Accepts RFC\n8058 one-click POSTs, the confirmation page's unsubscribe button, and\n`intent=resubscribe` from the result page.",
+        "operationId": "update_account_notice_subscription",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "description": "Unsubscribe code from an account notice",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Subscription preference updated",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid form submission"
+          },
+          "404": {
+            "description": "Unknown or expired link",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/notifications/{notification_id}/read": {
       "post": {
         "tags": [
@@ -2695,11 +2790,11 @@
           "OAuth"
         ],
         "summary": "List available OAuth providers",
-        "description": "Returns all active OAuth providers that users can connect to,\nincluding global providers and providers from organizations the user belongs to.",
+        "description": "Returns available OAuth providers that support browser sign-in.\nFor ChatGPT model access, organization Owners use the organization model sign-in.",
         "operationId": "list_providers",
         "responses": {
           "200": {
-            "description": "List of available OAuth providers",
+            "description": "OAuth providers available for browser sign-in",
             "content": {
               "application/json": {
                 "schema": {
@@ -7196,6 +7291,190 @@
         ]
       }
     },
+    "/organizations/{organization_id}/held-releases": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "List an organization's held managed agent releases.",
+        "operationId": "list_managed_agent_held_releases",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Only return releases with this status. Defaults to pending.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/HeldReleaseStatus"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Held releases with the requested status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_HeldReleaseSummary"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only an Owner or Admin can review held releases"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/held-releases/{held_release_id}/approve": {
+      "post": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Publish a held managed agent release after reviewing its changes.",
+        "operationId": "approve_managed_agent_held_release",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "held_release_id",
+            "in": "path",
+            "description": "Held release ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveHeldReleaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Published managed agent release",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentTemplateRelease"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only an Owner or Admin can decide held releases"
+          },
+          "404": {
+            "description": "No pending held release with this ID"
+          },
+          "409": {
+            "description": "The release changed or can no longer be approved. If the changes differ, review the new comparison and changes_fingerprint before approving again."
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/held-releases/{held_release_id}/refuse": {
+      "post": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Refuse a held managed agent release and record the reason.",
+        "operationId": "refuse_managed_agent_held_release",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "held_release_id",
+            "in": "path",
+            "description": "Held release ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefuseHeldReleaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Held release refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_RefusedHeldRelease"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A note of 1 to 2000 characters is required"
+          },
+          "403": {
+            "description": "Only an Owner or Admin can decide held releases"
+          },
+          "404": {
+            "description": "No pending held release with this ID"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/organizations/{organization_id}/invites": {
       "get": {
         "tags": [
@@ -10387,6 +10666,296 @@
         }
       }
     },
+    "/organizations/{organization_id}/release-passes": {
+      "post": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Issue a short-lived release pass",
+        "description": "Exchanges a CI signed run token, an organization release key, or a built-in\nOwner or Admin's signed-in session for a 30-minute release pass accepted by\nthe managed agent bundle upload, test-run, bundle-list and release routes.",
+        "operationId": "create_managed_agent_release_pass",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateManagedAgentReleasePassRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The issued release pass",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentReleasePass"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is invalid"
+          },
+          "403": {
+            "description": "The proof was refused (`signed_run_invalid`, `release_source_not_approved`, `release_key_invalid`, `release_key_expired`, `release_source_revoked`, `managed_agent_release_session_required`, or `managed_agent_release_approver_required`)"
+          },
+          "429": {
+            "description": "Too many release pass requests"
+          },
+          "503": {
+            "description": "Release pass verification or signing is temporarily unavailable (`signed_run_keys_unavailable` or `release_pass_unavailable`)"
+          }
+        }
+      }
+    },
+    "/organizations/{organization_id}/release-sources": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "List the organization's release sources",
+        "description": "Revoked sources are included. A release key's text is never returned.",
+        "operationId": "list_managed_agent_release_sources",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The organization's release sources, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_ManagedAgentReleaseSource"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner or Admin using a session or unrestricted personal API key of the organization (`managed_agent_release_approver_required`)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Approve a release source",
+        "description": "A `signed_run` source admits runs of one repository and branch of a CI\nproduct. A `release_key` source returns its key once, in `release_key`.",
+        "operationId": "create_managed_agent_release_source",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateManagedAgentReleaseSourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The approved release source",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CreatedManagedAgentReleaseSource"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is invalid"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner or Admin of the organization (`managed_agent_release_approver_required`), used an API key (`managed_agent_release_session_required`), or a template belongs to another organization"
+          },
+          "409": {
+            "description": "An active source names the same repository, branch and environment (`managed_agent_release_source_exists`)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/release-sources/{release_source_id}": {
+      "delete": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Revoke a release source",
+        "description": "The source stops admitting releases, and its waiting releases are cancelled.",
+        "operationId": "revoke_managed_agent_release_source",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "release_source_id",
+            "in": "path",
+            "description": "Release source ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The revoked release source",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentReleaseSource"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner or Admin of the organization (`managed_agent_release_approver_required`) or used an API key (`managed_agent_release_session_required`)"
+          },
+          "404": {
+            "description": "No active release source with this ID (`managed_agent_release_source_not_found`)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Change a release source",
+        "description": "Removing a template cancels the source's waiting releases of it.",
+        "operationId": "update_managed_agent_release_source",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "release_source_id",
+            "in": "path",
+            "description": "Release source ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateManagedAgentReleaseSourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The changed release source",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentReleaseSource"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is invalid, or names a branch or environment for a release key"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner or Admin of the organization (`managed_agent_release_approver_required`), used an API key (`managed_agent_release_session_required`), or a template belongs to another organization"
+          },
+          "404": {
+            "description": "No active release source with this ID (`managed_agent_release_source_not_found`)"
+          },
+          "409": {
+            "description": "An active source names the same repository, branch and environment (`managed_agent_release_source_exists`)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/organizations/{organization_id}/roles": {
       "get": {
         "tags": [
@@ -13443,7 +14012,7 @@
           "managed-agent-templates"
         ],
         "summary": "Publish an uploaded release of a managed agent template.",
-        "description": "Test an upload before publishing it: `POST\n/organizations/{organization_id}/templates/{slug}/test-runs` runs it once\nexactly as a hire runs it, without a release or any effect on hires.\nCreates the template when it does not exist, and otherwise adds the\nrelease as its next revision. New templates from outside the platform source\norganization await review before listing or hiring. Later releases preserve\nthe Owner's listing preference. Publication cannot create a template at a reserved slug, and a\nsuspended template accepts no release. Publishing the current revision\nagain adds no revision. A release may carry the Employee's skill lines in\n`capabilities` and their keys in `skill_slugs`, checked as the profile route\nchecks them; once the release is the template's current revision, including\na repeat of it, they replace the template's lines and keys. A release that\nsends neither keeps the current ones. Existing hires receive a release by their\nEmployers' update settings: a content change applies by itself between\ntasks under `automatic`, an access change or any change under `ask_first`\nwaits for the Employer's approval, and `stay` changes nothing. With\n`rollout`, the template's current revision is offered to each existing hire\nnow and the response reports each hire's outcome; otherwise the update job\noffers it on its next pass. `rollout` never applies anything past an\nEmployer's setting or approval. One hire's failure neither fails the\nrelease nor undoes the others. Repeating the current release retries a\npartly applied rollout. The rollout names its offered revision separately\nif another release advanced the template. A hire whose mode differs from\nthe release's is held, and incomplete hires are offered the release once\nthey complete. An optional `release_note` is shown to Employers as the\nOwner's words.\nA release is refused unless a hire can use it with at least one provider,\nand the response lists the providers a hire can select.\nEach publisher in `deploy_defaults.script_publisher_grants` must be\ndeclared as a `seren_publisher` connector in a bundle skill spec, an asset\nwhose path ends in `skill.spec.yaml`, such as `skill.spec.yaml` at the\nbundle root:\n\n```yaml\nskill: template\nconnectors:\n  daytona:\n    kind: seren_publisher\n    publisher: daytona\n```\n\n`skill` is a slug of 2-64 lowercase letters, digits or interior hyphens.\nA root `skill.spec.yaml` also requires the bundle's root `SKILL.md`, if it\nhas one, to start with YAML frontmatter that sets `name` and `description`\nand to include a top-level `# ` heading. An undeclared publisher refuses the\nrelease with `400`, naming every undeclared publisher and the connector\nentries to add.\nA skill spec may also declare the steps and error codes its Employees name\nin support reports, which reach Seren support as is only for this\ntemplate:\n\n```yaml\nsupport_report:\n  steps: [repo_read]\n  error_codes: [repo_not_found]\n```\n\nEach value is snake_case and at most 40 characters, with at most 30 steps\nand 30 error codes across the bundle's specs. Any other value or field\nrefuses the release with `400`, naming it.\nRequires a user API key with `managed-agent-template:publish`, granted by\na built-in owner of the publishing organization. Any organization can\npublish, and only the organization that published a template can release\nit again. An issued key remains valid if its creator later loses\nownership, until it expires or is revoked.",
+        "description": "Test an upload before publishing it: `POST\n/organizations/{organization_id}/templates/{slug}/test-runs` runs it once\nexactly as a hire runs it, without a release or any effect on hires.\nCreates the template when it does not exist, and otherwise adds the\nrelease as its next revision. New templates from outside the platform source\norganization await review before listing or hiring. Later releases preserve\nthe Owner's listing preference. Publication cannot create a template at a reserved slug, and a\nsuspended template accepts no release. Publishing the current revision\nagain adds no revision. A release may carry the Employee's skill lines in\n`capabilities` and their keys in `skill_slugs`, checked as the profile route\nchecks them; once the release is the template's current revision, including\na repeat of it, they replace the template's lines and keys. A release that\nsends neither keeps the current ones. Existing hires receive a release by their\nEmployers' update settings: a content change applies by itself between\ntasks under `automatic`, an access change or any change under `ask_first`\nwaits for the Employer's approval, and `stay` changes nothing. With\n`rollout`, the template's current revision is offered to each existing hire\nnow and the response reports each hire's outcome; otherwise the update job\noffers it on its next pass. `rollout` never applies anything past an\nEmployer's setting or approval. One hire's failure neither fails the\nrelease nor undoes the others. Repeating the current release retries a\npartly applied rollout. The rollout names its offered revision separately\nif another release advanced the template. A hire whose mode differs from\nthe release's is held, and incomplete hires are offered the release once\nthey complete. An optional `release_note` is shown to Employers as the\nOwner's words.\nA release is refused unless a hire can use it with at least one provider,\nand the response lists the providers a hire can select.\nEach publisher in `deploy_defaults.script_publisher_grants` must be\ndeclared as a `seren_publisher` connector in a bundle skill spec, an asset\nwhose path ends in `skill.spec.yaml`, such as `skill.spec.yaml` at the\nbundle root:\n\n```yaml\nskill: template\nconnectors:\n  daytona:\n    kind: seren_publisher\n    publisher: daytona\n```\n\n`skill` is a slug of 2-64 lowercase letters, digits or interior hyphens.\nA root `skill.spec.yaml` also requires the bundle's root `SKILL.md`, if it\nhas one, to start with YAML frontmatter that sets `name` and `description`\nand to include a top-level `# ` heading. An undeclared publisher refuses the\nrelease with `400`, naming every undeclared publisher and the connector\nentries to add.\nA skill spec may also declare the steps and error codes its Employees name\nin support reports, which reach Seren support as is only for this\ntemplate:\n\n```yaml\nsupport_report:\n  steps: [repo_read]\n  error_codes: [repo_not_found]\n```\n\nEach value is snake_case and at most 40 characters, with at most 30 steps\nand 30 error codes across the bundle's specs. Any other value or field\nrefuses the release with `400`, naming it.\nAccepts a release pass for the publishing organization (from an approved\nrelease source or an approver's in-person session) or a user API key with\n`managed-agent-template:publish` granted by a built-in owner of the\npublishing organization. With a release source pass, first releases and\nreleases that change what hired copies can reach are held (`409\nmanaged_agent_release_held`) until an Owner or Admin approves them, while\ncontent-only releases publish at once. With an in-person pass, every valid\nrelease publishes immediately and returns any itemized `access_changes`. Any\norganization can publish, and only the organization that published a\ntemplate can release it again. An issued publish key remains valid if its\ncreator later loses ownership, until it expires or is revoked.",
         "operationId": "publish_managed_agent_template_release",
         "parameters": [
           {
@@ -13500,7 +14069,7 @@
             "description": "The release asks for a sandbox runtime class Seren doesn't offer (`runtime_class_not_found`)"
           },
           "409": {
-            "description": "The slug is reserved, or is kept for Seren's own organization, and no template exists there (`managed_agent_template_slug_reserved`), another template uses the slug as its page address (`managed_agent_template_page_slug_taken`), a new template's publisher has no public name (`publisher_name_required`) or store address (`publisher_handle_required`), the display name differs from the template's current name, which the message names (`managed_agent_template_display_name_mismatch`), a new template's name was used before (`managed_agent_template_name_retired`), the release conflicts with the template or its bundle, the rollout of a published release could not start because the current revision is unavailable or the template is suspended, or one of the template's run kinds is priced below its minimum (`run_fee_below_minimum`)"
+            "description": "The release from an approved release source waits for Owner or Admin approval (`managed_agent_release_held`, with `held_release_id`, `reason`, `comparison`, `changes_fingerprint` and `approve_path` in `details`), another release changed the template while this release was prepared (`managed_agent_release_base_changed`), the slug is reserved, or is kept for Seren's own organization, and no template exists there (`managed_agent_template_slug_reserved`), another template uses the slug as its page address (`managed_agent_template_page_slug_taken`), a new template's publisher has no public name (`publisher_name_required`) or store address (`publisher_handle_required`), the display name differs from the template's current name, which the message names (`managed_agent_template_display_name_mismatch`), a new template's name was used before (`managed_agent_template_name_retired`), the release conflicts with the template or its bundle, the rollout of a published release could not start because the current revision is unavailable or the template is suspended, or one of the template's run kinds is priced below its minimum (`run_fee_below_minimum`)"
           },
           "503": {
             "description": "The release asks for purchase protection that Seren doesn't offer yet (`guarded_purchases_unavailable`)"
@@ -19906,6 +20475,19 @@
           "agent"
         ]
       },
+      "ApproveHeldReleaseRequest": {
+        "type": "object",
+        "required": [
+          "changes_fingerprint"
+        ],
+        "properties": {
+          "changes_fingerprint": {
+            "type": "string",
+            "description": "Fingerprint returned for the changes the approver reviewed."
+          }
+        },
+        "additionalProperties": false
+      },
       "AssetInfo": {
         "type": "object",
         "description": "Minimal asset info for API responses",
@@ -20687,6 +21269,159 @@
           }
         },
         "additionalProperties": false
+      },
+      "CreateManagedAgentReleasePassRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "A CI run's signed identity token.",
+            "required": [
+              "token",
+              "proof"
+            ],
+            "properties": {
+              "proof": {
+                "type": "string",
+                "enum": [
+                  "signed_run"
+                ]
+              },
+              "token": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "An organization release key.",
+            "required": [
+              "key",
+              "proof"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "proof": {
+                "type": "string",
+                "enum": [
+                  "release_key"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "An Owner or Admin's signed-in session carried in `Authorization`.",
+            "required": [
+              "proof"
+            ],
+            "properties": {
+              "proof": {
+                "type": "string",
+                "enum": [
+                  "session"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Proof presented to request a short-lived release pass."
+      },
+      "CreateManagedAgentReleaseSourceRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "A CI run of one repository and branch, proven by the CI's signed identity token.",
+            "required": [
+              "label",
+              "ci_product",
+              "repository",
+              "branch",
+              "templates",
+              "kind"
+            ],
+            "properties": {
+              "branch": {
+                "type": "string",
+                "description": "A branch name, not a `refs/` path."
+              },
+              "ci_product": {
+                "$ref": "#/components/schemas/ReleaseCiProduct"
+              },
+              "environment": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The CI environment the run must name, when one is required."
+              },
+              "issuer": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The token issuer. Fixed for `github_actions` and `seren_ci`;\ndefaults to `https://gitlab.com` for `gitlab`; required for\n`circleci` as `https://oidc.circleci.com/org/<organization id>`."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "signed_run"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "description": "1 to 100 characters."
+              },
+              "repository": {
+                "type": "string",
+                "description": "`owner/name` for GitHub Actions and Seren CI, the project path for\nGitLab, and `host/org/repo` for CircleCI."
+              },
+              "templates": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "1 to 100 managed agent template slugs."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A release key that expires after `expires_in_days`.",
+            "required": [
+              "label",
+              "expires_in_days",
+              "templates",
+              "kind"
+            ],
+            "properties": {
+              "expires_in_days": {
+                "type": "integer",
+                "format": "int64",
+                "description": "1 to 30."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "release_key"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "description": "1 to 100 characters."
+              },
+              "templates": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "1 to 100 managed agent template slugs."
+              }
+            }
+          }
+        ],
+        "description": "Approve a release source."
       },
       "CreateOAuthProviderRequest": {
         "type": "object",
@@ -21647,6 +22382,26 @@
             "type": "string"
           }
         }
+      },
+      "CreatedManagedAgentReleaseSource": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ManagedAgentReleaseSource"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "release_key": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The release key's text, for a release key source only. It cannot be read again."
+              }
+            }
+          }
+        ],
+        "description": "A created release source. `release_key` is returned only here, once."
       },
       "CurrencyCode": {
         "type": "string",
@@ -23094,6 +23849,46 @@
                 "type": "string"
               }
             }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CreatedManagedAgentReleaseSource": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ManagedAgentReleaseSource"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "release_key": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "The release key's text, for a release key source only. It cannot be read again."
+                  }
+                }
+              }
+            ],
+            "description": "A created release source. `release_key` is returned only here, once."
           },
           "pagination": {
             "oneOf": [
@@ -25183,6 +25978,202 @@
           }
         }
       },
+      "DataResponse_ManagedAgentReleasePass": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "A short-lived pass accepted by the managed agent bundle upload, test-run,\nbundle-list and release routes.",
+            "required": [
+              "pass",
+              "expires_at"
+            ],
+            "properties": {
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "pass": {
+                "type": "string",
+                "description": "The release pass bearer token."
+              },
+              "release_source_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "The approved release source that proved this pass; absent for an in-person release."
+              },
+              "templates": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "description": "The managed agent template slugs this pass may release; absent for an in-person release."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentReleaseSource": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "An approved release source. A release key's text is never part of it.",
+            "required": [
+              "id",
+              "organization_id",
+              "kind",
+              "label",
+              "approved_by_user_id",
+              "templates",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "approved_by_user_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "branch": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ci_product": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ReleaseCiProduct",
+                    "description": "Signed runs only."
+                  }
+                ]
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "environment": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expires_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "issuer": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The token issuer of a signed run."
+              },
+              "key_prefix": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The first characters of a release key, to recognize it."
+              },
+              "kind": {
+                "$ref": "#/components/schemas/ReleaseSourceKind"
+              },
+              "label": {
+                "type": "string"
+              },
+              "last_used_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "repository": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "revoked_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "revoked_by_user_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "templates": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "The managed agent template slugs this source may release."
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedAgentRunFeeAmount": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -26075,6 +27066,16 @@
               "providers"
             ],
             "properties": {
+              "access_changes": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "$ref": "#/components/schemas/TemplateAccessChange"
+                },
+                "description": "Itemized access changes introduced by an in-person release relative to\nthe previous revision. Present only when an in-person release changes\nwhat hired copies can reach or how they run."
+              },
               "active": {
                 "type": "boolean",
                 "description": "Whether the platform has activated the template, independent of review and Owner listing."
@@ -27405,6 +28406,17 @@
               "listed": {
                 "type": "boolean",
                 "description": "The Owner's listing preference, independent of platform approval and activation."
+              },
+              "release": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/OrganizationManagedAgentTemplateRelease",
+                    "description": "What released the current revision, when recorded; absent otherwise."
+                  }
+                ]
               },
               "review_reason": {
                 "type": [
@@ -30124,6 +31136,42 @@
           }
         }
       },
+      "DataResponse_RefusedHeldRelease": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "status"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "status": {
+                "$ref": "#/components/schemas/HeldReleaseStatus"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_RevenueMetrics": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -31344,6 +32392,106 @@
           }
         }
       },
+      "DataResponse_Vec_HeldReleaseSummary": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "slug",
+                "reason",
+                "changes_fingerprint",
+                "source_label",
+                "status",
+                "created_at"
+              ],
+              "properties": {
+                "changes_fingerprint": {
+                  "type": "string"
+                },
+                "comparison": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/TemplateRevisionComparison"
+                    }
+                  ]
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "decided_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "decided_by_user_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reason": {
+                  "$ref": "#/components/schemas/HeldReleaseReason"
+                },
+                "run": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ReleaseRun"
+                    }
+                  ]
+                },
+                "slug": {
+                  "type": "string"
+                },
+                "source_label": {
+                  "type": "string"
+                },
+                "status": {
+                  "$ref": "#/components/schemas/HeldReleaseStatus"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_Vec_ManagedAgentAddonPriceChange": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -31624,6 +32772,149 @@
                 },
                 "summary": {
                   "type": "string"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_ManagedAgentReleaseSource": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "An approved release source. A release key's text is never part of it.",
+              "required": [
+                "id",
+                "organization_id",
+                "kind",
+                "label",
+                "approved_by_user_id",
+                "templates",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "approved_by_user_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "branch": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "ci_product": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ReleaseCiProduct",
+                      "description": "Signed runs only."
+                    }
+                  ]
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "environment": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "expires_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "issuer": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The token issuer of a signed run."
+                },
+                "key_prefix": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The first characters of a release key, to recognize it."
+                },
+                "kind": {
+                  "$ref": "#/components/schemas/ReleaseSourceKind"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "last_used_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "organization_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "repository": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "revoked_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "revoked_by_user_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "templates": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "The managed agent template slugs this source may release."
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
                 }
               }
             }
@@ -32481,6 +33772,17 @@
                 "listed": {
                   "type": "boolean",
                   "description": "The Owner's listing preference, independent of platform approval and activation."
+                },
+                "release": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/OrganizationManagedAgentTemplateRelease",
+                      "description": "What released the current revision, when recorded; absent otherwise."
+                    }
+                  ]
                 },
                 "review_reason": {
                   "type": [
@@ -36675,6 +37977,103 @@
         },
         "additionalProperties": false
       },
+      "HeldReleaseReason": {
+        "type": "string",
+        "description": "Why a release from an approved release source waits for an Owner or Admin.",
+        "enum": [
+          "first_release",
+          "access_change"
+        ]
+      },
+      "HeldReleaseStatus": {
+        "type": "string",
+        "description": "A held release decision state.",
+        "enum": [
+          "pending",
+          "approved",
+          "refused",
+          "replaced",
+          "lapsed",
+          "cancelled"
+        ]
+      },
+      "HeldReleaseSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "slug",
+          "reason",
+          "changes_fingerprint",
+          "source_label",
+          "status",
+          "created_at"
+        ],
+        "properties": {
+          "changes_fingerprint": {
+            "type": "string"
+          },
+          "comparison": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TemplateRevisionComparison"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decided_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "decided_by_user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "$ref": "#/components/schemas/HeldReleaseReason"
+          },
+          "run": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReleaseRun"
+              }
+            ]
+          },
+          "slug": {
+            "type": "string"
+          },
+          "source_label": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/HeldReleaseStatus"
+          }
+        }
+      },
       "HttpMethod": {
         "type": "string",
         "description": "HTTP method for endpoint definitions",
@@ -38752,6 +40151,162 @@
           }
         }
       },
+      "ManagedAgentReleasePass": {
+        "type": "object",
+        "description": "A short-lived pass accepted by the managed agent bundle upload, test-run,\nbundle-list and release routes.",
+        "required": [
+          "pass",
+          "expires_at"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "pass": {
+            "type": "string",
+            "description": "The release pass bearer token."
+          },
+          "release_source_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The approved release source that proved this pass; absent for an in-person release."
+          },
+          "templates": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "The managed agent template slugs this pass may release; absent for an in-person release."
+          }
+        }
+      },
+      "ManagedAgentReleaseSource": {
+        "type": "object",
+        "description": "An approved release source. A release key's text is never part of it.",
+        "required": [
+          "id",
+          "organization_id",
+          "kind",
+          "label",
+          "approved_by_user_id",
+          "templates",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "approved_by_user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ci_product": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReleaseCiProduct",
+                "description": "Signed runs only."
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "environment": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issuer": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The token issuer of a signed run."
+          },
+          "key_prefix": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The first characters of a release key, to recognize it."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ReleaseSourceKind"
+          },
+          "label": {
+            "type": "string"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "repository": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "revoked_by_user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "templates": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The managed agent template slugs this source may release."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "ManagedAgentRunFeeAmount": {
         "type": "object",
         "description": "A configured run-kind fee in USD atomic units and display currency. A\npercentage fee has `atomic` 0 and its `percent` set.",
@@ -40810,6 +42365,16 @@
           "providers"
         ],
         "properties": {
+          "access_changes": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/TemplateAccessChange"
+            },
+            "description": "Itemized access changes introduced by an in-person release relative to\nthe previous revision. Present only when an in-person release changes\nwhat hired copies can reach or how they run."
+          },
           "active": {
             "type": "boolean",
             "description": "Whether the platform has activated the template, independent of review and Owner listing."
@@ -42705,6 +44270,17 @@
             "type": "boolean",
             "description": "The Owner's listing preference, independent of platform approval and activation."
           },
+          "release": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrganizationManagedAgentTemplateRelease",
+                "description": "What released the current revision, when recorded; absent otherwise."
+              }
+            ]
+          },
           "review_reason": {
             "type": [
               "string",
@@ -42736,6 +44312,49 @@
               "null"
             ],
             "format": "uuid"
+          }
+        }
+      },
+      "OrganizationManagedAgentTemplateRelease": {
+        "type": "object",
+        "description": "How a template's current revision was released, when released with a\nrelease pass or through an approved held release.",
+        "properties": {
+          "approved_by_user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The Owner or Admin who released it in person or approved its held release."
+          },
+          "run": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReleaseRun",
+                "description": "The CI run behind a signed-run release."
+              }
+            ]
+          },
+          "source_kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReleaseSourceKind",
+                "description": "Kind of the approved release source (`signed_run` or `release_key`)."
+              }
+            ]
+          },
+          "source_label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Label of the approved release source, when a release source released or submitted it."
           }
         }
       },
@@ -47473,6 +49092,87 @@
           "unknown"
         ]
       },
+      "RefuseHeldReleaseRequest": {
+        "type": "object",
+        "required": [
+          "note"
+        ],
+        "properties": {
+          "note": {
+            "type": "string",
+            "description": "Reason the approver refused the release.",
+            "maxLength": 2000,
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "RefusedHeldRelease": {
+        "type": "object",
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/HeldReleaseStatus"
+          }
+        }
+      },
+      "ReleaseCiProduct": {
+        "type": "string",
+        "description": "The CI product that signs a run's identity token.",
+        "enum": [
+          "github_actions",
+          "gitlab",
+          "circleci",
+          "seren_ci"
+        ]
+      },
+      "ReleaseRun": {
+        "type": "object",
+        "description": "The CI run a release came from, as its signed token names it. A part the\nCI does not name is an empty string.",
+        "required": [
+          "product",
+          "repository",
+          "repository_id",
+          "commit",
+          "run_id",
+          "run_attempt"
+        ],
+        "properties": {
+          "commit": {
+            "type": "string"
+          },
+          "product": {
+            "$ref": "#/components/schemas/ReleaseCiProduct"
+          },
+          "repository": {
+            "type": "string"
+          },
+          "repository_id": {
+            "type": "string"
+          },
+          "run_attempt": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ReleaseSourceKind": {
+        "type": "string",
+        "description": "How a release source proves a release.",
+        "enum": [
+          "signed_run",
+          "release_key"
+        ]
+      },
       "RemoveRecoveryEmailRequest": {
         "type": "object",
         "required": [
@@ -48384,6 +50084,566 @@
         },
         "additionalProperties": false
       },
+      "TemplateAccessChange": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "before",
+              "after",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateOwnerConnection"
+              },
+              "before": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateOwnerConnection"
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "owner_connection_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "grant",
+              "change"
+            ],
+            "properties": {
+              "change": {
+                "type": "string",
+                "enum": [
+                  "publisher_grant_added"
+                ]
+              },
+              "grant": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateScriptPublisherGrant"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "grant",
+              "change"
+            ],
+            "properties": {
+              "change": {
+                "type": "string",
+                "enum": [
+                  "publisher_grant_removed"
+                ]
+              },
+              "grant": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateScriptPublisherGrant"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The same publisher operation with a different approval requirement.",
+            "required": [
+              "before",
+              "after",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateScriptPublisherGrant"
+              },
+              "before": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateScriptPublisherGrant"
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "publisher_grant_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "rule",
+              "change"
+            ],
+            "properties": {
+              "change": {
+                "type": "string",
+                "enum": [
+                  "network_host_added"
+                ]
+              },
+              "rule": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateEgressRule"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "rule",
+              "change"
+            ],
+            "properties": {
+              "change": {
+                "type": "string",
+                "enum": [
+                  "network_host_removed"
+                ]
+              },
+              "rule": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateEgressRule"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "before",
+              "after",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/GuardedPurchaseRule"
+                }
+              },
+              "before": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/GuardedPurchaseRule"
+                }
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "guarded_purchases_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Form submissions the customer sends from the live window.",
+            "required": [
+              "before",
+              "after",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/GuardedSubmissionRule"
+                }
+              },
+              "before": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/GuardedSubmissionRule"
+                }
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "guarded_submissions_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The contracts and limits Core checks before a Cardano transaction reaches the hirer's wallet.",
+            "required": [
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateCardanoSigning"
+                  }
+                ]
+              },
+              "before": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateCardanoSigning"
+                  }
+                ]
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "cardano_signing_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Whether the trusted runtime may reach the network hosts.",
+            "required": [
+              "before",
+              "after",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "type": "boolean"
+              },
+              "before": {
+                "type": "boolean"
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "workload_egress_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Whether skill scripts may ask for a run's short-lived model key.",
+            "required": [
+              "before",
+              "after",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "type": "boolean"
+              },
+              "before": {
+                "type": "boolean"
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "script_model_key_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Python package lines added to and removed from the requirements.",
+            "required": [
+              "added",
+              "removed",
+              "change"
+            ],
+            "properties": {
+              "added": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "packages_changed"
+                ]
+              },
+              "removed": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "before",
+              "after",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "$ref": "#/components/schemas/CloudDeploymentMode"
+              },
+              "before": {
+                "$ref": "#/components/schemas/CloudDeploymentMode"
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "mode_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "before",
+              "after",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "$ref": "#/components/schemas/ManagedAgentModelPolicy"
+              },
+              "before": {
+                "$ref": "#/components/schemas/ManagedAgentModelPolicy"
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "model_policy_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateLlmConnection"
+                  }
+                ]
+              },
+              "before": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateLlmConnection"
+                  }
+                ]
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "model_connection_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "before",
+              "after",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateBrowserDefaults"
+              },
+              "before": {
+                "$ref": "#/components/schemas/ManagedAgentTemplateBrowserDefaults"
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "browser_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateRuntimeClass"
+                  }
+                ]
+              },
+              "before": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateRuntimeClass"
+                  }
+                ]
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "runtime_class_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The native tool sets a hired copy's runtime registers.",
+            "required": [
+              "before",
+              "after",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AgentNativeToolSet"
+                }
+              },
+              "before": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AgentNativeToolSet"
+                }
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "native_tools_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "before_seconds",
+              "after_seconds",
+              "change"
+            ],
+            "properties": {
+              "after_seconds": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "before_seconds": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "max_runtime_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "before",
+              "after",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "type": "string"
+              },
+              "before": {
+                "type": "string"
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "cron_schedule_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A skill specification whose declared publishers changed, or that could not be read.",
+            "required": [
+              "path",
+              "file_change",
+              "change"
+            ],
+            "properties": {
+              "change": {
+                "type": "string",
+                "enum": [
+                  "skill_specification_changed"
+                ]
+              },
+              "file_change": {
+                "$ref": "#/components/schemas/TemplateFileChange"
+              },
+              "path": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The tool list a skill's metadata allows.",
+            "required": [
+              "path",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "before": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "skill_tools_changed"
+                ]
+              },
+              "path": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "description": "One itemized access change."
+      },
       "TemplateAnalytics": {
         "type": "object",
         "description": "Analytics data for a single template",
@@ -48446,6 +50706,44 @@
           }
         }
       },
+      "TemplateContentChanges": {
+        "type": "object",
+        "description": "Paths of template files added, changed and removed. Never file contents.",
+        "required": [
+          "added",
+          "changed",
+          "removed"
+        ],
+        "properties": {
+          "added": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "changed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "removed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "TemplateFileChange": {
+        "type": "string",
+        "description": "How a file differs between two revisions.",
+        "enum": [
+          "added",
+          "changed",
+          "removed"
+        ]
+      },
       "TemplateLanguage": {
         "type": "string",
         "enum": [
@@ -48453,6 +50751,29 @@
           "typescript",
           "javascript"
         ]
+      },
+      "TemplateRevisionComparison": {
+        "type": "object",
+        "description": "The difference between a hire's revision and a newer revision.",
+        "required": [
+          "kind",
+          "access_changes",
+          "content_changes"
+        ],
+        "properties": {
+          "access_changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateAccessChange"
+            }
+          },
+          "content_changes": {
+            "$ref": "#/components/schemas/TemplateContentChanges"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TemplateUpdateKind"
+          }
+        }
       },
       "TemplateRevisionFailure": {
         "type": "string",
@@ -48715,6 +51036,14 @@
           }
         ],
         "description": "Activation of one exact saved template choice, distinct from its persisted pin."
+      },
+      "TemplateUpdateKind": {
+        "type": "string",
+        "description": "How a newer revision differs from a hire's revision. Any access change\nmakes the whole revision an access change.",
+        "enum": [
+          "access",
+          "content"
+        ]
       },
       "TemplateUpdateSetting": {
         "type": "string",
@@ -49027,6 +51356,43 @@
             "description": "Complete replacement scope set. At least one valid scope is required.\nOnly an owner of the resolved organization can grant a set containing\n`managed-agent-template:publish`."
           }
         }
+      },
+      "UpdateManagedAgentReleaseSourceRequest": {
+        "type": "object",
+        "description": "Change a release source. Omitted fields keep their values.",
+        "properties": {
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Signed runs only."
+          },
+          "environment": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Signed runs only; `null` removes the environment requirement."
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "templates": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Replaces the source's managed agent template slugs."
+          }
+        },
+        "additionalProperties": false
       },
       "UpdateOAuthProviderRequest": {
         "type": "object",
@@ -51930,6 +54296,10 @@
     {
       "name": "receipts",
       "description": "Unsubscribe links in daily SerenBucks receipt emails"
+    },
+    {
+      "name": "notices",
+      "description": "Unsubscribe links in account notice emails"
     },
     {
       "name": "managed-agent-templates",
