@@ -3249,6 +3249,88 @@ pub struct PublishSerenAgentTemplateReleaseParams {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct ListSerenAgentReleaseSourcesParams {
+    /// Organization whose approved release sources to list.
+    pub organization_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ApproveSerenAgentReleaseSourceParams {
+    /// Organization that publishes the Employees.
+    pub organization_id: Uuid,
+    /// Human-readable label for this release source, 1 to 100 characters.
+    pub label: String,
+    /// CI product that signs the run's identity token.
+    pub ci_product: seren::ReleaseCiProduct,
+    /// Optional token issuer. Fixed for `github_actions`; defaults to `https://gitlab.com` for `gitlab`; required for `circleci` as `https://oidc.circleci.com/org/<organization id>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issuer: Option<String>,
+    /// Repository identifier: `owner/name` for GitHub Actions, project path for GitLab, or `host/org/repo` for CircleCI.
+    pub repository: String,
+    /// Branch name (not a `refs/` path).
+    pub branch: String,
+    /// Optional CI environment name the run must match.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<String>,
+    /// Managed agent template slugs this source may release (1 to 100 slugs).
+    pub templates: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateSerenAgentReleaseSourceParams {
+    /// Organization that owns the release source.
+    pub organization_id: Uuid,
+    /// Release source ID to update.
+    pub release_source_id: Uuid,
+    pub request: seren::UpdateManagedAgentReleaseSourceRequest,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RevokeSerenAgentReleaseSourceParams {
+    /// Organization that owns the release source.
+    pub organization_id: Uuid,
+    /// Release source ID to revoke.
+    pub release_source_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ListSerenAgentHeldReleasesParams {
+    /// Organization whose held releases to list.
+    pub organization_id: Uuid,
+    /// Optional held-release status filter. Defaults to `pending`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<seren::HeldReleaseStatus>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ApproveSerenAgentHeldReleaseParams {
+    /// Organization that owns the held release.
+    pub organization_id: Uuid,
+    /// Held release ID to approve.
+    pub held_release_id: Uuid,
+    /// Exact `changes_fingerprint` returned by `list_seren_agent_held_releases` for the changes shown to the Owner or Admin.
+    pub changes_fingerprint: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RefuseSerenAgentHeldReleaseParams {
+    /// Organization that owns the held release.
+    pub organization_id: Uuid,
+    /// Held release ID to refuse.
+    pub held_release_id: Uuid,
+    /// Reason the approver refused the release, 1 to 2000 characters.
+    #[schemars(length(min = 1, max = 2000))]
+    pub note: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AddSavedPaymentMethodParams {
     pub request: seren::AddPaymentMethodRequest,
 }
@@ -7937,6 +8019,16 @@ fn ensure_api_key_management_user_session(extensions: &Extensions) -> Result<(),
         "API key management requires a signed-in user session; API keys cannot manage API keys",
         None,
     ))
+}
+
+fn ensure_release_source_management_user_session(extensions: &Extensions) -> Result<(), McpError> {
+    ensure_managed_agent_owner_credential(extensions)?;
+    ensure_api_key_management_user_session(extensions).map_err(|_| {
+        McpError::invalid_request(
+            "Release source management requires a signed-in user session; API keys cannot manage release sources",
+            None,
+        )
+    })
 }
 
 fn ensure_organization_collaboration_user_session(extensions: &Extensions) -> Result<(), McpError> {
@@ -19049,6 +19141,207 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "List approved release sources for an organization, including each source's kind, repository and branch or key prefix, allowed Employee template slugs, approver, last use, expiry and revocation status. Requires a built-in Owner or Admin of the organization using a signed-in user session or unrestricted user API key.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn list_seren_agent_release_sources(
+        &self,
+        Parameters(params): Parameters<ListSerenAgentReleaseSourcesParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .list_managed_agent_release_sources(&params.organization_id)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Approve a signed-run CI release source for an organization after explicit Owner or Admin confirmation. Approves signed CI runs only and never creates release keys. Requires a signed-in user session of a built-in Owner or Admin; API keys cannot manage release sources.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn approve_seren_agent_release_source(
+        &self,
+        Parameters(params): Parameters<ApproveSerenAgentReleaseSourceParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_release_source_management_user_session(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let request = seren::CreateManagedAgentReleaseSourceRequest::SignedRun {
+            label: params.label,
+            ci_product: params.ci_product,
+            issuer: params.issuer,
+            repository: params.repository,
+            branch: params.branch,
+            environment: params.environment,
+            templates: params.templates,
+        };
+        let response = api_client
+            .create_managed_agent_release_source(&params.organization_id, &request)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Update an approved release source's label, branch, environment or allowed Employee template slugs. Omitted fields keep their current values; pass environment: null to remove an environment requirement. Requires a signed-in user session of a built-in Owner or Admin; API keys cannot manage release sources.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn update_seren_agent_release_source(
+        &self,
+        Parameters(params): Parameters<UpdateSerenAgentReleaseSourceParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_release_source_management_user_session(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .update_managed_agent_release_source(
+                &params.organization_id,
+                &params.release_source_id,
+                &params.request,
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Revoke an approved release source after explicit Owner or Admin confirmation. Revocation immediately blocks future releases from that source and cancels its pending held releases. Requires a signed-in user session of a built-in Owner or Admin; API keys cannot manage release sources.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn revoke_seren_agent_release_source(
+        &self,
+        Parameters(params): Parameters<RevokeSerenAgentReleaseSourceParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_release_source_management_user_session(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .revoke_managed_agent_release_source(&params.organization_id, &params.release_source_id)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List held Employee releases for an organization, defaulting to pending holds, with each hold's reason, access changes comparison, changes_fingerprint, CI run details and source label. Show the listed access changes to the Owner or Admin before calling approve_seren_agent_held_release. Requires a built-in Owner or Admin using a signed-in user session or unrestricted user API key.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn list_seren_agent_held_releases(
+        &self,
+        Parameters(params): Parameters<ListSerenAgentHeldReleasesParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .list_managed_agent_held_releases(&params.organization_id, params.status)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Approve and publish one held Employee release after explicit Owner or Admin review. Before calling this tool, call list_seren_agent_held_releases, show the Owner the listed access changes (or first-release details), and pass the exact changes_fingerprint from that same listing. If the release changed since listing, the API returns a 409 conflict with the updated comparison and fingerprint to show the Owner again. Requires a built-in Owner or Admin using a signed-in user session or unrestricted user API key.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn approve_seren_agent_held_release(
+        &self,
+        Parameters(params): Parameters<ApproveSerenAgentHeldReleaseParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        if params.changes_fingerprint.trim().is_empty() {
+            return Err(McpError::invalid_params(
+                "changes_fingerprint is required; pass the exact changes_fingerprint from list_seren_agent_held_releases",
+                None,
+            ));
+        }
+        let api_client =
+            self.api_client_with_timeout(&extensions, std::time::Duration::from_secs(600))?;
+        let request = seren::ApproveHeldReleaseRequest {
+            changes_fingerprint: params.changes_fingerprint,
+        };
+        let response = api_client
+            .approve_managed_agent_held_release(
+                &params.organization_id,
+                &params.held_release_id,
+                &request,
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Refuse one held Employee release with a required reason note (1 to 2000 characters). Requires a built-in Owner or Admin using a signed-in user session or unrestricted user API key.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn refuse_seren_agent_held_release(
+        &self,
+        Parameters(params): Parameters<RefuseSerenAgentHeldReleaseParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let note = params.note.parse().map_err(|error| {
+            McpError::invalid_params(format!("Invalid refusal note: {error}"), None)
+        })?;
+        let api_client = self.api_client(&extensions)?;
+        let request = seren::RefuseHeldReleaseRequest { note };
+        let response = api_client
+            .refuse_managed_agent_held_release(
+                &params.organization_id,
+                &params.held_release_id,
+                &request,
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
         description = "List saved payment methods for the authenticated organization.",
         annotations(
             read_only_hint = true,
@@ -29241,6 +29534,488 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn held_release_approval_sends_the_fingerprint_the_owner_saw() {
+        use wiremock::matchers::{body_json, method, path, query_param};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let upstream = MockServer::start().await;
+        let organization_id = Uuid::new_v4();
+        let source_id = Uuid::new_v4();
+        let held_release_id = Uuid::new_v4();
+        let approver_id = Uuid::new_v4();
+        let fingerprint = "a".repeat(64);
+        let timestamp = "2026-11-25T09:00:00Z";
+
+        let signed_run_source = serde_json::json!({
+            "id": source_id,
+            "organization_id": organization_id,
+            "kind": "signed_run",
+            "label": "Main CI",
+            "approved_by_user_id": approver_id,
+            "ci_product": "github_actions",
+            "issuer": "https://token.actions.githubusercontent.com",
+            "repository": "example/employees",
+            "branch": "main",
+            "environment": "production",
+            "templates": ["analyst"],
+            "created_at": timestamp,
+            "updated_at": timestamp
+        });
+        let mut updated_source = signed_run_source.clone();
+        updated_source
+            .as_object_mut()
+            .unwrap()
+            .remove("environment");
+        let mut revoked_source = signed_run_source.clone();
+        revoked_source["revoked_at"] = serde_json::json!(timestamp);
+        revoked_source["revoked_by_user_id"] = serde_json::json!(approver_id);
+
+        let held_summary = serde_json::json!({
+            "id": held_release_id,
+            "slug": "analyst",
+            "reason": "access_change",
+            "comparison": {
+                "kind": "access",
+                "access_changes": [{
+                    "change": "network_host_added",
+                    "rule": {
+                        "host": "api.example.com",
+                        "port": 443,
+                        "protocol": "rest"
+                    }
+                }],
+                "content_changes": {
+                    "added": ["SKILL.md"],
+                    "changed": [],
+                    "removed": []
+                }
+            },
+            "changes_fingerprint": fingerprint,
+            "run": {
+                "product": "github_actions",
+                "repository": "example/employees",
+                "repository_id": "12345",
+                "commit": "b".repeat(40),
+                "run_id": "98765",
+                "run_attempt": "1"
+            },
+            "source_label": "Main CI",
+            "status": "pending",
+            "created_at": timestamp
+        });
+        let approved_release = serde_json::json!({
+            "slug": "analyst",
+            "revision": 4,
+            "created": false,
+            "revision_added": true,
+            "active": true,
+            "listed": true,
+            "review_state": "approved",
+            "providers": []
+        });
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/organizations/{organization_id}/release-sources"
+            )))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"data": [signed_run_source]})),
+            )
+            .expect(1)
+            .mount(&upstream)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/release-sources"
+            )))
+            .and(body_json(serde_json::json!({
+                "kind": "signed_run",
+                "label": "Main CI",
+                "ci_product": "github_actions",
+                "repository": "example/employees",
+                "branch": "main",
+                "environment": "production",
+                "templates": ["analyst"]
+            })))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"data": signed_run_source})),
+            )
+            .expect(1)
+            .mount(&upstream)
+            .await;
+
+        Mock::given(method("PATCH"))
+            .and(path(format!(
+                "/organizations/{organization_id}/release-sources/{source_id}"
+            )))
+            .and(body_json(serde_json::json!({"environment": null})))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"data": updated_source})),
+            )
+            .expect(1)
+            .mount(&upstream)
+            .await;
+
+        Mock::given(method("DELETE"))
+            .and(path(format!(
+                "/organizations/{organization_id}/release-sources/{source_id}"
+            )))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"data": revoked_source})),
+            )
+            .expect(1)
+            .mount(&upstream)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/organizations/{organization_id}/held-releases"
+            )))
+            .and(query_param("status", "pending"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"data": [held_summary]})),
+            )
+            .expect(1)
+            .mount(&upstream)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/held-releases/{held_release_id}/approve"
+            )))
+            .and(body_json(
+                serde_json::json!({"changes_fingerprint": fingerprint}),
+            ))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"data": approved_release})),
+            )
+            .expect(1)
+            .mount(&upstream)
+            .await;
+
+        let stale_fingerprint = "c".repeat(64);
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/held-releases/{held_release_id}/approve"
+            )))
+            .and(body_json(
+                serde_json::json!({"changes_fingerprint": stale_fingerprint}),
+            ))
+            .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
+                "error": "managed_agent_held_release_changed",
+                "message": "This release changed while waiting for approval.",
+                "details": {"changes_fingerprint": "d".repeat(64)}
+            })))
+            .expect(1)
+            .mount(&upstream)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/held-releases/{held_release_id}/refuse"
+            )))
+            .and(body_json(serde_json::json!({"note": "Wait for review"})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {"id": held_release_id, "status": "refused"}
+            })))
+            .expect(1)
+            .mount(&upstream)
+            .await;
+
+        let server = SerenMcpServer::new("owner-key", &upstream.uri()).unwrap();
+        let user_api_key = || {
+            extensions_with_auth_context(crate::SerenRequestAuthContext {
+                user_id: approver_id,
+                email: None,
+                credential: crate::SerenRequestCredential::UserApiKey {
+                    api_key_id: Some(Uuid::new_v4()),
+                    api_key_scopes: None,
+                },
+            })
+        };
+        let user_session = || {
+            extensions_with_auth_context(crate::SerenRequestAuthContext {
+                user_id: approver_id,
+                email: None,
+                credential: crate::SerenRequestCredential::UserSession,
+            })
+        };
+        let agent_key = || {
+            extensions_with_auth_context(crate::SerenRequestAuthContext {
+                user_id: approver_id,
+                email: None,
+                credential: crate::SerenRequestCredential::AgentApiKey {
+                    api_key_id: Some(Uuid::new_v4()),
+                    agent_identity_id: Some(Uuid::new_v4()),
+                },
+            })
+        };
+
+        let approve_source_params = || ApproveSerenAgentReleaseSourceParams {
+            organization_id,
+            label: "Main CI".into(),
+            ci_product: seren::ReleaseCiProduct::GithubActions,
+            issuer: None,
+            repository: "example/employees".into(),
+            branch: "main".into(),
+            environment: Some("production".into()),
+            templates: vec!["analyst".into()],
+        };
+
+        // API keys, agent keys, local unauthenticated contexts, work contexts, and read-only mode
+        // cannot mutate release sources.
+        let key_error = server
+            .approve_seren_agent_release_source(Parameters(approve_source_params()), user_api_key())
+            .await
+            .expect_err("API-key credential must be refused for approving a release source");
+        assert!(
+            key_error.message.contains("signed-in user session"),
+            "{key_error:?}"
+        );
+        assert!(
+            server
+                .update_seren_agent_release_source(
+                    Parameters(UpdateSerenAgentReleaseSourceParams {
+                        organization_id,
+                        release_source_id: source_id,
+                        request: seren::UpdateManagedAgentReleaseSourceRequest {
+                            environment: Some(None),
+                            ..Default::default()
+                        },
+                    }),
+                    user_api_key(),
+                )
+                .await
+                .is_err()
+        );
+        assert!(
+            server
+                .revoke_seren_agent_release_source(
+                    Parameters(RevokeSerenAgentReleaseSourceParams {
+                        organization_id,
+                        release_source_id: source_id,
+                    }),
+                    user_api_key(),
+                )
+                .await
+                .is_err()
+        );
+        assert!(
+            server
+                .approve_seren_agent_release_source(
+                    Parameters(approve_source_params()),
+                    Extensions::default(),
+                )
+                .await
+                .is_err()
+        );
+        let mut session_with_work_context = user_session();
+        session_with_work_context.insert(RuntimeWorkContextToken("work-context".into()));
+        assert!(
+            server
+                .approve_seren_agent_release_source(
+                    Parameters(approve_source_params()),
+                    session_with_work_context,
+                )
+                .await
+                .is_err()
+        );
+        assert!(
+            server
+                .approve_seren_agent_release_source(
+                    Parameters(approve_source_params()),
+                    extensions_with_headers_and_auth_context(
+                        &[("x-read-only", "true")],
+                        crate::SerenRequestAuthContext {
+                            user_id: approver_id,
+                            email: None,
+                            credential: crate::SerenRequestCredential::UserSession,
+                        },
+                    ),
+                )
+                .await
+                .is_err()
+        );
+
+        // Agent keys cannot list or decide held releases or release sources.
+        assert!(
+            server
+                .list_seren_agent_release_sources(
+                    Parameters(ListSerenAgentReleaseSourcesParams { organization_id }),
+                    agent_key(),
+                )
+                .await
+                .is_err()
+        );
+        assert!(
+            server
+                .list_seren_agent_held_releases(
+                    Parameters(ListSerenAgentHeldReleasesParams {
+                        organization_id,
+                        status: Some(seren::HeldReleaseStatus::Pending),
+                    }),
+                    agent_key(),
+                )
+                .await
+                .is_err()
+        );
+        assert!(
+            server
+                .approve_seren_agent_held_release(
+                    Parameters(ApproveSerenAgentHeldReleaseParams {
+                        organization_id,
+                        held_release_id,
+                        changes_fingerprint: fingerprint.clone(),
+                    }),
+                    agent_key(),
+                )
+                .await
+                .is_err()
+        );
+        assert!(
+            server
+                .approve_seren_agent_held_release(
+                    Parameters(ApproveSerenAgentHeldReleaseParams {
+                        organization_id,
+                        held_release_id,
+                        changes_fingerprint: "   ".into(),
+                    }),
+                    user_api_key(),
+                )
+                .await
+                .is_err()
+        );
+
+        // Signed-in user session approves, updates (including explicit null environment), and revokes.
+        let approved_source = template_catalog_result_json(
+            server
+                .approve_seren_agent_release_source(
+                    Parameters(approve_source_params()),
+                    user_session(),
+                )
+                .await
+                .unwrap(),
+        );
+        assert_eq!(approved_source["data"]["id"], source_id.to_string());
+        assert_eq!(approved_source["data"]["kind"], "signed_run");
+
+        let updated = template_catalog_result_json(
+            server
+                .update_seren_agent_release_source(
+                    Parameters(UpdateSerenAgentReleaseSourceParams {
+                        organization_id,
+                        release_source_id: source_id,
+                        request: serde_json::from_value(serde_json::json!({"environment": null}))
+                            .unwrap(),
+                    }),
+                    user_session(),
+                )
+                .await
+                .unwrap(),
+        );
+        assert_eq!(updated["data"]["id"], source_id.to_string());
+        assert!(updated["data"]["environment"].is_null());
+
+        let revoked = template_catalog_result_json(
+            server
+                .revoke_seren_agent_release_source(
+                    Parameters(RevokeSerenAgentReleaseSourceParams {
+                        organization_id,
+                        release_source_id: source_id,
+                    }),
+                    user_session(),
+                )
+                .await
+                .unwrap(),
+        );
+        assert_eq!(revoked["data"]["revoked_at"], timestamp);
+
+        // User API key can list release sources and held releases, approve with the listed
+        // fingerprint, receive 409 conflicts verbatim, and refuse with a note.
+        let listed_sources = template_catalog_result_json(
+            server
+                .list_seren_agent_release_sources(
+                    Parameters(ListSerenAgentReleaseSourcesParams { organization_id }),
+                    user_api_key(),
+                )
+                .await
+                .unwrap(),
+        );
+        assert_eq!(listed_sources["data"][0]["label"], "Main CI");
+
+        let listed_holds = template_catalog_result_json(
+            server
+                .list_seren_agent_held_releases(
+                    Parameters(ListSerenAgentHeldReleasesParams {
+                        organization_id,
+                        status: Some(seren::HeldReleaseStatus::Pending),
+                    }),
+                    user_api_key(),
+                )
+                .await
+                .unwrap(),
+        );
+        assert_eq!(listed_holds["data"][0]["changes_fingerprint"], fingerprint);
+
+        let approved_hold = template_catalog_result_json(
+            server
+                .approve_seren_agent_held_release(
+                    Parameters(ApproveSerenAgentHeldReleaseParams {
+                        organization_id,
+                        held_release_id,
+                        changes_fingerprint: fingerprint,
+                    }),
+                    user_api_key(),
+                )
+                .await
+                .unwrap(),
+        );
+        assert_eq!(approved_hold["data"]["revision"], 4);
+
+        let stale_error = server
+            .approve_seren_agent_held_release(
+                Parameters(ApproveSerenAgentHeldReleaseParams {
+                    organization_id,
+                    held_release_id,
+                    changes_fingerprint: stale_fingerprint,
+                }),
+                user_api_key(),
+            )
+            .await
+            .expect_err("stale fingerprint conflict must pass through as an error");
+        assert!(
+            stale_error
+                .message
+                .contains("managed_agent_held_release_changed"),
+            "{stale_error:?}"
+        );
+
+        let refused_hold = template_catalog_result_json(
+            server
+                .refuse_seren_agent_held_release(
+                    Parameters(RefuseSerenAgentHeldReleaseParams {
+                        organization_id,
+                        held_release_id,
+                        note: "Wait for review".into(),
+                    }),
+                    user_api_key(),
+                )
+                .await
+                .unwrap(),
+        );
+        assert_eq!(refused_hold["data"]["status"], "refused");
+
+        upstream.verify().await;
+    }
+
+    #[tokio::test]
     async fn managed_agent_owner_tools_reject_invalid_credentials_and_read_only_writes() {
         let server = SerenMcpServer::new("test-key", "http://127.0.0.1:1").unwrap();
         let deployment_id = Uuid::new_v4();
@@ -29545,6 +30320,13 @@ pub(crate) mod tests {
             ("create_seren_agent_browser_handoff_ticket", false),
             ("decide_cloud_approval_inbox_entry", false),
             ("publish_seren_agent_template_release", false),
+            ("list_seren_agent_release_sources", true),
+            ("approve_seren_agent_release_source", false),
+            ("update_seren_agent_release_source", false),
+            ("revoke_seren_agent_release_source", false),
+            ("list_seren_agent_held_releases", true),
+            ("approve_seren_agent_held_release", false),
+            ("refuse_seren_agent_held_release", false),
             ("update_wallet_reload_settings", false),
             ("consume_user_oauth_connection_result", false),
             ("start_seren_agent_deployment", false),
@@ -29576,6 +30358,45 @@ pub(crate) mod tests {
                 .and_then(|annotations| annotations.destructive_hint),
             Some(true)
         );
+        for (name, destructive) in [
+            ("list_seren_agent_release_sources", false),
+            ("approve_seren_agent_release_source", false),
+            ("update_seren_agent_release_source", false),
+            ("revoke_seren_agent_release_source", true),
+            ("list_seren_agent_held_releases", false),
+            ("approve_seren_agent_held_release", true),
+            ("refuse_seren_agent_held_release", false),
+        ] {
+            let tool = tools
+                .iter()
+                .find(|tool| tool.name == name)
+                .unwrap_or_else(|| panic!("missing tool {name}"));
+            assert_eq!(
+                tool.annotations
+                    .as_ref()
+                    .and_then(|annotations| annotations.destructive_hint),
+                Some(destructive),
+                "{name}"
+            );
+        }
+        let approve_source = tools
+            .iter()
+            .find(|tool| tool.name == "approve_seren_agent_release_source")
+            .unwrap();
+        let approve_source_props = approve_source
+            .input_schema
+            .get("properties")
+            .and_then(serde_json::Value::as_object)
+            .expect("approve_seren_agent_release_source properties");
+        assert!(!approve_source_props.contains_key("kind"));
+        assert!(!approve_source_props.contains_key("expires_in_days"));
+        let approve_hold = tools
+            .iter()
+            .find(|tool| tool.name == "approve_seren_agent_held_release")
+            .unwrap();
+        let approve_hold_desc = approve_hold.description.as_deref().unwrap();
+        assert!(approve_hold_desc.contains("access changes"));
+        assert!(approve_hold_desc.contains("changes_fingerprint"));
         // Runtime-only operations stay off the owner surface. Seren Passwords completes
         // sign-in consent, so the owner surface does not accept consent IDs either.
         for excluded in [
