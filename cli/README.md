@@ -449,6 +449,17 @@ seren -o json agent managed-release-pass <organization-id>
 
 # Publish an uploaded bundle as a managed template release
 seren --api-key <scoped-user-api-key> agent managed-publish-template-release <organization-id> <template-slug> --request ./release.json
+
+# Manage Employee release sources and held releases
+seren agent managed-release-sources <organization-id> list
+seren agent managed-release-sources <organization-id> approve --product github-actions --repository owner/repo --branch main --label "Main CI" --template <template-slug>
+seren agent managed-release-sources <organization-id> create-key --label "Fallback CI key" --days 14 --template <template-slug>
+seren agent managed-release-sources <organization-id> edit <release-source-id> --branch release --clear-environment --template <template-slug>
+seren agent managed-release-sources <organization-id> revoke <release-source-id>
+seren agent managed-held-releases <organization-id> list
+seren agent managed-held-releases <organization-id> approve <held-release-id>
+seren agent managed-held-releases <organization-id> approve <held-release-id> --fingerprint <changes-fingerprint>
+seren agent managed-held-releases <organization-id> refuse <held-release-id> --note "Reason for refusal"
 ```
 
 `managed-release-pass` exchanges the first proof it finds for a short-lived release pass and writes which proof it used to standard error. By default it prints only the pass on standard output so shell scripts can capture it; pass `-o json` for the full response. Proofs are checked in this order:
@@ -457,6 +468,8 @@ seren --api-key <scoped-user-api-key> agent managed-publish-template-release <or
 2. `SEREN_RELEASE_ID_TOKEN` (a CI signed run token, such as from GitLab or CircleCI)
 3. `SEREN_RELEASE_KEY` (an organization release key)
 4. Your signed-in browser session (releasing in person; requires `seren auth login` with browser login, not an API key)
+
+Approving, creating keys, editing, and revoking release sources require browser-login OAuth authentication by an Owner or Admin of the organization. `create-key` accepts `--days` from 1 to 30 and prints the key once (`Store it now. Seren will not show it again.`). Signed-run sources accept `--product` values `github-actions`, `gitlab`, and `circleci`, with optional `--environment` and `--issuer`; `edit` updates only supplied fields and accepts `--clear-environment` to remove an environment requirement. Listing release sources and listing, approving, or refusing held releases accept either a signed-in session or an unrestricted personal API key. `managed-held-releases list` displays each held release's changes in plain sentences and its `changes_fingerprint` (defaulting to pending holds; pass `--status` to filter). Running `managed-held-releases approve` without `--fingerprint` fetches pending holds, prints the changes for that hold, and submits its fingerprint; if the held release changes before approval (`409 managed_agent_held_release_changed`), the command prints the updated changes and new fingerprint and exits with status 1 so you can review them before approving.
 
 The release request file follows `PublishManagedAgentTemplateReleaseRequest` and supplies `display_name`, `source_bundle_id`, `source_commit_sha`, and `deploy_defaults`, with an optional `release_note`. `deploy_defaults.max_tool_output_chars` sets how many characters of each tool result every hire keeps, from 1 to 1,000,000; omit it to use the model policy's default (fast 6,000, balanced 10,000, deep 15,000). An Employer's view of a hire reports the limit it runs with as `max_tool_output_chars`. Publication requires a user API key of the publishing organization explicitly scoped to `managed-agent-template:publish`; only an owner of that organization can grant the scope. A browser session or unrestricted API key cannot publish a release. A newly created template can be hired as soon as it is published. A release that no provider can hire is refused, and the response lists the providers whose connected accounts can hire the current revision. Only the organization that published a template can release it again, and a suspended template refuses releases and rollouts. Existing hires follow their Employers' update settings, and access changes always need the Employer's approval. `rollout: true` evaluates those settings immediately; omitting it leaves evaluation to the background update process, not a separate activation step. An update waits for a running task to finish.
 
