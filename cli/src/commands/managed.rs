@@ -617,11 +617,14 @@ struct ManagedReleaseSettings {
     release_note: Option<String>,
 }
 
-fn load_release_settings(folder: &Path, settings: Option<&Path>) -> Result<ManagedReleaseSettings> {
-    let path = settings
+fn resolve_release_settings_path(folder: &Path, settings: Option<&Path>) -> PathBuf {
+    settings
         .map(Path::to_path_buf)
-        .unwrap_or_else(|| folder.join(DEFAULT_RELEASE_SETTINGS_FILE));
-    let bytes = fs::read(&path)
+        .unwrap_or_else(|| folder.join(DEFAULT_RELEASE_SETTINGS_FILE))
+}
+
+fn load_release_settings(path: &Path) -> Result<ManagedReleaseSettings> {
+    let bytes = fs::read(path)
         .with_context(|| format!("Failed to read release settings {}", path.display()))?;
     let parsed: ManagedReleaseSettings = serde_json::from_slice(&bytes)
         .with_context(|| format!("Invalid release settings in {}", path.display()))?;
@@ -903,10 +906,12 @@ async fn managed_release_with_env(
     if !folder.is_dir() {
         anyhow::bail!("'{}' is not a directory", folder.display());
     }
-    let release_settings = load_release_settings(folder, settings)?;
+    let settings_path = resolve_release_settings_path(folder, settings);
+    let release_settings = load_release_settings(&settings_path)?;
     let release_note = parse_release_note(release_settings.release_note)?;
     let source_commit_sha = resolve_release_commit_sha(folder, commit).await?;
-    let draft = super::agent_dev::package_agent_bundle(folder)?;
+    let draft =
+        super::agent_dev::package_agent_bundle_excluding(folder, Some(settings_path.as_path()))?;
     let (serialized, _) = super::agent::managed_bundle_upload(&draft)?;
 
     let pass_answer = super::release_pass::release_pass_with_env(ctx, organization_id, env).await?;
@@ -3780,11 +3785,51 @@ mod tests {
         .to_string();
         assert_eq!(git_head.len(), 40);
 
-        let expected_draft = super::super::agent_dev::package_agent_bundle(&folder).unwrap();
+        // Build expected bundle from a folder with only SKILL.md (no seren-release.json)
+        // so the test proves the release settings file is excluded from the packaged bundle.
+        let expected_only_dir = tempfile::tempdir().unwrap();
+        fs::write(
+            expected_only_dir.path().join("SKILL.md"),
+            "---\nname: analyst\ndescription: Synthetic analyst employee\n---\n\n# Analyst\n",
+        )
+        .unwrap();
+        let expected_draft =
+            super::super::agent_dev::package_agent_bundle(expected_only_dir.path()).unwrap();
+        assert!(expected_draft.bundle.assets.is_empty());
         let (expected_bundle_bytes, _) =
             super::super::agent::managed_bundle_upload(&expected_draft).unwrap();
         let expected_bundle_sha = hex::encode(Sha256::digest(&expected_bundle_bytes));
         let expected_bundle_size = i64::try_from(expected_bundle_bytes.len()).unwrap();
+
+        // Also verify an external settings symlink inside `<folder>` is excluded before symlink escape checks.
+        #[cfg(unix)]
+        {
+            let symlink_dir = tempfile::tempdir().unwrap();
+            let linked_folder = symlink_dir.path().join("employee");
+            fs::create_dir_all(&linked_folder).unwrap();
+            fs::write(
+                linked_folder.join("SKILL.md"),
+                "---\nname: analyst\ndescription: Synthetic analyst employee\n---\n\n# Analyst\n",
+            )
+            .unwrap();
+            let external_settings = symlink_dir.path().join("external-release.json");
+            fs::write(
+                &external_settings,
+                serde_json::to_vec_pretty(&settings_json).unwrap(),
+            )
+            .unwrap();
+            let symlink_settings = linked_folder.join("seren-release.json");
+            std::os::unix::fs::symlink(&external_settings, &symlink_settings).unwrap();
+            let symlink_draft = super::super::agent_dev::package_agent_bundle_excluding(
+                &linked_folder,
+                Some(symlink_settings.as_path()),
+            )
+            .unwrap();
+            let (symlink_bytes, _) =
+                super::super::agent::managed_bundle_upload(&symlink_draft).unwrap();
+            assert_eq!(symlink_bytes, expected_bundle_bytes);
+            assert!(symlink_draft.bundle.assets.is_empty());
+        }
 
         let env = HashMap::from([("SEREN_RELEASE_KEY", release_key.to_string())]);
         let env_lookup = |name: &str| env.get(name).cloned();
@@ -4009,6 +4054,21 @@ mod tests {
         assert!(
             !received[0].headers.contains_key("authorization"),
             "release-passes request must not send Authorization"
+        );
+        let uploaded_put = received
+            .iter()
+            .find(|req| req.method.as_str() == "PUT")
+            .expect("presigned upload PUT request");
+        assert_eq!(uploaded_put.body, expected_bundle_bytes);
+        let uploaded_bundle: seren::AgentBundle =
+            serde_json::from_slice(&uploaded_put.body).expect("uploaded bundle is valid JSON");
+        assert!(
+            !uploaded_bundle
+                .assets
+                .iter()
+                .any(|asset| asset.path == "seren-release.json"),
+            "release settings file must not be packaged into bundle assets: {:?}",
+            uploaded_bundle.assets
         );
         for req in &received {
             if let Some(auth) = req.headers.get("authorization") {
