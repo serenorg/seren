@@ -217,6 +217,31 @@ pub struct UpdateOAuthProviderRequest {
     pub userinfo_url: Option<Option<String>>,
 }
 
+/// Change a release source. Omitted fields keep their values.
+///
+/// `environment` uses `Option<Option<String>>` so callers can distinguish
+/// omission (`None`, keep current value), an explicit `null` (`Some(None)`,
+/// remove the environment requirement), and a supplied name (`Some(Some(name))`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateManagedAgentReleaseSourceRequest {
+    /// Signed runs only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// Signed runs only; `null` removes the environment requirement.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_double_option"
+    )]
+    pub environment: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Replaces the source's managed agent template slugs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub templates: Option<Vec<String>>,
+}
+
 /// Preserve a present null separately from an omitted field's default.
 fn deserialize_double_option<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
 where
@@ -1004,6 +1029,125 @@ mod oauth_provider_update_tests {
                     "{operation:?} must reject only the missing {missing}: {error}"
                 );
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod release_source_update_tests {
+    use super::UpdateManagedAgentReleaseSourceRequest;
+    use serde_json::json;
+
+    #[test]
+    fn release_source_update_preserves_omission_null_and_values() {
+        for wire in [
+            json!({}),
+            json!({"environment": null}),
+            json!({"environment": "production"}),
+            json!({"label": "CI release", "branch": "main", "environment": null, "templates": ["analyst"]}),
+            json!({"label": "CI release", "branch": "release", "environment": "prod", "templates": ["analyst", "reviewer"]}),
+        ] {
+            let request: UpdateManagedAgentReleaseSourceRequest =
+                serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(request).unwrap(), wire);
+        }
+
+        let omitted: UpdateManagedAgentReleaseSourceRequest =
+            serde_json::from_value(json!({})).unwrap();
+        assert!(omitted.environment.is_none());
+        assert!(omitted.branch.is_none());
+        assert!(omitted.label.is_none());
+        assert!(omitted.templates.is_none());
+        assert_eq!(
+            serde_json::to_value(UpdateManagedAgentReleaseSourceRequest::default()).unwrap(),
+            json!({})
+        );
+
+        let cleared: UpdateManagedAgentReleaseSourceRequest =
+            serde_json::from_value(json!({"environment": null})).unwrap();
+        assert_eq!(cleared.environment, Some(None));
+        assert_eq!(
+            serde_json::to_value(cleared).unwrap(),
+            json!({"environment": null})
+        );
+
+        let supplied: UpdateManagedAgentReleaseSourceRequest =
+            serde_json::from_value(json!({"environment": "production"})).unwrap();
+        assert_eq!(supplied.environment, Some(Some("production".to_string())));
+
+        for invalid in [
+            json!({"unknown_field": true}),
+            json!({"environment": 42}),
+            json!({"templates": "analyst"}),
+            json!({"branch": ["main"]}),
+        ] {
+            assert!(
+                serde_json::from_value::<UpdateManagedAgentReleaseSourceRequest>(invalid.clone())
+                    .is_err(),
+                "{invalid}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn release_source_update_sends_exact_patch_presence() {
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{body_json, method, path},
+        };
+
+        let organization_id = uuid::Uuid::from_u128(10);
+        let source_id = uuid::Uuid::from_u128(11);
+        for (request, expected_wire) in [
+            (
+                UpdateManagedAgentReleaseSourceRequest {
+                    label: Some("Keep environment".into()),
+                    ..Default::default()
+                },
+                json!({"label": "Keep environment"}),
+            ),
+            (
+                UpdateManagedAgentReleaseSourceRequest {
+                    environment: Some(None),
+                    ..Default::default()
+                },
+                json!({"environment": null}),
+            ),
+            (
+                UpdateManagedAgentReleaseSourceRequest {
+                    branch: Some("main".into()),
+                    environment: Some(Some("production".into())),
+                    templates: Some(vec!["analyst".into()]),
+                    ..Default::default()
+                },
+                json!({
+                    "branch": "main",
+                    "environment": "production",
+                    "templates": ["analyst"]
+                }),
+            ),
+        ] {
+            let server = MockServer::start().await;
+            Mock::given(method("PATCH"))
+                .and(path(format!(
+                    "/organizations/{organization_id}/release-sources/{source_id}"
+                )))
+                .and(body_json(expected_wire.clone()))
+                .respond_with(ResponseTemplate::new(409))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let error = crate::Client::new(&server.uri())
+                .update_managed_agent_release_source(&organization_id, &source_id, &request)
+                .await
+                .expect_err("mock returns 409 after verifying exact PATCH body");
+            assert_eq!(error.status(), Some(reqwest::StatusCode::CONFLICT));
+            let received = server.received_requests().await.unwrap();
+            assert_eq!(received.len(), 1);
+            assert_eq!(
+                received[0].body_json::<serde_json::Value>().unwrap(),
+                expected_wire
+            );
         }
     }
 }
