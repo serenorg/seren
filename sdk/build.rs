@@ -736,9 +736,10 @@ fn schema_fingerprint(value: &serde_json::Value) -> Option<String> {
 }
 
 /// Wire models the SDK owns in `src/models.rs`. Deployment reads retain their
-/// named view and nullable stop refusal. Provider updates distinguish omitted
-/// settings from explicit null resets instead of collapsing both into None.
-/// Template profile patches also preserve omitted lists and reject null lists.
+/// named view and nullable stop refusal. Provider, release-source, and template
+/// profile updates distinguish omitted settings from explicit null resets
+/// instead of collapsing both into None. Template profile patches also reject
+/// null lists.
 const SDK_SCHEMA_REPLACEMENTS: &[(&str, &str)] = &[
     (
         "PutManagedAgentTemplateProfile",
@@ -747,6 +748,10 @@ const SDK_SCHEMA_REPLACEMENTS: &[(&str, &str)] = &[
     (
         "ManagedDeploymentReadResponse",
         "crate::ManagedDeploymentReadResponse",
+    ),
+    (
+        "UpdateManagedAgentReleaseSourceRequest",
+        "crate::UpdateManagedAgentReleaseSourceRequest",
     ),
     (
         "UpdateOAuthProviderRequest",
