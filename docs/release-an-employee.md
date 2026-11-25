@@ -433,7 +433,7 @@ Required fields inside `deploy_defaults`:
 - `network_egress`: list of allowed egress rules (`{"host": "...", "port": 443, "protocol": "rest" | "tcp" | "sse" | "websocket"}`), or `[]`.
 - `script_publisher_grants`: list of publisher grants for skill scripts, or `[]`.
 
-Optional `deploy_defaults` fields include `cron_schedule`, `owner_connection` (`"mail_and_files"`, `"mail_read"`, or `"sign_in_only"`), `hires_per_employer` (`"one"` or `"many"`), `max_tool_output_chars`, `native_tools`, `mcp_tools`, `llm_connection`, `privacy_mode`, `guarded_purchases`, `guarded_submissions`, `cardano_signing`, and `line`.
+Optional `deploy_defaults` fields include `cron_schedule`, `owner_connection` (`"mail_and_files"`, `"mail_read"`, or `"sign_in_only"`), `hires_per_employer` (`"one"` or `"many"`), `requirements_txt`, `max_tool_output_chars`, `native_tools`, `mcp_tools`, `llm_connection`, `privacy_mode`, `guarded_purchases`, `guarded_submissions`, `cardano_signing`, and `line`.
 
 ### Example `seren-release.json`
 
@@ -459,4 +459,4 @@ Optional `deploy_defaults` fields include `cron_schedule`, `owner_connection` (`
 }
 ```
 
-Put your Employee files (`SKILL.md` and any supporting instruction files, scripts, assets, or `requirements.txt`) in the same folder alongside `seren-release.json`. For full command flags and output details, see the [CLI Reference](../cli/README.md#managed-agents).
+Put your Employee files (`SKILL.md` and any supporting instruction files, scripts, or assets) in the same folder alongside `seren-release.json`. To install Python packages, list pinned `name==version --hash=sha256:<digest>` entries in `deploy_defaults.requirements_txt` inside `seren-release.json` rather than placing a top-level `requirements.txt` file in the folder (a top-level `requirements.txt` file is excluded from the uploaded bundle). For full command flags and output details, see the [CLI Reference](../cli/README.md#managed-agents).
