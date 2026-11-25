@@ -29,6 +29,7 @@ pub const MAX_BUNDLE_FILES: usize = 256;
 pub const MAX_INSTRUCTION_BYTES: usize = 1024 * 1024;
 pub const MAX_ASSET_BYTES: usize = 8 * 1024 * 1024;
 const MAX_REQUIREMENTS_TXT_BYTES: usize = 64 * 1024;
+const BUNDLED_SKILLS_DIR: &str = ".skills";
 
 /// File name -> AgentInstructionKind mapping for recognized instruction files.
 ///
@@ -194,8 +195,11 @@ pub fn package_agent_directory(options: &DevAgentOptions) -> Result<AgentSpecDra
 /// becomes a base64-encoded `AgentAssetFile` resource with its directory-
 /// relative path preserved (using forward slashes regardless of platform).
 ///
-/// Hidden entries (names starting with `.`) are skipped at every depth so a
-/// `.git` checkout or `.env` is never accidentally packaged.
+/// Hidden entries (names starting with `.`) are skipped at every depth except
+/// for a top-level `.skills/` directory (or a top-level `.skills` symlink
+/// resolving to a directory inside `dir`), whose non-hidden files are
+/// packaged under `.skills/...` while `.git`, `.env`, and any hidden entries
+/// nested inside `.skills/` or elsewhere are still skipped.
 ///
 /// Symlinks are rejected if their canonical target resolves outside the
 /// input directory. This prevents a `notes -> /etc/passwd` link from
@@ -394,8 +398,11 @@ fn resolve_excluded_bundle_file(excluded_file: &Path, root_canonical: &Path) -> 
 
 /// Recursively walk `dir`, populating `entries` with bundle-relative paths
 /// for every regular file under the input directory. Hidden entries are
-/// skipped at every depth. Symlinks whose canonical target escapes
-/// `root_canonical` are rejected with an error.
+/// skipped at every depth except for a top-level `.skills` directory (or a
+/// top-level `.skills` symlink resolving to a directory inside
+/// `root_canonical`), whose non-hidden contents are traversed under
+/// `.skills/...`. Symlinks whose canonical target escapes `root_canonical` are
+/// rejected with an error.
 fn collect_files(
     dir: &std::path::Path,
     root: &std::path::Path,
@@ -405,6 +412,7 @@ fn collect_files(
     excluded: Option<&ExcludedBundleFile>,
     entries: &mut BTreeMap<String, CollectedFile>,
 ) -> Result<()> {
+    let is_root = dir == root && dir_canonical == root_canonical;
     for entry in std::fs::read_dir(dir)
         .with_context(|| format!("Could not read directory '{}'", dir.display()))?
     {
@@ -413,11 +421,16 @@ fn collect_files(
         let Some(name_str) = name.to_str() else {
             continue;
         };
-        if name_str.starts_with('.') {
+        let is_top_level_skills = is_root && name_str == BUNDLED_SKILLS_DIR;
+        if name_str.starts_with('.') && !is_top_level_skills {
             continue;
         }
         let path = entry.path();
         let file_type = entry.file_type()?;
+
+        if is_top_level_skills && !(file_type.is_dir() || file_type.is_symlink()) {
+            continue;
+        }
 
         if !file_type.is_dir()
             && let Some(excluded) = excluded
@@ -450,6 +463,10 @@ fn collect_files(
                 excluded,
                 entries,
             )?;
+            continue;
+        }
+
+        if is_top_level_skills {
             continue;
         }
 
@@ -1271,6 +1288,158 @@ mod tests {
         let symlinked: Vec<&str> = draft.symlinked_paths.iter().map(String::as_str).collect();
         assert_eq!(symlinked, ["link.txt", "shared/helper.py"]);
         assert_eq!(draft.asset_count, 4, "linked entries are still packaged");
+    }
+
+    #[test]
+    fn package_agent_bundle_includes_top_level_skills_and_skips_other_hidden_entries() {
+        let dir = tempdir().unwrap();
+        let root_skill = "---\nname: analyst\ndescription: Analyst employee\n---\n\n# Analyst\n";
+        let bundled_skill = "---\nname: check\ndescription: Check skill\n---\n\n# Check\n";
+        let bundled_script = b"print('check')\n";
+
+        std::fs::write(dir.path().join("SKILL.md"), root_skill).unwrap();
+        std::fs::create_dir_all(dir.path().join(".skills/check/scripts")).unwrap();
+        std::fs::write(dir.path().join(".skills/check/SKILL.md"), bundled_skill).unwrap();
+        std::fs::write(
+            dir.path().join(".skills/check/scripts/run.py"),
+            bundled_script,
+        )
+        .unwrap();
+
+        // Hidden entries at root, inside `.skills/`, and nested `.skills/` must remain skipped.
+        std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+        std::fs::write(dir.path().join(".git/HEAD"), b"ref: refs/heads/main\n").unwrap();
+        std::fs::write(dir.path().join(".env"), b"SECRET=1\n").unwrap();
+        std::fs::write(dir.path().join(".DS_Store"), b"finder").unwrap();
+        std::fs::write(dir.path().join(".skills/.DS_Store"), b"finder").unwrap();
+        std::fs::write(dir.path().join(".skills/.env"), b"NESTED_SECRET=1\n").unwrap();
+        std::fs::create_dir_all(dir.path().join(".skills/.hidden")).unwrap();
+        std::fs::write(dir.path().join(".skills/.hidden/secret.txt"), b"secret").unwrap();
+        std::fs::write(dir.path().join(".skills/check/.env"), b"SKILL_SECRET=1\n").unwrap();
+        std::fs::create_dir_all(dir.path().join(".skills/check/.skills/nested")).unwrap();
+        std::fs::write(
+            dir.path().join(".skills/check/.skills/nested/SKILL.md"),
+            "nested skills dir must be skipped",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("docs/.skills/other")).unwrap();
+        std::fs::write(
+            dir.path().join("docs/.skills/other/SKILL.md"),
+            "non-root skills dir must be skipped",
+        )
+        .unwrap();
+
+        let draft = package_agent_bundle(dir.path()).unwrap();
+
+        assert_eq!(draft.instruction_count, 1);
+        assert_eq!(
+            draft.bundle.instructions[0].path.as_deref(),
+            Some("SKILL.md")
+        );
+        let asset_paths: Vec<&str> = draft
+            .bundle
+            .assets
+            .iter()
+            .map(|asset| asset.path.as_str())
+            .collect();
+        assert_eq!(
+            asset_paths,
+            [".skills/check/SKILL.md", ".skills/check/scripts/run.py"]
+        );
+
+        let skill_asset = &draft.bundle.assets[0];
+        assert_eq!(
+            BASE64_STANDARD.decode(&skill_asset.content_base64).unwrap(),
+            bundled_skill.as_bytes()
+        );
+        assert_eq!(
+            skill_asset.sha256.as_deref(),
+            Some(hex::encode(Sha256::digest(bundled_skill.as_bytes())).as_str())
+        );
+
+        let script_asset = &draft.bundle.assets[1];
+        assert_eq!(
+            BASE64_STANDARD
+                .decode(&script_asset.content_base64)
+                .unwrap(),
+            bundled_script
+        );
+        assert_eq!(
+            script_asset.sha256.as_deref(),
+            Some(hex::encode(Sha256::digest(bundled_script)).as_str())
+        );
+    }
+
+    #[test]
+    fn package_agent_bundle_skips_top_level_skills_when_not_a_directory() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("SKILL.md"), "ok").unwrap();
+        std::fs::write(dir.path().join(".skills"), b"not a directory").unwrap();
+
+        let draft = package_agent_bundle(dir.path()).unwrap();
+        assert_eq!(draft.instruction_count, 1);
+        assert_eq!(draft.asset_count, 0);
+        assert!(draft.bundle.assets.is_empty());
+
+        #[cfg(unix)]
+        {
+            let link_dir = tempdir().unwrap();
+            std::fs::write(link_dir.path().join("SKILL.md"), "ok").unwrap();
+            std::fs::write(link_dir.path().join("notes.txt"), b"hello").unwrap();
+            std::os::unix::fs::symlink("notes.txt", link_dir.path().join(".skills")).unwrap();
+
+            let link_draft = package_agent_bundle(link_dir.path()).unwrap();
+            let asset_paths: Vec<&str> = link_draft
+                .bundle
+                .assets
+                .iter()
+                .map(|asset| asset.path.as_str())
+                .collect();
+            assert_eq!(asset_paths, ["notes.txt"]);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_agent_bundle_follows_in_directory_skills_symlink_and_rejects_escape() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("SKILL.md"), "ok").unwrap();
+        std::fs::create_dir_all(dir.path().join(".shared-skills/check")).unwrap();
+        std::fs::write(
+            dir.path().join(".shared-skills/check/SKILL.md"),
+            "---\nname: check\ndescription: Linked skill\n---\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join(".shared-skills/check/.env"), b"SECRET=1\n").unwrap();
+        std::os::unix::fs::symlink(".shared-skills", dir.path().join(".skills")).unwrap();
+
+        let draft = package_agent_bundle(dir.path()).unwrap();
+        let asset_paths: Vec<&str> = draft
+            .bundle
+            .assets
+            .iter()
+            .map(|asset| asset.path.as_str())
+            .collect();
+        assert_eq!(asset_paths, [".skills/check/SKILL.md"]);
+        let symlinked: Vec<&str> = draft.symlinked_paths.iter().map(String::as_str).collect();
+        assert_eq!(symlinked, [".skills/check/SKILL.md"]);
+
+        // A top-level `.skills` symlink escaping the agent directory must be rejected.
+        let parent = tempdir().unwrap();
+        let outside_skills = parent.path().join("outside-skills");
+        std::fs::create_dir_all(outside_skills.join("check")).unwrap();
+        std::fs::write(outside_skills.join("check/SKILL.md"), "outside").unwrap();
+
+        let agent_dir = parent.path().join("agent");
+        std::fs::create_dir(&agent_dir).unwrap();
+        std::fs::write(agent_dir.join("SKILL.md"), "ok").unwrap();
+        std::os::unix::fs::symlink(&outside_skills, agent_dir.join(".skills")).unwrap();
+
+        let err = package_agent_bundle(&agent_dir).unwrap_err();
+        assert!(
+            err.to_string().contains("outside the agent directory"),
+            "expected escape error, got: {err}"
+        );
     }
 
     /// Stub client capturing every call for assertion in tests.

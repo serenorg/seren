@@ -4306,4 +4306,258 @@ mod tests {
         assert_eq!(refused_err.to_string(), refusal_message);
         refused_server.verify().await;
     }
+
+    #[tokio::test]
+    async fn managed_release_packages_top_level_skills_and_skips_other_hidden_entries() {
+        use std::collections::HashMap;
+        use std::process::Command;
+
+        use base64::Engine as _;
+        use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+        use sha2::{Digest, Sha256};
+        use wiremock::matchers::{header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let org_id = Uuid::from_u128(901);
+        let source_id = Uuid::from_u128(902);
+        let bundle_id = Uuid::from_u128(903);
+        let release_key = "serenrk_synthetic_skills_key";
+        let release_pass_token = "serenpass_synthetic_skills_pass";
+
+        let fixture = tempfile::tempdir().unwrap();
+        let folder = fixture.path().join("analyst");
+        fs::create_dir_all(folder.join(".skills/check/scripts")).unwrap();
+        fs::create_dir_all(folder.join("scripts")).unwrap();
+
+        let root_skill =
+            "---\nname: analyst\ndescription: Synthetic analyst employee\n---\n\n# Analyst\n";
+        let bundled_skill = "---\nname: check\ndescription: Bundled check skill\n---\n\n# Check\n";
+        let bundled_script = b"print('check')\n";
+        let root_script = b"print('root')\n";
+
+        fs::write(folder.join("SKILL.md"), root_skill).unwrap();
+        fs::write(folder.join(".skills/check/SKILL.md"), bundled_skill).unwrap();
+        fs::write(folder.join(".skills/check/scripts/run.py"), bundled_script).unwrap();
+        fs::write(folder.join("scripts/run.py"), root_script).unwrap();
+        // Hidden entries at root and nested inside `.skills/` must remain skipped.
+        fs::write(folder.join(".env"), b"ROOT_SECRET=1\n").unwrap();
+        fs::write(folder.join(".skills/check/.env"), b"SKILL_SECRET=1\n").unwrap();
+
+        let deploy_defaults = json!({
+            "mode": "cron",
+            "cron_schedule": "0 9 * * *",
+            "model_policy": "balanced",
+            "max_runtime_seconds": 900,
+            "browser": {"display": "headed", "max_session_seconds": 60},
+            "network_egress": [],
+            "script_publisher_grants": []
+        });
+        let settings_json = json!({
+            "slug": "analyst",
+            "display_name": "Analyst",
+            "deploy_defaults": deploy_defaults
+        });
+        fs::write(
+            folder.join("seren-release.json"),
+            serde_json::to_vec_pretty(&settings_json).unwrap(),
+        )
+        .unwrap();
+
+        for args in [
+            vec!["init"],
+            vec!["config", "user.name", "Test User"],
+            vec!["config", "user.email", "test@example.com"],
+            vec!["add", "."],
+            vec!["-c", "commit.gpgsign=false", "commit", "-m", "initial"],
+        ] {
+            let status = Command::new("git")
+                .arg("-C")
+                .arg(&folder)
+                .args(&args)
+                .status()
+                .expect("git is available for tests");
+            assert!(status.success(), "git {args:?} failed with {status}");
+        }
+
+        let server = MockServer::start().await;
+        let pass_route = format!("/organizations/{org_id}/release-passes");
+        let release_route = format!("/organizations/{org_id}/templates/analyst/releases");
+        let bundle_register_route = "/publishers/seren-cloud/deployment-bundles";
+        let bundle_complete_route =
+            format!("/publishers/seren-cloud/deployment-bundles/{bundle_id}/complete");
+        let presigned_upload_route = "/object-storage/upload-bundle";
+
+        Mock::given(method("POST"))
+            .and(path(&pass_route))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": {
+                    "pass": release_pass_token,
+                    "expires_at": "2026-11-25T18:00:00Z",
+                    "release_source_id": source_id,
+                    "templates": ["analyst"]
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let upload_url = format!("{}{}", server.uri(), presigned_upload_route);
+        let registered_bundle = std::sync::Arc::new(std::sync::Mutex::new((String::new(), 0i64)));
+        let register_capture = registered_bundle.clone();
+        Mock::given(method("POST"))
+            .and(path(bundle_register_route))
+            .and(header(
+                "Authorization",
+                format!("Bearer {release_pass_token}"),
+            ))
+            .respond_with(move |req: &wiremock::Request| {
+                let body: Value = serde_json::from_slice(&req.body).unwrap();
+                let sha256 = body["sha256"].as_str().unwrap().to_string();
+                let size_bytes = body["size_bytes"].as_i64().unwrap();
+                *register_capture.lock().unwrap() = (sha256.clone(), size_bytes);
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "data": {
+                        "deployment_bundle_id": bundle_id,
+                        "sha256": sha256,
+                        "size_bytes": size_bytes,
+                        "source_kind": "agent_bundle",
+                        "upload_required": true,
+                        "upload_url": upload_url,
+                        "upload_headers": {}
+                    }
+                }))
+            })
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("PUT"))
+            .and(path(presigned_upload_route))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let complete_capture = registered_bundle.clone();
+        Mock::given(method("POST"))
+            .and(path(&bundle_complete_route))
+            .and(header(
+                "Authorization",
+                format!("Bearer {release_pass_token}"),
+            ))
+            .respond_with(move |_: &wiremock::Request| {
+                let (sha256, size_bytes) = complete_capture.lock().unwrap().clone();
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "data": {
+                        "id": bundle_id,
+                        "organization_id": org_id,
+                        "user_id": Uuid::from_u128(905),
+                        "sha256": sha256,
+                        "size_bytes": size_bytes,
+                        "source_kind": "agent_bundle",
+                        "created_at": "2026-11-25T17:00:00Z",
+                        "updated_at": "2026-11-25T17:00:00Z",
+                        "uploaded_at": "2026-11-25T17:00:00Z"
+                    }
+                }))
+            })
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(&release_route))
+            .and(header(
+                "Authorization",
+                format!("Bearer {release_pass_token}"),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": {
+                    "slug": "analyst",
+                    "revision": 1,
+                    "created": true,
+                    "revision_added": true,
+                    "active": true,
+                    "listed": true,
+                    "review_state": "approved",
+                    "providers": ["google"]
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let env = HashMap::from([("SEREN_RELEASE_KEY", release_key.to_string())]);
+        let env_lookup = |name: &str| env.get(name).cloned();
+        let ctx = CommandContext::new(Some(server.uri()), None, OutputFormat::Table);
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+
+        managed_release_with_env(
+            org_id,
+            &folder,
+            None,
+            None,
+            &ctx,
+            &env_lookup,
+            &mut out,
+            &mut err,
+        )
+        .await
+        .unwrap();
+
+        let received = server.received_requests().await.unwrap();
+        let register_req = received
+            .iter()
+            .find(|req| req.method.as_str() == "POST" && req.url.path() == bundle_register_route)
+            .expect("bundle register request");
+        let uploaded_put = received
+            .iter()
+            .find(|req| req.method.as_str() == "PUT")
+            .expect("presigned upload PUT request");
+
+        let register_body: Value = serde_json::from_slice(&register_req.body).unwrap();
+        assert_eq!(
+            register_body["sha256"].as_str(),
+            Some(hex::encode(Sha256::digest(&uploaded_put.body)).as_str())
+        );
+        assert_eq!(
+            register_body["size_bytes"].as_u64(),
+            Some(uploaded_put.body.len() as u64)
+        );
+
+        let uploaded_bundle: seren::AgentBundle =
+            serde_json::from_slice(&uploaded_put.body).expect("uploaded bundle is valid JSON");
+        assert_eq!(uploaded_bundle.instructions.len(), 1);
+        assert_eq!(
+            uploaded_bundle.instructions[0].path.as_deref(),
+            Some("SKILL.md")
+        );
+
+        let asset_paths: Vec<&str> = uploaded_bundle
+            .assets
+            .iter()
+            .map(|asset| asset.path.as_str())
+            .collect();
+        assert_eq!(
+            asset_paths,
+            [
+                ".skills/check/SKILL.md",
+                ".skills/check/scripts/run.py",
+                "scripts/run.py",
+            ]
+        );
+        assert_eq!(
+            BASE64_STANDARD
+                .decode(&uploaded_bundle.assets[0].content_base64)
+                .unwrap(),
+            bundled_skill.as_bytes()
+        );
+        assert_eq!(
+            BASE64_STANDARD
+                .decode(&uploaded_bundle.assets[1].content_base64)
+                .unwrap(),
+            bundled_script
+        );
+        server.verify().await;
+    }
 }
