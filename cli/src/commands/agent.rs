@@ -3027,7 +3027,7 @@ async fn put_presigned_deployment_bundle(
     Ok(())
 }
 
-async fn ensure_cloud_deployment_bundle(
+pub(crate) async fn ensure_cloud_deployment_bundle(
     client: &seren::Client,
     bundle: Vec<u8>,
     source_kind: seren::CloudDeploymentBundleSourceKind,
@@ -4989,7 +4989,7 @@ struct ManagedBundleFile {
 /// What a `managed-files --path` run would upload. `bundle_sha256` covers the
 /// exact serialized bytes the upload sends.
 #[derive(Debug, serde::Serialize)]
-struct ManagedBundlePreview {
+pub(crate) struct ManagedBundlePreview {
     bundle_sha256: String,
     bundle_bytes: usize,
     instruction_count: usize,
@@ -4999,7 +4999,7 @@ struct ManagedBundlePreview {
 }
 
 /// Serialize a packaged bundle and describe every file it carries.
-fn managed_bundle_upload(
+pub(crate) fn managed_bundle_upload(
     draft: &crate::commands::agent_dev::AgentBundleDraft,
 ) -> Result<(Vec<u8>, ManagedBundlePreview)> {
     let serialized = serde_json::to_vec(&draft.bundle)

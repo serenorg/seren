@@ -447,6 +447,10 @@ seren agent cloud approvals decide '<entry-id>' --decision deny
 PASS=$(seren agent managed-release-pass <organization-id>)
 seren -o json agent managed-release-pass <organization-id>
 
+# Package an Employee folder, upload its bundle, and release it with a release pass
+seren agent managed-release <organization-id> ./my-employee
+seren agent managed-release <organization-id> ./my-employee --settings ./seren-release.json --commit <commit-sha>
+
 # Publish an uploaded bundle as a managed template release
 seren --api-key <scoped-user-api-key> agent managed-publish-template-release <organization-id> <template-slug> --request ./release.json
 
@@ -468,6 +472,23 @@ seren agent managed-held-releases <organization-id> refuse <held-release-id> --n
 2. `SEREN_RELEASE_ID_TOKEN` (a CI signed run token, such as from GitLab or CircleCI)
 3. `SEREN_RELEASE_KEY` (an organization release key)
 4. Your signed-in browser session (releasing in person; requires `seren auth login` with browser login, not an API key)
+
+`seren agent managed-release <organization-id> <folder>` releases an Employee folder in one step. It reads `<folder>/seren-release.json` (or `--settings <path>`), packages the folder, gets a release pass using the proof order above (printing the proof used to standard error), uploads the bundle with that pass, and publishes the release using `--commit <sha>` or `git -C <folder> rev-parse HEAD` (a full 40- or 64-character hex commit SHA). When `rollout` is `true`, the publish call uses a 600-second timeout.
+
+The `seren-release.json` settings file rejects unknown fields and accepts:
+
+- `slug` (required): Employee template slug
+- `display_name` (required): Employee display name
+- `deploy_defaults` (required): `ManagedAgentTemplateDeployDefaults` object
+- `rollout` (optional, default `false`): whether to offer the published revision to existing hires immediately
+- `listed` (optional, default `true`): initial listing preference when creating a template
+- `release_note` (optional): plain-text note (1 to 2000 characters) shown to Employers
+
+`managed-release` has three outcomes:
+
+- **Published** (exit 0): prints `Published <slug> revision <n>.` and any itemized access changes returned for an in-person release (`-o json` prints `{"outcome": "published", ...}`).
+- **Held** (exit 0): when the server answers `409 managed_agent_release_held`, prints `Held for approval: <reason>.`, each itemized access change, `Approve it: seren agent managed-held-releases <organization-id> approve <held-release-id>`, and `https://console.serendb.com/published-employees` (`-o json` prints `{"outcome": "held", ...details}`).
+- **Refused** (exit 1): prints the server's refusal message.
 
 Approving, creating keys, editing, and revoking release sources require browser-login OAuth authentication by an Owner or Admin of the organization. `create-key` accepts `--days` from 1 to 30 and prints the key once (`Store it now. Seren will not show it again.`). Signed-run sources accept `--product` values `github-actions`, `gitlab`, and `circleci`, with optional `--environment` and `--issuer`; `edit` updates only supplied fields and accepts `--clear-environment` to remove an environment requirement. Listing release sources and listing, approving, or refusing held releases accept either a signed-in session or an unrestricted personal API key. `managed-held-releases list` displays each held release's changes in plain sentences and its `changes_fingerprint` (defaulting to pending holds; pass `--status` to filter). Running `managed-held-releases approve` with `--fingerprint` approves that reviewed fingerprint directly; omitting `--fingerprint` fetches pending holds, displays the hold's changes and fingerprint, and prompts for `yes` confirmation on an interactive terminal (refusing non-interactive stdin without `--fingerprint`). If the held release changes before approval (`409 managed_agent_held_release_changed`), the command prints the updated changes and new fingerprint and exits with status 1 so you can review them before approving.
 

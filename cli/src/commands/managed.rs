@@ -3,12 +3,12 @@
 use std::{
     fs,
     io::{BufRead, IsTerminal, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Result};
 use clap::{Subcommand, ValueEnum};
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -240,6 +240,17 @@ pub enum ManagedAction {
     },
     /// Get a short-lived release pass for an organization
     ManagedReleasePass { organization_id: Uuid },
+    /// Package an Employee folder, upload its bundle, and release it with a release pass
+    ManagedRelease {
+        organization_id: Uuid,
+        folder: PathBuf,
+        /// Release settings JSON file (defaults to `<folder>/seren-release.json`)
+        #[arg(long)]
+        settings: Option<PathBuf>,
+        /// Full commit SHA (40 or 64 hex characters); defaults to `git -C <folder> rev-parse HEAD`
+        #[arg(long)]
+        commit: Option<String>,
+    },
     /// List, approve, edit, or revoke Employee release sources
     ManagedReleaseSources {
         organization_id: Uuid,
@@ -585,6 +596,377 @@ fn reload_request(
 
 const TEMPLATE_ROLLOUT_TIMEOUT_SECS: u64 = 600;
 const RELEASE_KEY_STORE_ONCE_NOTICE: &str = "Store it now. Seren will not show it again.";
+const DEFAULT_RELEASE_SETTINGS_FILE: &str = "seren-release.json";
+const CONSOLE_PUBLISHED_EMPLOYEES_URL: &str = "https://console.serendb.com/published-employees";
+
+fn default_release_listed() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManagedReleaseSettings {
+    slug: String,
+    display_name: String,
+    deploy_defaults: seren::ManagedAgentTemplateDeployDefaults,
+    #[serde(default)]
+    rollout: bool,
+    #[serde(default = "default_release_listed")]
+    listed: bool,
+    #[serde(default)]
+    release_note: Option<String>,
+}
+
+fn load_release_settings(folder: &Path, settings: Option<&Path>) -> Result<ManagedReleaseSettings> {
+    let path = settings
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| folder.join(DEFAULT_RELEASE_SETTINGS_FILE));
+    let bytes = fs::read(&path)
+        .with_context(|| format!("Failed to read release settings {}", path.display()))?;
+    let parsed: ManagedReleaseSettings = serde_json::from_slice(&bytes)
+        .with_context(|| format!("Invalid release settings in {}", path.display()))?;
+    if parsed.slug.trim().is_empty() {
+        anyhow::bail!(
+            "Release settings `slug` in {} must not be empty.",
+            path.display()
+        );
+    }
+    if parsed.display_name.trim().is_empty() {
+        anyhow::bail!(
+            "Release settings `display_name` in {} must not be empty.",
+            path.display()
+        );
+    }
+    Ok(parsed)
+}
+
+fn parse_release_note(
+    note: Option<String>,
+) -> Result<Option<seren::PublishManagedAgentTemplateReleaseRequestReleaseNote>> {
+    note.map(|value| {
+        if value.trim().is_empty() {
+            anyhow::bail!("Release settings `release_note` must be 1 to 2000 characters.");
+        }
+        value.parse().map_err(|_| {
+            anyhow::anyhow!("Release settings `release_note` must be 1 to 2000 characters.")
+        })
+    })
+    .transpose()
+}
+
+fn validate_commit_sha(raw: &str) -> Result<String> {
+    let trimmed = raw.trim();
+    let sha = trimmed.to_ascii_lowercase();
+    if (sha.len() == 40 || sha.len() == 64) && sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        Ok(sha)
+    } else {
+        anyhow::bail!("Commit SHA must be 40 or 64 hexadecimal characters (got `{trimmed}`).")
+    }
+}
+
+async fn resolve_release_commit_sha(folder: &Path, commit: Option<String>) -> Result<String> {
+    if let Some(commit) = commit {
+        return validate_commit_sha(&commit);
+    }
+    let output = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(folder)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to run `git -C {} rev-parse HEAD`. Pass --commit <sha> to set the commit SHA explicitly.",
+                folder.display()
+            )
+        })?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = stderr.trim();
+        if detail.is_empty() {
+            anyhow::bail!(
+                "Could not determine commit SHA from `{}` (`git rev-parse HEAD` exited with {}). Pass --commit <sha> to set it explicitly.",
+                folder.display(),
+                output.status
+            );
+        }
+        anyhow::bail!(
+            "Could not determine commit SHA from `{}`: {detail}. Pass --commit <sha> to set it explicitly.",
+            folder.display()
+        );
+    }
+    let stdout = String::from_utf8(output.stdout)
+        .context("`git rev-parse HEAD` returned non-UTF-8 output")?;
+    validate_commit_sha(&stdout)
+}
+
+fn client_with_bearer(
+    api_base: &str,
+    bearer_token: &str,
+    timeout_secs: Option<u64>,
+) -> Result<seren::Client> {
+    let mut config = seren::ClientConfig::new(bearer_token).with_base_url(api_base);
+    if let Some(timeout_secs) = timeout_secs {
+        config = config.with_timeout(timeout_secs);
+    }
+    seren::Client::from_config(&config)
+        .map_err(|error| anyhow::anyhow!("Failed to create API client: {error}"))
+}
+
+fn parse_held_release_conflict(body: &str) -> Option<Value> {
+    let payload: Value = serde_json::from_str(body).ok()?;
+    if payload.get("error").and_then(Value::as_str) != Some("managed_agent_release_held") {
+        return None;
+    }
+    Some(payload.get("details").cloned().unwrap_or_else(|| json!({})))
+}
+
+fn refusal_error_from_body(
+    context: &str,
+    status: reqwest::StatusCode,
+    body: &str,
+) -> anyhow::Error {
+    if let Ok(payload) = serde_json::from_str::<Value>(body)
+        && let Some(message) = payload
+            .get("message")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    {
+        return anyhow::anyhow!("{message}");
+    }
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        anyhow::anyhow!("{context}: unexpected response {status}")
+    } else {
+        anyhow::anyhow!("{context}: unexpected response {status} - {trimmed}")
+    }
+}
+
+fn held_outcome_reason_label(details: &Value) -> String {
+    match details
+        .get("reason")
+        .cloned()
+        .and_then(|value| serde_json::from_value::<seren::HeldReleaseReason>(value).ok())
+    {
+        Some(seren::HeldReleaseReason::FirstRelease) => "first release".to_string(),
+        Some(seren::HeldReleaseReason::AccessChange) => "access change".to_string(),
+        Some(seren::HeldReleaseReason::Other(other)) => other,
+        None => details
+            .get("reason")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("review required")
+            .to_string(),
+    }
+}
+
+fn held_access_change_sentences(details: &Value) -> Vec<String> {
+    let Some(comparison_value) = details.get("comparison").filter(|value| !value.is_null()) else {
+        return Vec::new();
+    };
+    if let Ok(comparison) =
+        serde_json::from_value::<seren::TemplateRevisionComparison>(comparison_value.clone())
+    {
+        return comparison
+            .access_changes
+            .iter()
+            .map(describe_access_change)
+            .collect();
+    }
+    comparison_value
+        .get("access_changes")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| {
+                    serde_json::from_value::<seren::TemplateAccessChange>(item.clone())
+                        .map(|change| describe_access_change(&change))
+                        .unwrap_or_else(|_| {
+                            item.get("change")
+                                .and_then(Value::as_str)
+                                .map(|name| format!("Access change: {name}."))
+                                .unwrap_or_else(|| item.to_string())
+                        })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn write_managed_release_published(
+    release: &seren::ManagedAgentTemplateRelease,
+    format: OutputFormat,
+    stdout: &mut impl Write,
+) -> Result<()> {
+    match format {
+        OutputFormat::Json => {
+            let mut payload = serde_json::Map::new();
+            payload.insert("outcome".to_string(), json!("published"));
+            if let Value::Object(fields) = serde_json::to_value(release)? {
+                for (key, value) in fields {
+                    if key != "outcome" {
+                        payload.insert(key, value);
+                    }
+                }
+            }
+            writeln!(
+                stdout,
+                "{}",
+                serde_json::to_string_pretty(&Value::Object(payload))?
+            )?;
+        }
+        OutputFormat::Table => {
+            writeln!(
+                stdout,
+                "Published {} revision {}.",
+                release.slug, release.revision
+            )?;
+            if let Some(changes) = release.access_changes.as_deref() {
+                for change in changes {
+                    writeln!(stdout, "- {}", describe_access_change(change))?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn write_managed_release_held(
+    organization_id: Uuid,
+    details: &Value,
+    format: OutputFormat,
+    stdout: &mut impl Write,
+) -> Result<()> {
+    match format {
+        OutputFormat::Json => {
+            let mut payload = serde_json::Map::new();
+            payload.insert("outcome".to_string(), json!("held"));
+            if let Value::Object(fields) = details {
+                for (key, value) in fields {
+                    if key != "outcome" {
+                        payload.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+            writeln!(
+                stdout,
+                "{}",
+                serde_json::to_string_pretty(&Value::Object(payload))?
+            )?;
+        }
+        OutputFormat::Table => {
+            writeln!(
+                stdout,
+                "Held for approval: {}.",
+                held_outcome_reason_label(details)
+            )?;
+            for sentence in held_access_change_sentences(details) {
+                writeln!(stdout, "- {sentence}")?;
+            }
+            if let Some(held_release_id) = details
+                .get("held_release_id")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+            {
+                writeln!(
+                    stdout,
+                    "Approve it: seren agent managed-held-releases {organization_id} approve {held_release_id}"
+                )?;
+            } else {
+                writeln!(
+                    stdout,
+                    "Review pending holds: seren agent managed-held-releases {organization_id} list"
+                )?;
+            }
+            writeln!(
+                stdout,
+                "Or in the Console: {CONSOLE_PUBLISHED_EMPLOYEES_URL}"
+            )?;
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn managed_release_with_env(
+    organization_id: Uuid,
+    folder: &Path,
+    settings: Option<&Path>,
+    commit: Option<String>,
+    ctx: &CommandContext,
+    env: &dyn Fn(&str) -> Option<String>,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+) -> Result<()> {
+    if !folder.is_dir() {
+        anyhow::bail!("'{}' is not a directory", folder.display());
+    }
+    let release_settings = load_release_settings(folder, settings)?;
+    let release_note = parse_release_note(release_settings.release_note)?;
+    let source_commit_sha = resolve_release_commit_sha(folder, commit).await?;
+    let draft = super::agent_dev::package_agent_bundle(folder)?;
+    let (serialized, _) = super::agent::managed_bundle_upload(&draft)?;
+
+    let pass_answer = super::release_pass::release_pass_with_env(ctx, organization_id, env).await?;
+    writeln!(stderr, "Using {} proof.", pass_answer.proof_label)?;
+
+    let api_base = ctx.api_base();
+    let upload_client = client_with_bearer(&api_base, pass_answer.pass(), None)?;
+    let source_bundle_id = super::agent::ensure_cloud_deployment_bundle(
+        &upload_client,
+        serialized,
+        seren::CloudDeploymentBundleSourceKind::AgentBundle,
+    )
+    .await?;
+
+    let request = seren::PublishManagedAgentTemplateReleaseRequest {
+        capabilities: Vec::new(),
+        deploy_defaults: release_settings.deploy_defaults,
+        display_name: release_settings.display_name,
+        listed: release_settings.listed,
+        release_note,
+        rollout: Some(release_settings.rollout),
+        skill_slugs: Vec::new(),
+        source_bundle_id,
+        source_commit_sha,
+    };
+    let publish_client = if let Some(timeout) = template_publication_timeout(request.rollout) {
+        client_with_bearer(&api_base, pass_answer.pass(), Some(timeout))?
+    } else {
+        upload_client
+    };
+
+    match publish_client
+        .publish_managed_agent_template_release(&organization_id, &release_settings.slug, &request)
+        .await
+    {
+        Ok(response) => {
+            let release = response.into_inner().data;
+            write_managed_release_published(&release, ctx.format, stdout)
+        }
+        Err(seren::Error::UnexpectedResponse(response))
+            if response.status() == reqwest::StatusCode::CONFLICT =>
+        {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            if let Some(details) = parse_held_release_conflict(&body) {
+                return write_managed_release_held(organization_id, &details, ctx.format, stdout);
+            }
+            Err(refusal_error_from_body(
+                "Failed to publish Employee release",
+                status,
+                &body,
+            ))
+        }
+        Err(error) => Err(super::release_pass::refusal_error(
+            "Failed to publish Employee release",
+            error,
+        )
+        .await),
+    }
+}
 
 fn template_publication_timeout(rollout: Option<bool>) -> Option<u64> {
     (rollout == Some(true)).then_some(TEMPLATE_ROLLOUT_TIMEOUT_SECS)
@@ -1407,6 +1789,27 @@ pub async fn execute(action: ManagedAction, ctx: &CommandContext) -> Result<()> 
     if let ManagedAction::ManagedReleasePass { organization_id } = action {
         return super::release_pass::execute(organization_id, ctx).await;
     }
+    if let ManagedAction::ManagedRelease {
+        organization_id,
+        folder,
+        settings,
+        commit,
+    } = action
+    {
+        let mut stdout = std::io::stdout();
+        let mut stderr = std::io::stderr();
+        return managed_release_with_env(
+            organization_id,
+            &folder,
+            settings.as_deref(),
+            commit,
+            ctx,
+            &|name| std::env::var(name).ok(),
+            &mut stdout,
+            &mut stderr,
+        )
+        .await;
+    }
     // These operations use the caller's owner credential. Core enforces ownership and rejects runtime/work-context credentials.
     let client = ctx.client().await?;
     macro_rules! respond {
@@ -1718,7 +2121,9 @@ pub async fn execute(action: ManagedAction, ctx: &CommandContext) -> Result<()> 
                 &request
             ));
         }
-        ManagedAction::ManagedReleasePass { .. } => unreachable!("handled above"),
+        ManagedAction::ManagedReleasePass { .. } | ManagedAction::ManagedRelease { .. } => {
+            unreachable!("handled above")
+        }
         ManagedAction::ManagedReleaseSources {
             organization_id,
             action,
@@ -3269,5 +3674,576 @@ mod tests {
         .unwrap();
 
         server.verify().await;
+    }
+
+    #[tokio::test]
+    async fn releasing_a_folder_ends_published_or_held() {
+        use std::collections::HashMap;
+        use std::process::Command;
+
+        use sha2::{Digest, Sha256};
+        use wiremock::matchers::{body_json, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let org_id = Uuid::from_u128(801);
+        let source_id = Uuid::from_u128(802);
+        let bundle_id = Uuid::from_u128(803);
+        let held_id = Uuid::from_u128(804);
+        let org_str = org_id.to_string();
+        let fingerprint = "c".repeat(64);
+        let explicit_commit = "b".repeat(40);
+        let release_key = "serenrk_synthetic_release_key";
+        let release_pass_token = "serenpass_synthetic_release_pass";
+        let unused_api_key = "seren_unused_personal_api_key";
+
+        // Parse checks for `managed-release` arguments.
+        let parsed = ManagedCli::try_parse_from([
+            "agent",
+            "managed-release",
+            &org_str,
+            "./employee",
+            "--settings",
+            "./custom-release.json",
+            "--commit",
+            &explicit_commit,
+        ])
+        .unwrap();
+        assert!(matches!(
+            parsed.action,
+            ManagedAction::ManagedRelease {
+                organization_id,
+                folder,
+                settings: Some(settings),
+                commit: Some(commit),
+            } if organization_id == org_id
+                && folder == Path::new("./employee")
+                && settings == Path::new("./custom-release.json")
+                && commit == explicit_commit
+        ));
+
+        // Build a synthetic Employee folder initialized as a git repository.
+        let fixture = tempfile::tempdir().unwrap();
+        let folder = fixture.path().join("analyst");
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(
+            folder.join("SKILL.md"),
+            "---\nname: analyst\ndescription: Synthetic analyst employee\n---\n\n# Analyst\n",
+        )
+        .unwrap();
+        let deploy_defaults = json!({
+            "mode": "cron",
+            "cron_schedule": "0 9 * * *",
+            "model_policy": "balanced",
+            "max_runtime_seconds": 300,
+            "browser": {"display": "headless", "max_session_seconds": 60},
+            "network_egress": [],
+            "script_publisher_grants": []
+        });
+        let settings_json = json!({
+            "slug": "analyst",
+            "display_name": "Analyst",
+            "deploy_defaults": deploy_defaults,
+            "release_note": "Add quarterly report summary."
+        });
+        fs::write(
+            folder.join("seren-release.json"),
+            serde_json::to_vec_pretty(&settings_json).unwrap(),
+        )
+        .unwrap();
+
+        for args in [
+            vec!["init"],
+            vec!["config", "user.name", "Test User"],
+            vec!["config", "user.email", "test@example.com"],
+            vec!["add", "."],
+            vec!["-c", "commit.gpgsign=false", "commit", "-m", "initial"],
+        ] {
+            let status = Command::new("git")
+                .arg("-C")
+                .arg(&folder)
+                .args(&args)
+                .status()
+                .expect("git is available for tests");
+            assert!(status.success(), "git {args:?} failed with {status}");
+        }
+        let git_head = String::from_utf8(
+            Command::new("git")
+                .arg("-C")
+                .arg(&folder)
+                .args(["rev-parse", "HEAD"])
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_string();
+        assert_eq!(git_head.len(), 40);
+
+        let expected_draft = super::super::agent_dev::package_agent_bundle(&folder).unwrap();
+        let (expected_bundle_bytes, _) =
+            super::super::agent::managed_bundle_upload(&expected_draft).unwrap();
+        let expected_bundle_sha = hex::encode(Sha256::digest(&expected_bundle_bytes));
+        let expected_bundle_size = i64::try_from(expected_bundle_bytes.len()).unwrap();
+
+        let env = HashMap::from([("SEREN_RELEASE_KEY", release_key.to_string())]);
+        let env_lookup = |name: &str| env.get(name).cloned();
+
+        // Unknown settings field and malformed commit SHA fail locally before any HTTP call.
+        let untouched_server = MockServer::start().await;
+        let bad_settings_path = fixture.path().join("bad-release.json");
+        fs::write(
+            &bad_settings_path,
+            serde_json::to_vec(&json!({
+                "slug": "analyst",
+                "display_name": "Analyst",
+                "deploy_defaults": deploy_defaults,
+                "unexpected_key": true
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let untouched_ctx = CommandContext::new(
+            Some(untouched_server.uri()),
+            Some(unused_api_key.into()),
+            OutputFormat::Table,
+        );
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let unknown_err = managed_release_with_env(
+            org_id,
+            &folder,
+            Some(&bad_settings_path),
+            None,
+            &untouched_ctx,
+            &env_lookup,
+            &mut out,
+            &mut err,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            format!("{unknown_err:#}").contains("unknown field"),
+            "expected deny_unknown_fields error, got: {unknown_err:#}"
+        );
+        let bad_commit_err = managed_release_with_env(
+            org_id,
+            &folder,
+            None,
+            Some("abc1234".into()),
+            &untouched_ctx,
+            &env_lookup,
+            &mut out,
+            &mut err,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            bad_commit_err.to_string().contains("40 or 64"),
+            "unexpected commit error: {bad_commit_err}"
+        );
+        assert!(
+            untouched_server
+                .received_requests()
+                .await
+                .unwrap()
+                .is_empty()
+        );
+
+        // 1. Published (200): release key obtains pass without Authorization;
+        //    bundle register, upload complete, and release all authenticate with the pass,
+        //    never the release key or personal API key.
+        let publish_server = MockServer::start().await;
+        let pass_route = format!("/organizations/{org_id}/release-passes");
+        let release_route = format!("/organizations/{org_id}/templates/analyst/releases");
+        let bundle_register_route = "/publishers/seren-cloud/deployment-bundles";
+        let bundle_complete_route =
+            format!("/publishers/seren-cloud/deployment-bundles/{bundle_id}/complete");
+        let presigned_upload_route = "/object-storage/upload-bundle";
+
+        Mock::given(method("POST"))
+            .and(path(&pass_route))
+            .and(body_json(json!({
+                "proof": "release_key",
+                "key": release_key,
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": {
+                    "pass": release_pass_token,
+                    "expires_at": "2026-11-25T18:00:00Z",
+                    "release_source_id": source_id,
+                    "templates": ["analyst"]
+                }
+            })))
+            .expect(1)
+            .mount(&publish_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(bundle_register_route))
+            .and(header(
+                "Authorization",
+                format!("Bearer {release_pass_token}"),
+            ))
+            .and(body_json(json!({
+                "sha256": expected_bundle_sha,
+                "size_bytes": expected_bundle_size,
+                "source_kind": "agent_bundle"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": {
+                    "deployment_bundle_id": bundle_id,
+                    "sha256": expected_bundle_sha,
+                    "size_bytes": expected_bundle_size,
+                    "source_kind": "agent_bundle",
+                    "upload_required": true,
+                    "upload_url": format!("{}{}", publish_server.uri(), presigned_upload_route),
+                    "upload_headers": {"x-amz-meta-test": "1"}
+                }
+            })))
+            .expect(1)
+            .mount(&publish_server)
+            .await;
+
+        Mock::given(method("PUT"))
+            .and(path(presigned_upload_route))
+            .and(header("x-amz-meta-test", "1"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&publish_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(&bundle_complete_route))
+            .and(header(
+                "Authorization",
+                format!("Bearer {release_pass_token}"),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": {
+                    "id": bundle_id,
+                    "organization_id": org_id,
+                    "user_id": Uuid::from_u128(805),
+                    "sha256": expected_bundle_sha,
+                    "size_bytes": expected_bundle_size,
+                    "source_kind": "agent_bundle",
+                    "created_at": "2026-11-25T17:00:00Z",
+                    "updated_at": "2026-11-25T17:00:00Z",
+                    "uploaded_at": "2026-11-25T17:00:00Z"
+                }
+            })))
+            .expect(1)
+            .mount(&publish_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(&release_route))
+            .and(header(
+                "Authorization",
+                format!("Bearer {release_pass_token}"),
+            ))
+            .and(body_json(json!({
+                "display_name": "Analyst",
+                "source_bundle_id": bundle_id,
+                "source_commit_sha": git_head,
+                "deploy_defaults": deploy_defaults,
+                "listed": true,
+                "rollout": false,
+                "release_note": "Add quarterly report summary."
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": {
+                    "slug": "analyst",
+                    "revision": 3,
+                    "created": false,
+                    "revision_added": true,
+                    "active": true,
+                    "listed": true,
+                    "review_state": "approved",
+                    "providers": ["google"],
+                    "access_changes": [
+                        {
+                            "change": "network_host_added",
+                            "rule": { "host": "api.example.com", "port": 443, "protocol": "rest" }
+                        }
+                    ]
+                }
+            })))
+            .expect(1)
+            .mount(&publish_server)
+            .await;
+
+        let publish_ctx = CommandContext::new(
+            Some(publish_server.uri()),
+            Some(unused_api_key.into()),
+            OutputFormat::Table,
+        );
+        let (mut pub_out, mut pub_err) = (Vec::new(), Vec::new());
+        managed_release_with_env(
+            org_id,
+            &folder,
+            None,
+            None,
+            &publish_ctx,
+            &env_lookup,
+            &mut pub_out,
+            &mut pub_err,
+        )
+        .await
+        .unwrap();
+        let pub_stdout = String::from_utf8(pub_out).unwrap();
+        let pub_stderr = String::from_utf8(pub_err).unwrap();
+        assert!(
+            pub_stdout.contains("Published analyst revision 3."),
+            "unexpected published output: {pub_stdout}"
+        );
+        assert!(
+            pub_stdout.contains("Added outbound network host api.example.com:443 (REST)."),
+            "missing access change on published output: {pub_stdout}"
+        );
+        assert_eq!(pub_stderr, "Using release key proof.\n");
+        assert!(!pub_stdout.contains(release_key) && !pub_stdout.contains(release_pass_token));
+        assert!(!pub_stderr.contains(release_key) && !pub_stderr.contains(release_pass_token));
+
+        let received = publish_server.received_requests().await.unwrap();
+        assert_eq!(received.len(), 5);
+        assert!(
+            !received[0].headers.contains_key("authorization"),
+            "release-passes request must not send Authorization"
+        );
+        for req in &received {
+            if let Some(auth) = req.headers.get("authorization") {
+                let auth_str = auth.to_str().unwrap();
+                assert_eq!(auth_str, format!("Bearer {release_pass_token}"));
+                assert!(!auth_str.contains(release_key));
+                assert!(!auth_str.contains(unused_api_key));
+            }
+        }
+        publish_server.verify().await;
+
+        // Also check `-o json` formatting for published releases.
+        let mut pub_json_out = Vec::new();
+        let sample_release: seren::ManagedAgentTemplateRelease = serde_json::from_value(json!({
+            "slug": "analyst",
+            "revision": 3,
+            "created": false,
+            "revision_added": true,
+            "active": true,
+            "listed": true,
+            "review_state": "approved",
+            "providers": ["google"]
+        }))
+        .unwrap();
+        write_managed_release_published(&sample_release, OutputFormat::Json, &mut pub_json_out)
+            .unwrap();
+        let pub_json: Value = serde_json::from_slice(&pub_json_out).unwrap();
+        assert_eq!(pub_json["outcome"], "published");
+        assert_eq!(pub_json["slug"], "analyst");
+        assert_eq!(pub_json["revision"], 3);
+
+        // 2. Held (409 managed_agent_release_held): exits Ok(()), prints reason, changes,
+        //    CLI approve command and Console URL in table mode, and `{"outcome":"held", ...}` in JSON mode.
+        let held_details = json!({
+            "held_release_id": held_id,
+            "reason": "access_change",
+            "comparison": {
+                "kind": "access",
+                "access_changes": [
+                    {
+                        "change": "network_host_added",
+                        "rule": { "host": "data.example.com", "port": 443, "protocol": "rest" }
+                    }
+                ],
+                "content_changes": { "added": [], "changed": ["SKILL.md"], "removed": [] }
+            },
+            "changes_fingerprint": fingerprint,
+            "approve_path": format!("/organizations/{org_id}/held-releases/{held_id}/approve")
+        });
+
+        for format in [OutputFormat::Table, OutputFormat::Json] {
+            let held_server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path(&pass_route))
+                .and(body_json(json!({
+                    "proof": "release_key",
+                    "key": release_key,
+                })))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "data": {
+                        "pass": release_pass_token,
+                        "expires_at": "2026-11-25T18:00:00Z",
+                        "release_source_id": source_id,
+                        "templates": ["analyst"]
+                    }
+                })))
+                .expect(1)
+                .mount(&held_server)
+                .await;
+
+            Mock::given(method("POST"))
+                .and(path(bundle_register_route))
+                .and(header(
+                    "Authorization",
+                    format!("Bearer {release_pass_token}"),
+                ))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "data": {
+                        "deployment_bundle_id": bundle_id,
+                        "sha256": expected_bundle_sha,
+                        "size_bytes": expected_bundle_size,
+                        "source_kind": "agent_bundle",
+                        "upload_required": false,
+                        "upload_headers": {}
+                    }
+                })))
+                .expect(1)
+                .mount(&held_server)
+                .await;
+
+            Mock::given(method("POST"))
+                .and(path(&release_route))
+                .and(header(
+                    "Authorization",
+                    format!("Bearer {release_pass_token}"),
+                ))
+                .and(body_json(json!({
+                    "display_name": "Analyst",
+                    "source_bundle_id": bundle_id,
+                    "source_commit_sha": explicit_commit,
+                    "deploy_defaults": deploy_defaults,
+                    "listed": true,
+                    "rollout": false,
+                    "release_note": "Add quarterly report summary."
+                })))
+                .respond_with(ResponseTemplate::new(409).set_body_json(json!({
+                    "error": "managed_agent_release_held",
+                    "message": "This release changes what the Employee can reach, so it waits for an Owner or Admin to approve it.",
+                    "details": held_details
+                })))
+                .expect(1)
+                .mount(&held_server)
+                .await;
+
+            let held_ctx =
+                CommandContext::new(Some(held_server.uri()), Some(unused_api_key.into()), format);
+            let (mut held_out, mut held_err) = (Vec::new(), Vec::new());
+            managed_release_with_env(
+                org_id,
+                &folder,
+                None,
+                Some(explicit_commit.clone()),
+                &held_ctx,
+                &env_lookup,
+                &mut held_out,
+                &mut held_err,
+            )
+            .await
+            .unwrap();
+            let held_stdout = String::from_utf8(held_out).unwrap();
+            match format {
+                OutputFormat::Table => {
+                    assert!(
+                        held_stdout.contains("Held for approval: access change."),
+                        "unexpected held output: {held_stdout}"
+                    );
+                    assert!(
+                        held_stdout
+                            .contains("Added outbound network host data.example.com:443 (REST)."),
+                        "missing held access change: {held_stdout}"
+                    );
+                    assert!(
+                        held_stdout.contains(&format!(
+                            "Approve it: seren agent managed-held-releases {org_id} approve {held_id}"
+                        )),
+                        "missing CLI approval command: {held_stdout}"
+                    );
+                    assert!(
+                        held_stdout.contains(CONSOLE_PUBLISHED_EMPLOYEES_URL),
+                        "missing Console page URL: {held_stdout}"
+                    );
+                }
+                OutputFormat::Json => {
+                    let parsed: Value = serde_json::from_str(&held_stdout).unwrap();
+                    assert_eq!(parsed["outcome"], "held");
+                    assert_eq!(parsed["held_release_id"], held_id.to_string());
+                    assert_eq!(parsed["reason"], "access_change");
+                    assert_eq!(parsed["changes_fingerprint"], fingerprint);
+                    assert_eq!(
+                        parsed["approve_path"],
+                        format!("/organizations/{org_id}/held-releases/{held_id}/approve")
+                    );
+                }
+            }
+            held_server.verify().await;
+        }
+
+        // 3. Refused (non-held 409 or 403): returns Err with the server's message.
+        let refused_server = MockServer::start().await;
+        let refusal_message = "This release source may not release analyst.";
+        Mock::given(method("POST"))
+            .and(path(&pass_route))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": {
+                    "pass": release_pass_token,
+                    "expires_at": "2026-11-25T18:00:00Z",
+                    "release_source_id": source_id,
+                    "templates": ["other"]
+                }
+            })))
+            .expect(1)
+            .mount(&refused_server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(bundle_register_route))
+            .and(header(
+                "Authorization",
+                format!("Bearer {release_pass_token}"),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": {
+                    "deployment_bundle_id": bundle_id,
+                    "sha256": expected_bundle_sha,
+                    "size_bytes": expected_bundle_size,
+                    "source_kind": "agent_bundle",
+                    "upload_required": false,
+                    "upload_headers": {}
+                }
+            })))
+            .expect(1)
+            .mount(&refused_server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(&release_route))
+            .and(header(
+                "Authorization",
+                format!("Bearer {release_pass_token}"),
+            ))
+            .respond_with(ResponseTemplate::new(403).set_body_json(json!({
+                "error": "release_source_template_not_allowed",
+                "message": refusal_message
+            })))
+            .expect(1)
+            .mount(&refused_server)
+            .await;
+
+        let refused_ctx = CommandContext::new(
+            Some(refused_server.uri()),
+            Some(unused_api_key.into()),
+            OutputFormat::Table,
+        );
+        let (mut ref_out, mut ref_err) = (Vec::new(), Vec::new());
+        let refused_err = managed_release_with_env(
+            org_id,
+            &folder,
+            None,
+            Some(explicit_commit),
+            &refused_ctx,
+            &env_lookup,
+            &mut ref_out,
+            &mut ref_err,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(refused_err.to_string(), refusal_message);
+        refused_server.verify().await;
     }
 }
