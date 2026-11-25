@@ -288,10 +288,11 @@ MCP does not provide a tool to create release keys so the key text never passes 
 
 ### 2. Store and Run in CI
 
-Store the key as a masked secret environment variable named `SEREN_RELEASE_KEY` in your CI, then download, verify, and run the CLI:
+Store the key as a masked secret environment variable named `SEREN_RELEASE_KEY` in your CI. Replace `<organization-id>` with your Seren organization ID and `./my-employee` with your Employee folder, then download, verify, and run the CLI:
 
 ```bash
 set -eu
+SEREN_ORGANIZATION_ID="<organization-id>"
 SEREN_CLI_VERSION="v0.16.0"
 bin_dir=$(mktemp -d)
 trap 'rm -rf "$bin_dir"' EXIT
