@@ -28,6 +28,7 @@ pub mod passwords;
 pub mod projects;
 pub mod psql;
 pub mod rbac;
+pub(crate) mod release_pass;
 pub mod replication;
 pub mod roles;
 pub mod sessions;
