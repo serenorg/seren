@@ -191,6 +191,7 @@ seren/
 - [CLI Reference](./cli/README.md)
 - [SDK Reference](./sdk/README.md)
 - [MCP Server](./mcp/README.md)
+- [Release an Employee from your repository](./docs/release-an-employee.md)
 - [Managed Agents Guide](./docs/managed-agents.md)
 - [SerenDB Documentation](https://docs.serendb.com)
 
