@@ -334,10 +334,13 @@ A built-in Owner or Admin can release directly from a laptop with no stored key.
    3. `SEREN_RELEASE_KEY`
    4. Your signed-in browser session
 
-3. Run `managed-release` from your repository:
+3. Run `managed-release` from your repository, or run `managed-publish-template-release` with an uploaded bundle and release request file — both work while signed in with no API key:
 
    ```bash
    seren agent managed-release <organization-id> ./my-employee
+
+   # Or publish an already-uploaded bundle directly while signed in:
+   seren agent managed-publish-template-release <organization-id> <template-slug> --request ./release.json
    ```
 
 An in-person release pass covers any Employee your organization publishes. Releases made in person are not held: Seren publishes right away, prints `Published <slug> revision <n>.` with any itemized access changes, and records you as having approved them.

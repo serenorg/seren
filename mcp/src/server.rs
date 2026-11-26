@@ -8073,27 +8073,6 @@ fn template_publication_timeout(rollout: Option<bool>) -> Option<std::time::Dura
     (rollout == Some(true)).then_some(std::time::Duration::from_secs(600))
 }
 
-fn ensure_template_publication_credential(extensions: &Extensions) -> Result<(), McpError> {
-    ensure_managed_agent_owner_credential(extensions)?;
-    match request_auth_context_from_extensions(extensions).map(|auth| &auth.credential) {
-        // Local opaque credentials remain subject to Core's explicit scope check.
-        None => Ok(()),
-        Some(crate::SerenRequestCredential::UserApiKey {
-            api_key_scopes: Some(scopes),
-            ..
-        }) if scopes
-            .iter()
-            .any(|scope| scope == "managed-agent-template:publish") =>
-        {
-            Ok(())
-        }
-        Some(_) => Err(McpError::invalid_request(
-            "Template publication requires a user API key explicitly scoped managed-agent-template:publish",
-            None,
-        )),
-    }
-}
-
 fn validate_managed_agent_list_limit(
     limit: Option<i32>,
     maximum: i32,
@@ -19108,7 +19087,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Publish an Employee template release using an uploaded bundle and exact commit hash after user authorization. Requires a user API key of the publishing organization explicitly scoped managed-agent-template:publish; sessions and unrestricted keys cannot publish. New templates begin pending review; new hires require Seren approval, platform activation and Owner listing. Only its publishing organization can release it again, and a suspended template refuses releases. A release with no supported provider is refused; the result lists supported connected-account providers.",
+        description = "Publish an Employee template release using an uploaded bundle and exact commit hash after user authorization. Requires a signed-in Owner or Admin of the publishing organization; no API key is needed, and a key with the managed-agent-template:publish scope is no longer accepted. New templates begin pending review; new hires require Seren approval, platform activation and Owner listing. Only its publishing organization can release it again, and a suspended template refuses releases. A release with no supported provider is refused; the result lists supported connected-account providers.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -19121,7 +19100,7 @@ API endpoint: {endpoint}",
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
-        ensure_template_publication_credential(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
         let api_client = if let Some(timeout) = template_publication_timeout(params.request.rollout)
         {
             self.api_client_with_timeout(&extensions, timeout)?
@@ -30105,40 +30084,163 @@ pub(crate) mod tests {
             .unwrap();
     }
 
-    #[test]
-    fn managed_agent_owner_publication_requires_an_explicit_scoped_user_key() {
-        let auth = |credential| {
-            extensions_with_auth_context(crate::SerenRequestAuthContext {
-                user_id: Uuid::new_v4(),
-                email: None,
-                credential,
-            })
+    #[tokio::test]
+    async fn a_signed_in_owner_releases_without_a_key() {
+        use wiremock::matchers::{body_json, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let upstream = MockServer::start().await;
+        let organization_id = Uuid::new_v4();
+        let user_id = Uuid::new_v4();
+        let request = serde_json::json!({
+            "display_name": "Release test",
+            "source_bundle_id": Uuid::new_v4(),
+            "source_commit_sha": "a".repeat(40),
+            "deploy_defaults": {
+                "mode": "cron",
+                "cron_schedule": "0 9 * * *",
+                "model_policy": "balanced",
+                "max_runtime_seconds": 300,
+                "browser": {"display": "headless", "max_session_seconds": 60},
+                "network_egress": [],
+                "script_publisher_grants": []
+            }
+        });
+        let mut expected_request = request.clone();
+        expected_request["listed"] = serde_json::json!(true);
+        let api_response = serde_json::json!({
+            "data": {
+                "slug": "release-test",
+                "revision": 7,
+                "created": false,
+                "revision_added": true,
+                "active": true,
+                "listed": true,
+                "review_state": "approved",
+                "providers": ["google"]
+            }
+        });
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/templates/release-test/releases"
+            )))
+            .and(header("Authorization", "Bearer session-access-token"))
+            .and(body_json(expected_request.clone()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(api_response))
+            .expect(1)
+            .mount(&upstream)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/templates/release-refused/releases"
+            )))
+            .and(header("Authorization", "Bearer session-access-token"))
+            .and(body_json(expected_request))
+            .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+                "error": "managed_agent_template_publish_forbidden",
+                "message": "Only an Owner or Admin of the publishing organization may release"
+            })))
+            .expect(1)
+            .mount(&upstream)
+            .await;
+
+        let server = SerenMcpServer::new_oauth(&upstream.uri()).unwrap();
+        let params_for = |slug: &str| -> PublishSerenAgentTemplateReleaseParams {
+            serde_json::from_value(serde_json::json!({
+                "organization_id": organization_id,
+                "slug": slug,
+                "request": request,
+            }))
+            .unwrap()
         };
+        let user_session = || {
+            extensions_with_headers_and_auth_context(
+                &[("authorization", "Bearer session-access-token")],
+                crate::SerenRequestAuthContext {
+                    user_id,
+                    email: None,
+                    credential: crate::SerenRequestCredential::UserSession,
+                },
+            )
+        };
+        let agent_key = || {
+            extensions_with_headers_and_auth_context(
+                &[("authorization", "Bearer agent-key")],
+                crate::SerenRequestAuthContext {
+                    user_id,
+                    email: None,
+                    credential: crate::SerenRequestCredential::AgentApiKey {
+                        api_key_id: Some(Uuid::new_v4()),
+                        agent_identity_id: Some(Uuid::new_v4()),
+                    },
+                },
+            )
+        };
+
+        // Hosted user session sends the release request and returns the API's answer.
+        let result = server
+            .publish_seren_agent_template_release(
+                Parameters(params_for("release-test")),
+                user_session(),
+            )
+            .await
+            .unwrap();
+        assert!(!result.is_error.unwrap_or(false));
+        let decoded = template_catalog_result_json(result);
+        assert_eq!(decoded["data"]["slug"], "release-test");
+        assert_eq!(decoded["data"]["revision"], 7);
+
+        // API refusals reach the caller unchanged.
+        let refusal = server
+            .publish_seren_agent_template_release(
+                Parameters(params_for("release-refused")),
+                user_session(),
+            )
+            .await
+            .expect_err("API refusal must pass through unchanged");
         assert!(
-            ensure_template_publication_credential(&auth(
-                crate::SerenRequestCredential::UserSession
-            ))
-            .is_err()
+            refusal
+                .message
+                .contains("Only an Owner or Admin of the publishing organization may release"),
+            "{refusal:?}"
         );
+
+        // An agent key is refused before any request is sent.
+        let agent_error = server
+            .publish_seren_agent_template_release(
+                Parameters(params_for("release-test")),
+                agent_key(),
+            )
+            .await
+            .expect_err("agent key must be refused before calling the API");
         assert!(
-            ensure_template_publication_credential(&auth(
-                crate::SerenRequestCredential::UserApiKey {
-                    api_key_id: Some(Uuid::new_v4()),
-                    api_key_scopes: None
-                }
-            ))
-            .is_err()
+            agent_error
+                .message
+                .contains("owner's session or user API key"),
+            "{agent_error:?}"
         );
+
+        // An organization work context is also refused before any request is sent.
+        let mut session_with_work_context = user_session();
+        session_with_work_context.insert(RuntimeWorkContextToken("work-context".into()));
+        let work_context_error = server
+            .publish_seren_agent_template_release(
+                Parameters(params_for("release-test")),
+                session_with_work_context,
+            )
+            .await
+            .expect_err("organization work context must be refused before calling the API");
         assert!(
-            ensure_template_publication_credential(&auth(
-                crate::SerenRequestCredential::UserApiKey {
-                    api_key_id: Some(Uuid::new_v4()),
-                    api_key_scopes: Some(vec!["managed-agent-template:publish".into()])
-                }
-            ))
-            .is_ok()
+            work_context_error
+                .message
+                .contains("organization work context"),
+            "{work_context_error:?}"
         );
-        assert!(ensure_template_publication_credential(&Extensions::default()).is_ok());
+
+        upstream.verify().await;
+        assert_eq!(upstream.received_requests().await.unwrap().len(), 2);
     }
 
     #[test]
