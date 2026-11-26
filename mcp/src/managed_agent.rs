@@ -800,6 +800,64 @@ impl ManagedAgentMcpServer {
         self.start_work(deployment_id, message, &bearer).await
     }
 
+    async fn attach_files(
+        &self,
+        job: &JobId,
+        bearer: &str,
+        messages: &[&Value],
+        content: &mut Vec<ContentBlock>,
+    ) -> Result<(), McpError> {
+        let mut seen_file_ids = BTreeSet::new();
+        for message in messages {
+            for file in message
+                .get("files")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let Some(file_id) = file.get("file_id").and_then(Value::as_str) else {
+                    continue;
+                };
+                if !seen_file_ids.insert(file_id) {
+                    continue;
+                }
+                let name = file.get("name").and_then(Value::as_str).unwrap_or(file_id);
+                let content_type = file
+                    .get("content_type")
+                    .and_then(Value::as_str)
+                    .unwrap_or("application/octet-stream");
+                let url = format!(
+                    "{}/{CLOUD_PUBLISHER}/deployments/{}/files/{}/content",
+                    self.api_base_url,
+                    job.deployment_id,
+                    urlencode(file_id)
+                );
+                let response = self
+                    .http
+                    .get(url)
+                    .header(reqwest::header::AUTHORIZATION, bearer)
+                    .send()
+                    .await
+                    .map_err(|error| core_error(format!("Seren is unreachable: {error}")))?;
+                if !response.status().is_success() {
+                    return Err(core_error(format!(
+                        "Seren answered {} for file {name}",
+                        response.status()
+                    )));
+                }
+                let bytes = response
+                    .bytes()
+                    .await
+                    .map_err(|error| core_error(format!("File {name} was cut off: {error}")))?;
+                content.push(ContentBlock::resource(
+                    ResourceContents::blob(BASE64.encode(&bytes), format!("seren-file:///{name}"))
+                        .with_mime_type(content_type),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     async fn get_report(
         &self,
         listing: &Value,
@@ -832,7 +890,7 @@ impl ManagedAgentMcpServer {
             .take_while(|message| message.get("role").and_then(Value::as_str) != Some("user"))
             .filter(|message| message.get("role").and_then(Value::as_str) == Some("assistant"))
             .collect();
-        let failure = |message: &Value| -> Option<String> {
+        fn failed_status_message(message: &Value) -> Option<Option<&str>> {
             let summary = message.get("run_summary")?;
             let status = summary.get("status").and_then(Value::as_str)?;
             matches!(
@@ -844,25 +902,35 @@ impl ManagedAgentMcpServer {
                     .get("status_message")
                     .and_then(Value::as_str)
                     .filter(|text| !text.trim().is_empty())
-                    .or_else(|| message.get("content").and_then(Value::as_str))
-                    .filter(|text| !text.trim().is_empty())
-                    .unwrap_or("The task failed.")
-                    .to_string()
             })
-        };
-        if let Some(error) = failure(&messages[asked]) {
-            return Ok(CallToolResponse::Complete(CallToolResult::error(vec![
-                ContentBlock::text(error),
-            ])));
+        }
+        let latest_reply_summary = replies.iter().rev().copied().find(|message| {
+            message
+                .pointer("/run_summary/status")
+                .and_then(Value::as_str)
+                .is_some()
+        });
+        let asked_failure = failed_status_message(&messages[asked]);
+        let reply_failure = latest_reply_summary.and_then(failed_status_message);
+        if asked_failure.is_some() || reply_failure.is_some() {
+            let status_message = reply_failure
+                .flatten()
+                .or_else(|| asked_failure.flatten())
+                .unwrap_or("The task failed.");
+            let mut parts: Vec<&str> = replies
+                .iter()
+                .filter_map(|message| message.get("content").and_then(Value::as_str))
+                .filter(|text| !text.trim().is_empty())
+                .collect();
+            parts.push(status_message);
+            let mut content = vec![ContentBlock::text(parts.join("\n\n"))];
+            self.attach_files(&job, bearer, &replies, &mut content)
+                .await?;
+            return Ok(CallToolResponse::Complete(CallToolResult::error(content)));
         }
         let Some(reply) = replies.last() else {
             return Ok(text_result("Still working."));
         };
-        if let Some(error) = failure(reply) {
-            return Ok(CallToolResponse::Complete(CallToolResult::error(vec![
-                ContentBlock::text(error),
-            ])));
-        }
         let finished = reply
             .pointer("/run_summary/status")
             .and_then(Value::as_str)
@@ -877,48 +945,8 @@ impl ManagedAgentMcpServer {
                 .unwrap_or_default()
                 .to_string(),
         )];
-        for file in reply
-            .get("files")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            let Some(file_id) = file.get("file_id").and_then(Value::as_str) else {
-                continue;
-            };
-            let name = file.get("name").and_then(Value::as_str).unwrap_or(file_id);
-            let content_type = file
-                .get("content_type")
-                .and_then(Value::as_str)
-                .unwrap_or("application/octet-stream");
-            let url = format!(
-                "{}/{CLOUD_PUBLISHER}/deployments/{}/files/{}/content",
-                self.api_base_url,
-                job.deployment_id,
-                urlencode(file_id)
-            );
-            let response = self
-                .http
-                .get(url)
-                .header(reqwest::header::AUTHORIZATION, bearer)
-                .send()
-                .await
-                .map_err(|error| core_error(format!("Seren is unreachable: {error}")))?;
-            if !response.status().is_success() {
-                return Err(core_error(format!(
-                    "Seren answered {} for file {name}",
-                    response.status()
-                )));
-            }
-            let bytes = response
-                .bytes()
-                .await
-                .map_err(|error| core_error(format!("File {name} was cut off: {error}")))?;
-            content.push(ContentBlock::resource(
-                ResourceContents::blob(BASE64.encode(&bytes), format!("seren-file:///{name}"))
-                    .with_mime_type(content_type),
-            ));
-        }
+        self.attach_files(&job, bearer, &[reply], &mut content)
+            .await?;
         Ok(CallToolResponse::Complete(CallToolResult::success(content)))
     }
 }
@@ -1611,6 +1639,166 @@ mod tests {
                 .iter()
                 .all(|request| !request.url.path().contains("/seren-cloud/"))
         );
+    }
+
+    #[tokio::test]
+    async fn failed_job_report_keeps_her_reply() {
+        async fn fetch_failed_report(
+            messages: Vec<Value>,
+            file: Option<(&str, &str, &[u8])>,
+        ) -> Value {
+            let core = MockServer::start().await;
+            let deployment_id = Uuid::new_v4();
+            mount_hires(&core, &[deployment_id]).await;
+            let message_path = format!(
+                "/publishers/seren-cloud/deployments/{deployment_id}/conversations/mcp/messages"
+            );
+            Mock::given(method("GET"))
+                .and(path(&message_path))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "data": {"messages": messages, "has_more": false, "next_cursor": null}
+                })))
+                .expect(1)
+                .mount(&core)
+                .await;
+            if let Some((file_id, content_type, bytes)) = file {
+                Mock::given(method("GET"))
+                    .and(path(format!(
+                        "/publishers/seren-cloud/deployments/{deployment_id}/files/{file_id}/content"
+                    )))
+                    .respond_with(
+                        ResponseTemplate::new(200).set_body_raw(bytes.to_vec(), content_type),
+                    )
+                    .expect(1)
+                    .mount(&core)
+                    .await;
+            }
+            let server = ManagedAgentMcpServer::new(&core.uri(), reqwest::Client::new());
+            let job = JobId {
+                deployment_id,
+                conversation_id: "mcp".to_string(),
+                client_message_id: "failed-job".to_string(),
+            };
+            let CallToolResponse::Complete(result) = server
+                .get_report(
+                    &listing(),
+                    &arguments(json!({"job_id": job.encode()})),
+                    "Bearer upstream-access",
+                )
+                .await
+                .unwrap()
+            else {
+                panic!("expected completed MCP result");
+            };
+            serde_json::to_value(result).unwrap()
+        }
+
+        let with_reply = fetch_failed_report(
+            vec![
+                json!({
+                    "role": "user",
+                    "client_message_id": "failed-job",
+                    "content": "Write the memo.",
+                    "run_summary": {"status": "failed", "status_message": "Run failed."}
+                }),
+                json!({
+                    "role": "assistant",
+                    "content": "PDF export failed.\n\nHere is the full memo.",
+                    "files": [{"file_id": "file-1", "name": "memo.txt", "content_type": "text/plain"}],
+                    "run_summary": {"status": "failed", "status_message": "Run failed."}
+                }),
+                json!({
+                    "role": "assistant",
+                    "content": "I've told Seren's team about this (report 12345678).",
+                    "files": [],
+                    "run_summary": null
+                }),
+            ],
+            Some(("file-1", "text/plain", b"draft memo bytes")),
+        )
+        .await;
+        assert_eq!(with_reply["isError"], json!(true));
+        assert_eq!(with_reply["content"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            with_reply["content"][0]["text"],
+            json!(
+                "PDF export failed.\n\nHere is the full memo.\n\nI've told Seren's team about this (report 12345678).\n\nRun failed."
+            )
+        );
+        assert_eq!(with_reply["content"][1]["type"], json!("resource"));
+        assert_eq!(
+            with_reply["content"][1]["resource"]["uri"],
+            json!("seren-file:///memo.txt")
+        );
+        assert_eq!(
+            with_reply["content"][1]["resource"]["mimeType"],
+            json!("text/plain")
+        );
+        assert_eq!(
+            with_reply["content"][1]["resource"]["blob"],
+            json!(BASE64.encode(b"draft memo bytes"))
+        );
+
+        let without_reply = fetch_failed_report(
+            vec![json!({
+                "role": "user",
+                "client_message_id": "failed-job",
+                "content": "Write the memo.",
+                "run_summary": {"status": "failed", "status_message": "Run failed."}
+            })],
+            None,
+        )
+        .await;
+        assert_eq!(without_reply["isError"], json!(true));
+        assert_eq!(without_reply["content"].as_array().unwrap().len(), 1);
+        assert_eq!(without_reply["content"][0]["text"], json!("Run failed."));
+
+        let cancelled_after_reply = fetch_failed_report(
+            vec![
+                json!({"role": "user", "client_message_id": "failed-job"}),
+                json!({
+                    "role": "assistant",
+                    "content": "Partial analysis.",
+                    "files": [],
+                    "run_summary": {"status": "cancelled", "status_message": "Run cancelled."}
+                }),
+                json!({"role": "assistant", "content": "   ", "files": [], "run_summary": null}),
+                json!({
+                    "role": "assistant",
+                    "content": "I've told Seren's team.",
+                    "files": [],
+                    "run_summary": null
+                }),
+            ],
+            None,
+        )
+        .await;
+        assert_eq!(cancelled_after_reply["isError"], json!(true));
+        assert_eq!(
+            cancelled_after_reply["content"].as_array().unwrap().len(),
+            1
+        );
+        assert_eq!(
+            cancelled_after_reply["content"][0]["text"],
+            json!("Partial analysis.\n\nI've told Seren's team.\n\nRun cancelled.")
+        );
+
+        let empty_reply = fetch_failed_report(
+            vec![
+                json!({"role": "user", "client_message_id": "failed-job"}),
+                json!({
+                    "role": "assistant",
+                    "content": "",
+                    "files": [],
+                    "run_summary": {"status": "errored", "status_message": "Tool crashed."}
+                }),
+            ],
+            None,
+        )
+        .await;
+        assert_eq!(empty_reply["isError"], json!(true));
+        assert_eq!(empty_reply["content"].as_array().unwrap().len(), 1);
+        assert_eq!(empty_reply["content"][0]["text"], json!("Tool crashed."));
     }
 
     #[test]
