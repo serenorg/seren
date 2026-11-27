@@ -188,6 +188,93 @@
         ]
       }
     },
+    "/deployments/lifecycle": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Start, stop, or delete multiple managed agent deployments in one request.",
+        "description": "Starts, stops, or deletes managed agent deployments in one request, using either 1..=2,000 explicit `deployment_ids` or a bounded `selection` (single-template or cross-template, complete, exclusion-based, or bitset-filtered) verified by `selection_sha256` for selections of any size. Each deployment is authorized independently. Repeated IDs are acted on once. Returns 200 with one result per distinct deployment ID (request order for `deployment_ids`; ascending deployment ID order for `selection`); explicit IDs the caller cannot see are refused with `deployment_not_found`, and a stale `selection` returns 409 (`selection_changed`) before any change runs.",
+        "operationId": "seren_agent_bulk_managed_deployment_lifecycle",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagedDeploymentLifecycleBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Per-deployment lifecycle outcomes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedDeploymentLifecycleBatchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body, conflicting or missing target, or explicit ID/bitset limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential lacks managed-agent lifecycle scope or hirer authority",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resolved selection does not match `selection_sha256` or candidate bitset length (`selection_changed`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body exceeds 256 KiB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}": {
       "delete": {
         "tags": [
@@ -2006,6 +2093,259 @@
                 }
               }
             }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/browser-sites": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "List active Employer-added read-only websites and open confirmation cards for a hire.",
+        "operationId": "seren_agent_list_browser_sites",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Active added websites and open confirmation cards",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentBrowserSitesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The hire owner's signed-in session is required"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Request read-only HTTPS browser access to one website host for this hire.",
+        "operationId": "seren_agent_request_browser_site",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Replay key for this write, 1 to 255 visible ASCII characters",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestBrowserSite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The site was granted, already allowed, queued for confirmation, or refused with a structured reason",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_BrowserSiteRequestOutcome"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body or Idempotency-Key"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The credential is not this hire's current runtime key"
+          },
+          "404": {
+            "description": "Deployment or live run not found"
+          },
+          "409": {
+            "description": "The Idempotency-Key was already used for a different website"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/browser-sites/{site_id}": {
+      "delete": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Remove an active Employer-added website immediately for the running hire.",
+        "operationId": "seren_agent_remove_browser_site",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "site_id",
+            "in": "path",
+            "description": "Browser website ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The removed website record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentBrowserSiteRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid site ID"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The hire owner's signed-in session is required"
+          },
+          "404": {
+            "description": "Deployment or website record not found"
+          },
+          "409": {
+            "description": "Only an active added website can be removed"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/browser-sites/{site_id}/decision": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Approve or decline a pending website confirmation card with the hire owner's signed-in session.",
+        "operationId": "seren_agent_decide_browser_site",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "site_id",
+            "in": "path",
+            "description": "Browser website confirmation ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrowserSiteDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The website record after the decision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentBrowserSiteRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid decision or site ID"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The hire owner's signed-in session is required"
+          },
+          "404": {
+            "description": "Deployment or website record not found"
+          },
+          "409": {
+            "description": "The card expired, was already decided, failed DNS/safety checks, or hit the daily limit"
           }
         },
         "security": [
@@ -5591,7 +5931,7 @@
             "description": "Deployment not found, including one the runtime key is not scoped to"
           },
           "409": {
-            "description": "`handoff_unavailable` when the deployment's browser policy does not grant the full browser"
+            "description": "`handoff_unavailable` when the deployment's browser policy does not grant the full browser, or `payment_approval_requires_yes` when a `payment_approval` window is requested without an order the owner approved in the last 15 minutes"
           }
         },
         "security": [
@@ -5607,7 +5947,7 @@
           "seren-agent"
         ],
         "summary": "Read the live window that waits for the owner of a hired managed agent.",
-        "description": "Returns the live window the managed agent opened and its owner may watch now: its `reason` (`challenge` or `third_party_sign_in` to sign in, `owner_submit` to check and submit a form the managed agent filled in) and a plain-text `message` for the owner. The window closes at `expires_at`, at most ten minutes after it opened. Only the owner's session or user API key is accepted.",
+        "description": "Returns the live window the managed agent opened and its owner may watch now: its `reason` (`challenge` or `third_party_sign_in` to sign in, `owner_submit` to check and submit a form the managed agent filled in, `payment_approval` to approve a payment on the owner's bank's page) and a plain-text `message` for the owner. The window closes at `expires_at`, at most ten minutes after it opened. Only the owner's session or user API key is accepted.",
         "operationId": "seren_agent_get_active_managed_agent_browser_handoff",
         "parameters": [
           {
@@ -7784,7 +8124,7 @@
         },
         "responses": {
           "200": {
-            "description": "Report recorded, or the report an earlier request with the same key recorded. The response must not be cached.",
+            "description": "Report recorded, or the report an earlier request with the same key recorded. A public report over the template's daily limit answers `public_report_daily_limit_reached` and files nothing. The response must not be cached.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7794,7 +8134,7 @@
             }
           },
           "400": {
-            "description": "Invalid body or missing Idempotency-Key"
+            "description": "Invalid body or missing Idempotency-Key, `public_report_unavailable` when this managed agent does not file public reports, or `public_report_private_content` when the public text contains private details"
           },
           "401": {
             "description": "Authentication required"
@@ -7806,7 +8146,7 @@
             "description": "Deployment not found, including one the runtime key is not scoped to, or `managed_agent_work_not_found` / `managed_agent_run_not_found` when the referenced item is not this deployment's"
           },
           "409": {
-            "description": "The Idempotency-Key was used with a different body"
+            "description": "The Idempotency-Key was used with a different body, `public_report_card_required` when a public report lacks an approved, unused public report card with the same text, or `public_report_run_required` when a public report comes from outside a run"
           },
           "429": {
             "description": "The deployment already filed five reports in the last hour; nothing was recorded"
@@ -9325,7 +9665,159 @@
         ]
       }
     },
+    "/deployments/{id}/support-account": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Read one part of the hirer's account while its access card is live.",
+        "operationId": "seren_agent_read_support_account",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "section",
+            "in": "query",
+            "description": "wallet, transactions, hires, runs, incidents or connections",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The section, or access_needed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SupportAccountRead"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The section is not one of the listed parts of the account"
+          },
+          "403": {
+            "description": "The credential is not this hire's runtime key, or the template is not Seren-paid"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/support-actions": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Run the one action the hirer approved on a support card.",
+        "operationId": "seren_agent_run_approved_action",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunApprovedAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "completed, refused or failed. Never holds a new API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ApprovedActionOutcome"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential is not this hire's runtime key, or the template is not Seren-paid"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/support-cards": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "List a hire's open support cards for its owner's signed-in session.",
+        "operationId": "seren_agent_list_support_cards",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Open support cards",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_ManagedAgentSupportCard"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The hire owner's signed-in session is required"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
       "post": {
         "tags": [
           "seren-agent"
@@ -9370,6 +9862,130 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DataResponse_SupportCardRequestOutcome"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential is not this hire's runtime key, or the template is not Seren-paid"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/support-cards/{card_id}/decision": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Approve, deny or revoke a support card with the hire owner's signed-in session.",
+        "operationId": "seren_agent_decide_support_card",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "card_id",
+            "in": "path",
+            "description": "Support card ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupportCardDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The card after the decision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentSupportCard"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid decision or card ID"
+          },
+          "403": {
+            "description": "The hire owner's signed-in session is required"
+          },
+          "404": {
+            "description": "Deployment or card not found"
+          },
+          "409": {
+            "description": "The card expired or was already decided"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/support-task-retries": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Retry the hirer's failed task while its access card is live.",
+        "operationId": "seren_agent_retry_failed_task",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetryFailedTask"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "retried, not_retryable or access_needed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_RetryFailedTaskOutcome"
                 }
               }
             }
@@ -10548,7 +11164,7 @@
             "description": "Deployment not found"
           },
           "409": {
-            "description": "Remove the current webhook before creating another"
+            "description": "Remove the current webhook before creating another, or this free managed agent does not support webhooks (`seren_paid_trigger_unsupported`)"
           },
           "503": {
             "description": "Webhooks unavailable"
@@ -11955,7 +12571,7 @@
             }
           },
           "400": {
-            "description": "Invalid request, the template cannot be hired with the selected provider (`managed_agent_template_provider_unsupported`), a `mail_and_files` template was hired without `provider` or `oauth_connection_id`, or a `sign_in_only` template was hired with one (`connection_not_accepted`)",
+            "description": "Invalid request, the template cannot be hired with the selected provider (`managed_agent_template_provider_unsupported`), a `mail_and_files` or `directory_read` template was hired without `provider` or `oauth_connection_id`, or a `sign_in_only` template was hired with one (`connection_not_accepted`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -11975,7 +12591,7 @@
             }
           },
           "403": {
-            "description": "Forbidden: the caller cannot create deployments in the organization",
+            "description": "Forbidden: the caller cannot create deployments in the organization, or a `directory_read` template was hired without an administrator-approved read-only directory connection (`directory_admin_required`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -12015,7 +12631,7 @@
             }
           },
           "503": {
-            "description": "The Employee's setup could not finish; retrying the hire resumes it (`managed_agent_hire_runtime_setup_failed`), or the template asks for purchase protection that Seren doesn't offer yet (`guarded_purchases_unavailable`)",
+            "description": "The Employee's setup could not finish; retrying the hire resumes it (`managed_agent_hire_runtime_setup_failed`), or the template asks for purchase protection (`guarded_purchases_unavailable`) or Owner model reasoning effort (`managed_agent_template_reasoning_effort_unavailable`) that Seren doesn't offer yet",
             "content": {
               "application/json": {
                 "schema": {
@@ -12141,79 +12757,6 @@
           },
           "404": {
             "description": "Template or event not found"
-          }
-        },
-        "security": []
-      }
-    },
-    "/templates/{template_slug}/guest-sessions": {
-      "post": {
-        "tags": [
-          "seren-agent"
-        ],
-        "summary": "Start a private guest chat with a Seren-paid managed agent, without an account.",
-        "operationId": "seren_agent_create_guest_session",
-        "parameters": [
-          {
-            "name": "template_slug",
-            "in": "path",
-            "description": "Template slug",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateGuestSessionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Guest chat started",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DataResponse_GuestSessionResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The browser did not pass the bot check (`guest_bot_check_failed`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many new chats from this address",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Guest chat is not offered for this managed agent or is switched off (`guest_chat_unavailable`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
           }
         },
         "security": []
@@ -12781,7 +13324,7 @@
           "seren-agent"
         ],
         "summary": "Test an uploaded, unpublished bundle of a template the caller's organization publishes.",
-        "description": "Runs an uploaded, unpublished bundle once with the given release settings, exactly as a hire's task runs, through a test revision that hirers are never offered and a temporary hire of it in the caller's organization. No release, rollout or Employer approval happens. The run is charged to the caller's organization at the template's run cost; an organization that can't pay is refused with `402` (`managed_agent_run_fee_unfunded`) before the run starts. Test runs never appear in Owner problems and are removed after 7 days. Read the result with the test run's GET route. Test an upload this way before publishing it. Requires the organization's built-in Owner or Admin on a direct credential, or its user API key with `managed-agent-template:publish`.",
+        "description": "Runs an uploaded, unpublished bundle once with the given release settings, exactly as a hire's task runs, through a test revision that hirers are never offered and a temporary hire of it in the caller's organization. Works for a free slug's first upload before its first release as well as an existing template; a new slug stays a hidden draft out of the catalog, hiring and review until its first release. No release, rollout or Employer approval happens. The run is charged to the caller's organization at the template's run cost; an organization that can't pay is refused with `402` (`managed_agent_run_fee_unfunded`) before the run starts. Test runs never appear in Owner problems and are removed after 7 days. Read the result with the test run's GET route. Test a slug's first upload or any later upload this way before publishing it. Requires the organization's built-in Owner or Admin on a direct credential.",
         "operationId": "seren_agent_start_template_test_run",
         "parameters": [
           {
@@ -12828,10 +13371,10 @@
             "description": "The credential may not test this template's uploads (`managed_agent_template_test_runner_required`), or the template is published by another organization or suspended"
           },
           "404": {
-            "description": "Template not found"
+            "description": "The settings ask for a sandbox runtime class Seren doesn't offer (`runtime_class_not_found`)"
           },
           "409": {
-            "description": "Another test run or hire of this template by the caller is still being set up (`hire_in_progress`), or the test hire could not be set up"
+            "description": "The slug is reserved (`managed_agent_template_slug_reserved`), another template uses the slug as its page address (`managed_agent_template_page_slug_taken`), a new slug's organization has no public name (`publisher_name_required`) or store address (`publisher_handle_required`), another test run or hire of this template by the caller is still being set up (`hire_in_progress`), or the test hire could not be set up"
           }
         },
         "security": [
@@ -12903,7 +13446,8 @@
         "tags": [
           "seren-agent"
         ],
-        "summary": "Run an unsaved managed seren-agent draft once before deploying.",
+        "summary": "Run an unsaved managed agent draft once before deploying.",
+        "description": "Runs an unsaved managed agent draft once without creating a deployment. Skill scripts (`capability_policy.skills.execute_scripts: true`) are not run in the draft preview and return `400` (`preview_scripts_unsupported`); test skill scripts with a template test-run (`POST /organizations/{organization_id}/templates/{slug}/test-runs` or `POST /publishers/seren-agent/templates/{template_slug}/test-runs`).",
         "operationId": "seren_agent_test_run",
         "requestBody": {
           "content": {
@@ -12927,13 +13471,20 @@
             }
           },
           "400": {
-            "description": "Bad request"
+            "description": "Invalid draft configuration, unsupported skill script execution (`preview_scripts_unsupported`), or preview configuration start failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "401": {
             "description": "Unauthorized"
           },
           "500": {
-            "description": "Draft runtime could not be initialized",
+            "description": "Draft runtime could not be initialized; the response includes the request ID when available",
             "content": {
               "application/json": {
                 "schema": {
@@ -12943,7 +13494,7 @@
             }
           },
           "503": {
-            "description": "Draft runtime temporarily unavailable",
+            "description": "Draft runtime temporarily unavailable (`preview_runtime_unavailable`); the response includes the request ID when available",
             "content": {
               "application/json": {
                 "schema": {
@@ -13425,7 +13976,7 @@
           },
           "path": {
             "type": "string",
-            "description": "Agent-bundle relative path."
+            "description": "Agent-bundle relative path. At most 1,024 UTF-8 bytes in total and 255 UTF-8 bytes per path component."
           },
           "purpose": {
             "oneOf": [
@@ -13541,6 +14092,13 @@
             "type": "boolean",
             "description": "Gives skill scripts a reader browser that can open any public HTTPS\nsite, in place of the main browser. Requires the enabled full browser\nprofile."
           },
+          "store_password_rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StorePasswordRule"
+            },
+            "description": "Per-store password generation rules and form selectors for protected password changes."
+          },
           "timezone": {
             "type": [
               "string",
@@ -13562,7 +14120,7 @@
       },
       "AgentBundle": {
         "type": "object",
-        "description": "Authored agent bundle used by LLM workloads.",
+        "description": "Authored agent bundle used by LLM workloads.\n\nLimits: at most 512 files, 16 MiB total decoded content, 1 MiB per\ninstruction file, 8 MiB per decoded asset file, and normalized relative\npaths of at most 1,024 UTF-8 bytes with each path component at most 255\nUTF-8 bytes.",
         "properties": {
           "assets": {
             "type": "array",
@@ -14152,7 +14710,7 @@
               "string",
               "null"
             ],
-            "description": "Original or packaged path, when known."
+            "description": "Original or packaged relative bundle path, when known. At most 1,024 UTF-8 bytes in total and 255 UTF-8 bytes per path component."
           },
           "sha256": {
             "type": [
@@ -15765,6 +16323,31 @@
         },
         "additionalProperties": false
       },
+      "ApprovedActionOutcome": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "description": "`completed`, `refused` or `failed`."
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What happened, in words the Employee can repeat. Never holds a key."
+          }
+        }
+      },
       "ApprovedCopySource": {
         "type": "object",
         "required": [
@@ -15915,7 +16498,8 @@
         "enum": [
           "challenge",
           "third_party_sign_in",
-          "owner_submit"
+          "owner_submit",
+          "payment_approval"
         ]
       },
       "BrowserLinks": {
@@ -15923,6 +16507,146 @@
         "enum": [
           "any",
           "sent_only"
+        ]
+      },
+      "BrowserSiteDecisionChoice": {
+        "type": "string",
+        "description": "Approve or decline a pending website confirmation card. There is no \"always allow\".",
+        "enum": [
+          "approve",
+          "decline"
+        ]
+      },
+      "BrowserSiteDecisionRequest": {
+        "type": "object",
+        "required": [
+          "decision"
+        ],
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/BrowserSiteDecisionChoice"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BrowserSiteRefusalReason": {
+        "type": "string",
+        "enum": [
+          "browser_unavailable",
+          "browser_sent_only_links",
+          "invalid_url",
+          "https_required",
+          "port_must_be_443",
+          "userinfo_not_allowed",
+          "wildcard_not_allowed",
+          "ip_literal_not_allowed",
+          "private_or_local_host",
+          "known_bad_host",
+          "dns_lookup_failed",
+          "private_ip_resolved",
+          "host_not_from_employer",
+          "daily_limit_reached",
+          "too_many_pending_confirmations",
+          "destination_limit_reached",
+          "conversation_unavailable"
+        ]
+      },
+      "BrowserSiteRequestOutcome": {
+        "type": "object",
+        "required": [
+          "status",
+          "message"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "host": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Decoded Unicode display host when the requested URL parsed to a valid host."
+          },
+          "is_idn": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "lookalike_check": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "punycode_host": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Canonical lowercase ASCII DNS hostname (punycode for IDN hosts)."
+          },
+          "read_only": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BrowserSiteRefusalReason"
+              }
+            ]
+          },
+          "site_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BrowserSiteRequestStatus"
+          }
+        }
+      },
+      "BrowserSiteRequestStatus": {
+        "type": "string",
+        "enum": [
+          "granted",
+          "already_allowed",
+          "already_granted",
+          "pending_confirmation",
+          "refused"
+        ]
+      },
+      "BrowserSiteSource": {
+        "type": "string",
+        "enum": [
+          "employer_message",
+          "employee_suggestion"
+        ]
+      },
+      "BrowserSiteStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "granted",
+          "declined",
+          "expired",
+          "removed"
         ]
       },
       "BudgetContinuation": {
@@ -16837,24 +17561,6 @@
         },
         "additionalProperties": false
       },
-      "CreateGuestSessionRequest": {
-        "type": "object",
-        "required": [
-          "turnstile_token",
-          "timezone"
-        ],
-        "properties": {
-          "timezone": {
-            "type": "string",
-            "description": "The browser's IANA time zone."
-          },
-          "turnstile_token": {
-            "type": "string",
-            "description": "The token the Turnstile widget gave this browser."
-          }
-        },
-        "additionalProperties": false
-      },
       "CreateManagedAgentTemplateDeploymentRequest": {
         "type": "object",
         "required": [
@@ -16874,7 +17580,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "Required for mail_and_files templates; optional for mail_read templates,\nwhose connection needs only mail-read access; omit for sign_in_only\ntemplates."
+            "description": "Required for `mail_and_files` and `directory_read` templates (for\n`directory_read`, must be an administrator-approved read-only directory\nconnection); optional for `mail_read` templates, whose connection needs\nonly mail-read access; omit for `sign_in_only` templates."
           },
           "provider": {
             "oneOf": [
@@ -16883,7 +17589,7 @@
               },
               {
                 "$ref": "#/components/schemas/ManagedAgentHireProvider",
-                "description": "Required for mail_and_files templates and with `oauth_connection_id`\nfor mail_read templates; omit for sign_in_only templates."
+                "description": "Required for `mail_and_files` and `directory_read` templates and with\n`oauth_connection_id` for `mail_read` templates; omit for `sign_in_only` templates."
               }
             ]
           },
@@ -17450,6 +18156,51 @@
           }
         }
       },
+      "DataResponse_ApprovedActionOutcome": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "description": "`completed`, `refused` or `failed`."
+              },
+              "summary": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "What happened, in words the Employee can repeat. Never holds a key."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_BillComStepUpSent": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -17504,6 +18255,97 @@
                 "type": "string",
                 "format": "date-time",
                 "description": "When Bill.com stops trusting this Employee's sign-ins without a new code."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_BrowserSiteRequestOutcome": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "status",
+              "message"
+            ],
+            "properties": {
+              "expires_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "host": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Decoded Unicode display host when the requested URL parsed to a valid host."
+              },
+              "is_idn": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "lookalike_check": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "punycode_host": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Canonical lowercase ASCII DNS hostname (punycode for IDN hosts)."
+              },
+              "read_only": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/BrowserSiteRefusalReason"
+                  }
+                ]
+              },
+              "site_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "status": {
+                "$ref": "#/components/schemas/BrowserSiteRequestStatus"
               }
             }
           },
@@ -18057,48 +18899,6 @@
           }
         }
       },
-      "DataResponse_GuestSessionResponse": {
-        "type": "object",
-        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
-        "required": [
-          "data"
-        ],
-        "properties": {
-          "data": {
-            "type": "object",
-            "required": [
-              "deployment_id",
-              "guest_token",
-              "expires_at"
-            ],
-            "properties": {
-              "deployment_id": {
-                "type": "string",
-                "format": "uuid"
-              },
-              "expires_at": {
-                "type": "string",
-                "format": "date-time"
-              },
-              "guest_token": {
-                "type": "string",
-                "description": "Bearer token for this deployment's chat routes. Returned only at creation."
-              }
-            }
-          },
-          "pagination": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/PaginationMeta",
-                "description": "Optional pagination metadata"
-              }
-            ]
-          }
-        }
-      },
       "DataResponse_HireLifetimeSpending": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -18346,6 +19146,150 @@
               },
               "reason": {
                 "$ref": "#/components/schemas/BrowserHandoffReason"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentBrowserSiteRecord": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "State of a website record returned after an owner decision or removal.",
+            "required": [
+              "id",
+              "host",
+              "punycode_host",
+              "is_idn",
+              "lookalike_check",
+              "source",
+              "status",
+              "read_only"
+            ],
+            "properties": {
+              "added_by_display_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "added_by_user_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "decided_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "expires_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "granted_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "host": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "is_idn": {
+                "type": "boolean"
+              },
+              "lookalike_check": {
+                "type": "boolean"
+              },
+              "punycode_host": {
+                "type": "string"
+              },
+              "read_only": {
+                "type": "boolean"
+              },
+              "removed_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "source": {
+                "$ref": "#/components/schemas/BrowserSiteSource"
+              },
+              "status": {
+                "$ref": "#/components/schemas/BrowserSiteStatus"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentBrowserSitesResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Active Employer-added websites and open confirmation cards for one hire.",
+            "required": [
+              "sites",
+              "pending_confirmations"
+            ],
+            "properties": {
+              "pending_confirmations": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentBrowserSiteConfirmation"
+                }
+              },
+              "sites": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentBrowserSite"
+                }
               }
             }
           },
@@ -19030,6 +19974,7 @@
               "skill_slug",
               "mode",
               "platform_managed",
+              "owned_by_caller",
               "status",
               "desired_lifecycle_state",
               "routine_set_by_hirer",
@@ -19107,6 +20052,14 @@
                 "type": "string",
                 "format": "uuid"
               },
+              "last_activity_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time",
+                "description": "Timestamp of the latest conversation activity for this managed agent, or null when it has none."
+              },
               "max_tool_output_chars": {
                 "type": [
                   "integer",
@@ -19126,6 +20079,10 @@
                 "type": "string",
                 "format": "uuid"
               },
+              "owned_by_caller": {
+                "type": "boolean",
+                "description": "Whether the caller owns this managed agent deployment."
+              },
               "paused": {
                 "oneOf": [
                   {
@@ -19140,6 +20097,13 @@
               "platform_managed": {
                 "type": "boolean",
                 "description": "Always true; distinguishes this view from an ordinary deployment summary."
+              },
+              "reply_email": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The hire's unique email address for replying by email. Only the hirer sees it."
               },
               "routine_set_by_hirer": {
                 "type": "boolean",
@@ -20312,6 +21276,87 @@
           }
         }
       },
+      "DataResponse_ManagedAgentSupportCard": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "One card as the person sees it.",
+            "required": [
+              "id",
+              "kind",
+              "status",
+              "title",
+              "body",
+              "amounts",
+              "expires_at"
+            ],
+            "properties": {
+              "access_expires_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "amounts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentSupportCardAmount"
+                }
+              },
+              "body": {
+                "type": "string"
+              },
+              "created_api_key": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "A new API key, shown only to the hirer's signed-in session for 15 minutes."
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "kind": {
+                "$ref": "#/components/schemas/SupportCardKind"
+              },
+              "public_text": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "$ref": "#/components/schemas/SupportCardStatus"
+              },
+              "title": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedAgentSyncState": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -20713,6 +21758,13 @@
                   "null"
                 ],
                 "description": "Why the run could not start."
+              },
+              "failure_message": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Safe explanation of why the run could not start, when known (for example naming an unpackable bundle file path)."
               },
               "id": {
                 "type": "string",
@@ -21369,6 +22421,41 @@
               "work_id": {
                 "type": "string",
                 "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedDeploymentLifecycleBatchResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Results of a bulk managed-agent lifecycle request (request order for explicit `deployment_ids`; ascending deployment ID order for `selection`).",
+            "required": [
+              "results"
+            ],
+            "properties": {
+              "results": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedDeploymentLifecycleResult"
+                }
               }
             }
           },
@@ -22467,6 +23554,38 @@
           }
         }
       },
+      "DataResponse_RetryFailedTaskOutcome": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "description": "`retried`, `not_retryable` or `access_needed`."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_RunModelKey": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -23259,6 +24378,45 @@
               }
             },
             "additionalProperties": false
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_SupportAccountRead": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "data": {},
+              "section": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "description": "`ok`, or `access_needed` when no account access card is live."
+              }
+            }
           },
           "pagination": {
             "oneOf": [
@@ -24665,6 +25823,90 @@
           }
         }
       },
+      "DataResponse_Vec_ManagedAgentSupportCard": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One card as the person sees it.",
+              "required": [
+                "id",
+                "kind",
+                "status",
+                "title",
+                "body",
+                "amounts",
+                "expires_at"
+              ],
+              "properties": {
+                "access_expires_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "amounts": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ManagedAgentSupportCardAmount"
+                  }
+                },
+                "body": {
+                  "type": "string"
+                },
+                "created_api_key": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "A new API key, shown only to the hirer's signed-in session for 15 minutes."
+                },
+                "expires_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "kind": {
+                  "$ref": "#/components/schemas/SupportCardKind"
+                },
+                "public_text": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "$ref": "#/components/schemas/SupportCardStatus"
+                },
+                "title": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_Vec_ManagedAgentTemplateListing": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -26023,28 +27265,6 @@
         },
         "additionalProperties": false
       },
-      "GuestSessionResponse": {
-        "type": "object",
-        "required": [
-          "deployment_id",
-          "guest_token",
-          "expires_at"
-        ],
-        "properties": {
-          "deployment_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "expires_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "guest_token": {
-            "type": "string",
-            "description": "Bearer token for this deployment's chat routes. Returned only at creation."
-          }
-        }
-      },
       "HireAddonSource": {
         "type": "object",
         "description": "A version of an add-on on another of the hirer's hires, as `addon_search` names it.",
@@ -26738,6 +27958,220 @@
           }
         }
       },
+      "ManagedAgentBrowserSite": {
+        "type": "object",
+        "description": "One active Employer-added read-only website for a hire.",
+        "required": [
+          "id",
+          "host",
+          "punycode_host",
+          "is_idn",
+          "lookalike_check",
+          "source",
+          "read_only",
+          "granted_at"
+        ],
+        "properties": {
+          "added_by_display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "added_by_user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "granted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "host": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_idn": {
+            "type": "boolean"
+          },
+          "lookalike_check": {
+            "type": "boolean"
+          },
+          "punycode_host": {
+            "type": "string"
+          },
+          "read_only": {
+            "type": "boolean"
+          },
+          "source": {
+            "$ref": "#/components/schemas/BrowserSiteSource"
+          }
+        }
+      },
+      "ManagedAgentBrowserSiteConfirmation": {
+        "type": "object",
+        "description": "One open confirmation card for an Employee-suggested website.",
+        "required": [
+          "id",
+          "host",
+          "punycode_host",
+          "is_idn",
+          "lookalike_check",
+          "status",
+          "read_only",
+          "title",
+          "body",
+          "created_at",
+          "expires_at"
+        ],
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "host": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_idn": {
+            "type": "boolean"
+          },
+          "lookalike_check": {
+            "type": "boolean"
+          },
+          "punycode_host": {
+            "type": "string"
+          },
+          "read_only": {
+            "type": "boolean"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BrowserSiteStatus"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentBrowserSiteRecord": {
+        "type": "object",
+        "description": "State of a website record returned after an owner decision or removal.",
+        "required": [
+          "id",
+          "host",
+          "punycode_host",
+          "is_idn",
+          "lookalike_check",
+          "source",
+          "status",
+          "read_only"
+        ],
+        "properties": {
+          "added_by_display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "added_by_user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "decided_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "granted_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "host": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_idn": {
+            "type": "boolean"
+          },
+          "lookalike_check": {
+            "type": "boolean"
+          },
+          "punycode_host": {
+            "type": "string"
+          },
+          "read_only": {
+            "type": "boolean"
+          },
+          "removed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "source": {
+            "$ref": "#/components/schemas/BrowserSiteSource"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BrowserSiteStatus"
+          }
+        }
+      },
+      "ManagedAgentBrowserSitesResponse": {
+        "type": "object",
+        "description": "Active Employer-added websites and open confirmation cards for one hire.",
+        "required": [
+          "sites",
+          "pending_confirmations"
+        ],
+        "properties": {
+          "pending_confirmations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentBrowserSiteConfirmation"
+            }
+          },
+          "sites": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentBrowserSite"
+            }
+          }
+        }
+      },
       "ManagedAgentBudgetScope": {
         "type": "string",
         "enum": [
@@ -26781,7 +28215,6 @@
               "scope",
               "limit_atomic",
               "used_atomic",
-              "suggested_increase_atomic",
               "code"
             ],
             "properties": {
@@ -26826,8 +28259,12 @@
                 "description": "Additional allowance for one step; zero when the existing allowance covers it."
               },
               "suggested_increase_atomic": {
-                "type": "integer",
-                "format": "int64"
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "Suggested increase for a hirer-controlled limit; absent when Seren fixes the limit."
               },
               "used_atomic": {
                 "type": "integer",
@@ -26964,7 +28401,7 @@
       },
       "ManagedAgentConnectionState": {
         "type": "string",
-        "description": "Whether a user's connection can serve a provider's mail and files tools.",
+        "description": "Whether a user's connection can serve a provider's mail, files, or directory tools.",
         "enum": [
           "connected",
           "reconnect_required",
@@ -28837,8 +30274,7 @@
                 "items": {
                   "$ref": "#/components/schemas/ManagedCodexAuth"
                 },
-                "description": "Codex credentials in failover order. At least one.",
-                "minItems": 1
+                "description": "Codex credentials in failover order. At least one, except on a hired\ncopy, which lists none and runs on its Owner's credentials while the\nOwner grants them."
               },
               "fallback": {
                 "$ref": "#/components/schemas/ManagedOwnerModelFallback",
@@ -28853,6 +30289,10 @@
                 "enum": [
                   "codex"
                 ]
+              },
+              "reasoning_effort": {
+                "$ref": "#/components/schemas/OwnerModelReasoningEffort",
+                "description": "Reasoning effort sent on each Codex run. Omit to run at `medium`."
               }
             },
             "additionalProperties": false
@@ -28872,7 +30312,7 @@
                 "items": {
                   "$ref": "#/components/schemas/ManagedProviderKeyCredential"
                 },
-                "minItems": 1
+                "description": "Provider keys in failover order. At least one, except on a hired copy,\nwhich lists none and runs on its Owner's keys while the Owner grants them."
               },
               "fallback": {
                 "$ref": "#/components/schemas/ManagedOwnerModelFallback"
@@ -28885,6 +30325,10 @@
                 "enum": [
                   "provider_keys"
                 ]
+              },
+              "reasoning_effort": {
+                "$ref": "#/components/schemas/OwnerModelReasoningEffort",
+                "description": "Reasoning effort sent on each provider-key model call. Omit to leave\nthe provider's default unchanged."
               }
             },
             "additionalProperties": false
@@ -29538,6 +30982,7 @@
           "skill_slug",
           "mode",
           "platform_managed",
+          "owned_by_caller",
           "status",
           "desired_lifecycle_state",
           "routine_set_by_hirer",
@@ -29615,6 +31060,14 @@
             "type": "string",
             "format": "uuid"
           },
+          "last_activity_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Timestamp of the latest conversation activity for this managed agent, or null when it has none."
+          },
           "max_tool_output_chars": {
             "type": [
               "integer",
@@ -29634,6 +31087,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "owned_by_caller": {
+            "type": "boolean",
+            "description": "Whether the caller owns this managed agent deployment."
+          },
           "paused": {
             "oneOf": [
               {
@@ -29648,6 +31105,13 @@
           "platform_managed": {
             "type": "boolean",
             "description": "Always true; distinguishes this view from an ordinary deployment summary."
+          },
+          "reply_email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The hire's unique email address for replying by email. Only the hirer sees it."
           },
           "routine_set_by_hirer": {
             "type": "boolean",
@@ -30402,6 +31866,14 @@
           "error_code"
         ],
         "properties": {
+          "card_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The approved public report card that holds this text."
+          },
           "error_code": {
             "type": "string",
             "description": "Error code. A code Seren or the managed agent's template lists reaches\nsupport as is; any other code reaches support as `unlisted`.",
@@ -30414,6 +31886,15 @@
               "null"
             ],
             "description": "Execution identity injected by the runtime tool when called during a run."
+          },
+          "public_description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The public text the person approved. Sent together with `card_id`.",
+            "maxLength": 2000,
+            "minLength": 1
           },
           "run_id": {
             "type": [
@@ -32531,6 +34012,84 @@
           }
         }
       },
+      "ManagedAgentSupportCard": {
+        "type": "object",
+        "description": "One card as the person sees it.",
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "title",
+          "body",
+          "amounts",
+          "expires_at"
+        ],
+        "properties": {
+          "access_expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "amounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentSupportCardAmount"
+            }
+          },
+          "body": {
+            "type": "string"
+          },
+          "created_api_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A new API key, shown only to the hirer's signed-in session for 15 minutes."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SupportCardKind"
+          },
+          "public_text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/SupportCardStatus"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentSupportCardAmount": {
+        "type": "object",
+        "description": "One labeled line on a support card, such as the amount or the recipient.",
+        "required": [
+          "label",
+          "value"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "ManagedAgentSyncState": {
         "type": "object",
         "description": "Opaque sync state last saved by a deployment's runtime.",
@@ -33006,6 +34565,13 @@
               "type": "string"
             },
             "description": "Stage names the hired copy's skill scripts may report while they run.\nA stage report naming any other stage is refused. At most 30, each\nunique and matching `^[a-z][a-z0-9_]{0,39}$`. Omit for none."
+          },
+          "store_password_rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StorePasswordRule"
+            },
+            "description": "Per-store password generation rules and form selectors for protected browser password changes."
           },
           "workload_egress": {
             "type": "boolean",
@@ -33524,6 +35090,9 @@
                 "enum": [
                   "codex"
                 ]
+              },
+              "reasoning_effort": {
+                "$ref": "#/components/schemas/OwnerModelReasoningEffort"
               }
             },
             "additionalProperties": false
@@ -33547,6 +35116,9 @@
                 "enum": [
                   "provider_keys"
                 ]
+              },
+              "reasoning_effort": {
+                "$ref": "#/components/schemas/OwnerModelReasoningEffort"
               }
             },
             "additionalProperties": false
@@ -33583,7 +35155,8 @@
         "enum": [
           "mail_and_files",
           "sign_in_only",
-          "mail_read"
+          "mail_read",
+          "directory_read"
         ]
       },
       "ManagedAgentTemplatePrivacyMode": {
@@ -34036,6 +35609,13 @@
               "null"
             ],
             "description": "Why the run could not start."
+          },
+          "failure_message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Safe explanation of why the run could not start, when known (for example naming an unpackable bundle file path)."
           },
           "id": {
             "type": "string",
@@ -35367,6 +36947,165 @@
           "Failed"
         ]
       },
+      "ManagedDeploymentLifecycleAction": {
+        "type": "string",
+        "description": "Lifecycle action applied to one or more managed agent deployments.",
+        "enum": [
+          "start",
+          "stop",
+          "delete"
+        ]
+      },
+      "ManagedDeploymentLifecycleBatchRequest": {
+        "type": "object",
+        "description": "Request to start, stop, or delete managed agent deployments in one call.\nProvide either `deployment_ids` or `selection`, not both.",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/ManagedDeploymentLifecycleAction"
+          },
+          "deployment_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Explicit deployment IDs to act on in request order (1..=2,000 when `selection` is omitted).\nRepeated IDs are acted on once.",
+            "maxItems": 2000
+          },
+          "selection": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedDeploymentLifecycleSelection",
+                "description": "Bounded selection for complete, cross-template, or filtered selections of any size,\nincluding above 2,000 deployments, without adding deployments outside the verified set."
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedDeploymentLifecycleBatchResponse": {
+        "type": "object",
+        "description": "Results of a bulk managed-agent lifecycle request (request order for explicit `deployment_ids`; ascending deployment ID order for `selection`).",
+        "required": [
+          "results"
+        ],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedDeploymentLifecycleResult"
+            }
+          }
+        }
+      },
+      "ManagedDeploymentLifecycleOutcome": {
+        "type": "string",
+        "description": "Outcome for one deployment in a bulk lifecycle request.",
+        "enum": [
+          "done",
+          "accepted",
+          "unchanged",
+          "refused"
+        ]
+      },
+      "ManagedDeploymentLifecycleResult": {
+        "type": "object",
+        "description": "Per-deployment result in a bulk lifecycle response.",
+        "required": [
+          "id",
+          "outcome"
+        ],
+        "properties": {
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Machine-readable refusal code when `outcome` is `refused`; null otherwise."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Human-readable status or refusal message, when available."
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/ManagedDeploymentLifecycleOutcome"
+          }
+        }
+      },
+      "ManagedDeploymentLifecycleSelection": {
+        "type": "object",
+        "description": "Bounded selection of platform-managed agent deployments in the caller's organization.",
+        "required": [
+          "created_at_or_before",
+          "selection_sha256"
+        ],
+        "properties": {
+          "created_at_or_before": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Inclusive RFC 3339 upper bound on deployment creation time from the caller's loaded list.\nPreserve full subsecond precision so deployments at the boundary are matched accurately."
+          },
+          "desired_lifecycle_state": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DesiredLifecycleState",
+                "description": "Optional desired lifecycle state filter (`running`, `stopping`, or `stopped`)."
+              }
+            ]
+          },
+          "exclude_deployment_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Optional deployment IDs to omit from the candidate set (at most 2,000).\nMutually exclusive with `selection_bitset_base64`. Repeated IDs are ignored.",
+            "maxItems": 2000
+          },
+          "selection_bitset_base64": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional standard base64-encoded LSB-first bitset selecting an arbitrary subset of the\ncandidate set sorted ascending by lowercase hyphenated deployment ID (`ceil(candidates / 8)`\nbytes; bit `1 << (i % 8)` in byte `i / 8` selects candidate `i`, unused trailing bits zero).\nMutually exclusive with `exclude_deployment_ids`. Supports partial or filtered selections\nof any size across one or many templates.",
+            "maxLength": 245760
+          },
+          "selection_sha256": {
+            "type": "string",
+            "description": "Lowercase 64-character hex SHA-256 digest of the sorted, lowercase hyphenated selected\ndeployment IDs joined by LF (`\\n`). Rejected with HTTP 409 (`selection_changed`) if the\nresolved deployment set does not match this digest.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "template_slug": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional managed agent template slug to scope the candidate set. Omit to select across\nall platform-managed templates in the organization.",
+            "maxLength": 63,
+            "minLength": 2,
+            "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"
+          }
+        },
+        "additionalProperties": false
+      },
       "ManagedDeploymentPendingStopRefusal": {
         "type": "object",
         "description": "Information about a refused stop request that has not completed.",
@@ -35455,6 +37194,33 @@
           }
         },
         "additionalProperties": false
+      },
+      "ManagedGrokSubscriptionCredential": {
+        "type": "object",
+        "required": [
+          "method",
+          "oauth_connection_id"
+        ],
+        "properties": {
+          "method": {
+            "$ref": "#/components/schemas/ManagedGrokSubscriptionMethod"
+          },
+          "name": {
+            "type": "string"
+          },
+          "oauth_connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The organization's Grok sign-in connection."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedGrokSubscriptionMethod": {
+        "type": "string",
+        "enum": [
+          "grok_subscription"
+        ]
       },
       "ManagedHealthAlertChannel": {
         "type": "object",
@@ -35554,7 +37320,7 @@
         },
         "additionalProperties": false
       },
-      "ManagedProviderKeyCredential": {
+      "ManagedProviderApiKeyCredential": {
         "type": "object",
         "required": [
           "provider",
@@ -35579,6 +37345,19 @@
           }
         },
         "additionalProperties": false
+      },
+      "ManagedProviderKeyCredential": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ManagedProviderApiKeyCredential",
+            "description": "Bill inference to a provider API key held in Seren Secrets."
+          },
+          {
+            "$ref": "#/components/schemas/ManagedGrokSubscriptionCredential",
+            "description": "Bill inference to the Owner's Grok subscription through a Grok sign-in connection."
+          }
+        ],
+        "description": "One credential in an Owner `provider_keys` failover list: either a Seren\nSecrets-backed provider API key or a Grok subscription sign-in connection."
       },
       "ManagedProviderKeyPrices": {
         "type": "object",
@@ -36361,6 +38140,16 @@
           "set_aside"
         ]
       },
+      "OwnerModelReasoningEffort": {
+        "type": "string",
+        "description": "Reasoning effort configured for an Owner model connection (`codex` or\n`provider_keys`).\n\nChatGPT's Codex backend accepts `low`, `medium`, `high`, and `xhigh` across\ncurrent Codex models (`xhigh` depends on the model; older checkpoints such\nas `gpt-5-codex` did not support it, while `gpt-5.1-codex-max`, `gpt-5.5`,\n`gpt-5.6-*` including `gpt-5.6-terra`, and `gpt-6.*` do). When omitted,\nCodex runs at `medium` and `provider_keys` leaves the provider's default\nunchanged.",
+        "enum": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
+      },
       "OwnerPublisherAccessEntry": {
         "oneOf": [
           {
@@ -36574,6 +38363,60 @@
             "description": "Total number of items across all pages"
           }
         }
+      },
+      "PasswordGenerationRules": {
+        "type": "object",
+        "description": "Password length bounds and character-class rules a store enforces.",
+        "required": [
+          "min_length",
+          "max_length"
+        ],
+        "properties": {
+          "allow_digit": {
+            "type": "boolean"
+          },
+          "allow_lowercase": {
+            "type": "boolean"
+          },
+          "allow_symbol": {
+            "type": "boolean"
+          },
+          "allow_uppercase": {
+            "type": "boolean"
+          },
+          "allowed_symbols": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional explicit ASCII symbol set when `allow_symbol` is true."
+          },
+          "max_length": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 128,
+            "minimum": 8
+          },
+          "min_length": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 128,
+            "minimum": 8
+          },
+          "require_digit": {
+            "type": "boolean"
+          },
+          "require_lowercase": {
+            "type": "boolean"
+          },
+          "require_symbol": {
+            "type": "boolean"
+          },
+          "require_uppercase": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
       },
       "PlaidAccount": {
         "type": "object",
@@ -37857,6 +39700,24 @@
         },
         "additionalProperties": false
       },
+      "RequestBrowserSite": {
+        "type": "object",
+        "description": "`seren_request_site`: request read-only HTTPS access to one website host for this hire.",
+        "required": [
+          "url",
+          "execution_id"
+        ],
+        "properties": {
+          "execution_id": {
+            "type": "string",
+            "description": "Execution identity supplied by the runtime."
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "RequestPublisherAccess": {
         "type": "object",
         "required": [
@@ -38075,6 +39936,39 @@
         },
         "additionalProperties": false
       },
+      "RetryFailedTask": {
+        "type": "object",
+        "description": "`seren_retry_failed_task`.",
+        "required": [
+          "task_id"
+        ],
+        "properties": {
+          "execution_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Execution identity supplied by the runtime."
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RetryFailedTaskOutcome": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "`retried`, `not_retryable` or `access_needed`."
+          }
+        }
+      },
       "ReviewBody": {
         "type": "string",
         "maxLength": 2000,
@@ -38186,6 +40080,79 @@
             ],
             "format": "uuid",
             "description": "Fresh Passwords policy result required when the target revision uses\n`seren-secrets://` references."
+          }
+        },
+        "additionalProperties": false
+      },
+      "RunApprovedAction": {
+        "type": "object",
+        "description": "`seren_run_approved_action`.",
+        "required": [
+          "card_id",
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/SupportActionName"
+          },
+          "amount_cents": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "card_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "execution_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Execution identity supplied by the runtime."
+          },
+          "expires_in_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "hire_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "key_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "network_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recipient_email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scopes": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         },
         "additionalProperties": false
@@ -39756,6 +41723,87 @@
         },
         "additionalProperties": false
       },
+      "StorePasswordFields": {
+        "type": "object",
+        "description": "CSS selectors for a store's new-password form.",
+        "required": [
+          "new_password",
+          "submit"
+        ],
+        "properties": {
+          "confirm_password": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "new_password": {
+            "type": "string"
+          },
+          "submit": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "StorePasswordRule": {
+        "type": "object",
+        "description": "Per-store declaration authorizing protected new-password generation, typing,\nsubmission, and post-confirmation saving.",
+        "required": [
+          "alias",
+          "hosts",
+          "rules",
+          "fields"
+        ],
+        "properties": {
+          "alias": {
+            "type": "string",
+            "description": "Browser grant alias for this store login (e.g. `ringana_login`)."
+          },
+          "fields": {
+            "$ref": "#/components/schemas/StorePasswordFields",
+            "description": "Selectors for the new-password, optional confirm-password, and submit controls."
+          },
+          "hosts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Sorted, unique, exact lowercase DNS hostnames where this form is permitted."
+          },
+          "rules": {
+            "$ref": "#/components/schemas/PasswordGenerationRules",
+            "description": "Store password length and character-class rules."
+          },
+          "success_url_prefixes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional HTTPS URL prefixes on `hosts` confirming the store accepted the password change."
+          }
+        },
+        "additionalProperties": false
+      },
+      "SupportAccountRead": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {},
+          "section": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "description": "`ok`, or `access_needed` when no account access card is live."
+          }
+        }
+      },
       "SupportActionName": {
         "type": "string",
         "enum": [
@@ -39763,6 +41811,26 @@
           "withdrawal",
           "create_api_key",
           "delete_hire"
+        ]
+      },
+      "SupportCardDecision": {
+        "type": "object",
+        "required": [
+          "decision"
+        ],
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/SupportCardDecisionChoice"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SupportCardDecisionChoice": {
+        "type": "string",
+        "enum": [
+          "approve",
+          "deny",
+          "revoke"
         ]
       },
       "SupportCardKind": {
@@ -39804,6 +41872,16 @@
             "description": "`pending` when the person now sees the card, otherwise `refused`."
           }
         }
+      },
+      "SupportCardStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "approved",
+          "denied",
+          "expired",
+          "revoked"
+        ]
       },
       "SupportReportSource": {
         "type": "string",
@@ -40063,6 +42141,35 @@
                 "type": "string",
                 "enum": [
                   "guarded_submissions_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Per-store password generation rules and selectors for protected browser password changes.",
+            "required": [
+              "before",
+              "after",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/StorePasswordRule"
+                }
+              },
+              "before": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/StorePasswordRule"
+                }
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "store_password_rules_changed"
                 ]
               }
             }

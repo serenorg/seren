@@ -751,7 +751,14 @@
             }
           },
           "401": {
-            "description": "Missing, invalid, expired, or reused refresh token"
+            "description": "Missing, invalid, expired, or reused refresh token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefreshRefusalResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -2790,7 +2797,7 @@
           "OAuth"
         ],
         "summary": "List available OAuth providers",
-        "description": "Returns available OAuth providers that support browser sign-in.\nFor ChatGPT model access, organization Owners use the organization model sign-in.",
+        "description": "Returns available OAuth providers that support browser sign-in.\nFor ChatGPT and Grok model access, organization Owners use the organization model sign-in.",
         "operationId": "list_providers",
         "responses": {
           "200": {
@@ -3366,7 +3373,14 @@
             "description": "Invalid token request"
           },
           "401": {
-            "description": "Invalid authorization code or refresh token"
+            "description": "Invalid authorization code or refresh token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefreshRefusalResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -3440,7 +3454,7 @@
           "Auth"
         ],
         "summary": "Create a new API key for the user's default organization",
-        "description": "This convenience endpoint resolves \"default\" to the user's first organization. It requires a signed-in user access token; API keys cannot manage API keys.\nOnly an owner of that resolved organization can grant `managed-agent-template:publish`.",
+        "description": "This convenience endpoint resolves \"default\" to the user's first organization. It requires a signed-in user access token; API keys cannot manage API keys.",
         "operationId": "create_default_org_api_key",
         "requestBody": {
           "content": {
@@ -3480,7 +3494,7 @@
             }
           },
           "403": {
-            "description": "A signed-in user session is required, or a requested scope requires an organization owner"
+            "description": "A signed-in user session is required"
           }
         },
         "security": [
@@ -3540,7 +3554,7 @@
           "Auth"
         ],
         "summary": "Replace scopes on an API key in the user's default organization.",
-        "description": "Requires a signed-in user access token. API keys cannot update their own privileges.\nOnly an owner of the resolved organization can grant a scope set containing `managed-agent-template:publish`.",
+        "description": "Requires a signed-in user access token. API keys cannot update their own privileges.",
         "operationId": "update_default_org_api_key_scopes",
         "parameters": [
           {
@@ -3582,7 +3596,7 @@
             "description": "Unauthorized"
           },
           "403": {
-            "description": "A signed-in user session is required, or a requested scope requires an organization owner"
+            "description": "A signed-in user session is required"
           },
           "404": {
             "description": "API key not found"
@@ -4868,7 +4882,7 @@
           "Auth"
         ],
         "summary": "Create a new API key for a specific organization",
-        "description": "Requires a signed-in user access token. API keys cannot manage API keys.\nOnly an organization owner can grant `managed-agent-template:publish`.",
+        "description": "Requires a signed-in user access token. API keys cannot manage API keys.",
         "operationId": "create_org_api_key",
         "parameters": [
           {
@@ -4917,7 +4931,7 @@
             }
           },
           "403": {
-            "description": "A signed-in user session is required, or a requested scope requires an organization owner"
+            "description": "A signed-in user session is required"
           },
           "404": {
             "description": "Organization not found"
@@ -4987,7 +5001,7 @@
           "Auth"
         ],
         "summary": "Replace the least-privilege scopes on an organization API key.",
-        "description": "Requires a signed-in user access token. A user may update only their own\nactive user API keys; API keys cannot update their own privileges.\nOnly an organization owner can grant a scope set containing `managed-agent-template:publish`.",
+        "description": "Requires a signed-in user access token. A user may update only their own\nactive user API keys; API keys cannot update their own privileges.",
         "operationId": "update_org_api_key_scopes",
         "parameters": [
           {
@@ -5039,7 +5053,7 @@
             "description": "Unauthorized"
           },
           "403": {
-            "description": "A signed-in user session is required, or a requested scope requires an organization owner"
+            "description": "A signed-in user session is required"
           },
           "404": {
             "description": "API key not found"
@@ -8723,6 +8737,44 @@
         ]
       }
     },
+    "/organizations/{organization_id}/model-sign-ins/grok": {
+      "post": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Begin or resume your pending Grok sign-in. Enter the returned code at the verification URL before it expires.",
+        "operationId": "start_grok_sign_in",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Device sign-in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ModelSignIn"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/organizations/{organization_id}/model-sign-ins/{sign_in_id}": {
       "get": {
         "tags": [
@@ -10807,7 +10859,7 @@
             }
           },
           "400": {
-            "description": "The request is invalid"
+            "description": "The request is invalid, or names a retired CI product (`release_source_product_retired`)"
           },
           "401": {
             "description": "Authentication required"
@@ -11650,7 +11702,7 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "List the bundles the publishing organization uploaded and the template's\nrevisions, so a publisher can tell whether an upload became a revision and\nreached hires.\nRequires a built-in Owner or Admin of the organization, or a user API key of\nthe organization with `managed-agent-template:publish`. Only the\norganization that publishes the template can read it.",
+        "summary": "List the bundles the publishing organization uploaded and the template's\nrevisions, so a publisher can tell whether an upload became a revision and\nreached hires.\nRequires a built-in Owner or Admin of the organization, or a release pass\nfor the organization. Only the organization that publishes the template can\nread it.",
         "operationId": "list_managed_agent_template_bundles",
         "parameters": [
           {
@@ -13469,8 +13521,8 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Switch the model the managed agent's hires run, and its ordered backup\nmodels, without a new release.",
-        "description": "Records the managed agent's next revision, which keeps every other setting\nof the current one, and gives Employers the Owner's `release_note` or a\nnote describing the change. Existing hires take it as they take a release,\nunder their Employers' update settings, and a rollback to the previous\nrevision restores the previous model. A later release sets the model its\nown `deploy_defaults` name. Sending the current model and backup models\nagain changes nothing. For a Codex or provider-key managed agent, the\nrequest sets the Seren Private Model its hires run when the Owner's\ncredentials don't serve them, and keeps the Owner's model connection.",
+        "summary": "Switch the model the managed agent's hires run, its ordered backup models,\nand for Codex or provider-key managed agents its `reasoning_effort`, without\na new release.",
+        "description": "Records the managed agent's next revision, which keeps every other setting\nof the current one, and gives Employers the Owner's `release_note` or a\nnote describing the change. Existing hires take it as they take a release,\nunder their Employers' update settings, and a rollback to the previous\nrevision restores the previous model and reasoning effort. A later release\nsets the model and reasoning effort its own `deploy_defaults` name. Sending\nthe current model, backup models, and reasoning effort again changes\nnothing. For a Codex or provider-key managed agent, the request sets the\nSeren Private Model its hires run when the Owner's credentials don't serve\nthem, keeps the Owner's model connection, and updates `reasoning_effort`\nwhen provided (`null` clears it; omitting keeps the current setting).",
         "operationId": "set_managed_agent_template_model",
         "parameters": [
           {
@@ -13505,7 +13557,7 @@
         },
         "responses": {
           "200": {
-            "description": "The managed agent's current revision, model and backup models",
+            "description": "The managed agent's current revision, model, backup models, and reasoning effort",
             "content": {
               "application/json": {
                 "schema": {
@@ -13515,7 +13567,7 @@
             }
           },
           "400": {
-            "description": "A model is not an approved Seren Private Model (`managed_agent_template_model_not_approved`), a backup model is listed twice or repeats `model_id` (`managed_agent_template_model_duplicate`), or the release note is invalid; the error details list the approved models"
+            "description": "A model is not an approved Seren Private Model (`managed_agent_template_model_not_approved`), a backup model is listed twice or repeats `model_id` (`managed_agent_template_model_duplicate`), `reasoning_effort` is not an accepted level for the selected model (`managed_agent_template_reasoning_effort_invalid`, with `accepted_reasoning_efforts` in `details`), `reasoning_effort` was supplied for a Seren Private Model managed agent (`managed_agent_template_reasoning_effort_unsupported`), or the release note is invalid"
           },
           "401": {
             "description": "Authentication required"
@@ -13530,7 +13582,170 @@
             "description": "The managed agent runs one Seren Models model alone (`managed_agent_template_model_pinned`), one of its run kinds is priced below its minimum (`run_fee_below_minimum`), or the rollout could not start"
           },
           "503": {
-            "description": "The managed agent asks for purchase protection that Seren doesn't offer yet (`guarded_purchases_unavailable`)"
+            "description": "Seren does not yet offer the requested purchase protection (`guarded_purchases_unavailable`) or Owner model reasoning effort (`managed_agent_template_reasoning_effort_unavailable`)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/model-credentials": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Read the Owner model credentials attached to this managed agent, in failover order.",
+        "operationId": "get_owner_template_model_credentials",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Publishing organization",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Attached Owner model credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OwnerTemplateModelCredentials"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Owner or template ownership required"
+          },
+          "404": {
+            "description": "Managed agent not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Replace the ordered Owner model credentials attached to this managed agent.",
+        "description": "Attached credentials serve granted hires of Codex managed agents across all release kinds,\ntaking precedence over any source deployment's credentials while attached. The attachment\nsurvives new releases and model-route revisions and applies to existing hires immediately.",
+        "operationId": "put_owner_template_model_credentials",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Publishing organization",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetOwnerTemplateModelCredentials"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Attached Owner model credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OwnerTemplateModelCredentials"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid model credentials or sign-in connection does not belong to this organization"
+          },
+          "403": {
+            "description": "Owner or template ownership required"
+          },
+          "404": {
+            "description": "Managed agent not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Detach all Owner model credentials from this managed agent. Repeating this request succeeds.",
+        "description": "After detaching, hires fall back to the template's fallback model (or the source deployment's\ncredentials if the release has one).",
+        "operationId": "delete_owner_template_model_credentials",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Publishing organization",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Owner model credentials detached"
+          },
+          "403": {
+            "description": "Owner or template ownership required"
+          },
+          "404": {
+            "description": "Managed agent not found"
           }
         },
         "security": [
@@ -13545,7 +13760,7 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "List the managed agent's Employer model grants.",
+        "summary": "List the managed agent's Owner model grants, including any everyone grant.",
         "operationId": "list_owner_model_grants",
         "parameters": [
           {
@@ -13570,7 +13785,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Employer model grants",
+            "description": "Owner model grants",
             "content": {
               "application/json": {
                 "schema": {
@@ -13578,6 +13793,116 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Owner or template ownership required"
+          },
+          "404": {
+            "description": "Managed agent not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/model-grants/everyone": {
+      "put": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Replace the model grant that applies to every Employer without its own grant.",
+        "operationId": "update_everyone_owner_model_grant",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Publishing organization",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetEveryoneOwnerModelGrant"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Everyone model grant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OwnerModelGrant"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid model grant"
+          },
+          "403": {
+            "description": "Owner or template ownership required"
+          },
+          "404": {
+            "description": "Managed agent not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Remove the model grant for every Employer without its own grant. Repeating this request succeeds.",
+        "operationId": "delete_everyone_owner_model_grant",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Publishing organization",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Everyone model grant removed"
           },
           "403": {
             "description": "Owner or template ownership required"
@@ -13713,6 +14038,59 @@
           },
           "404": {
             "description": "Managed agent not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/templates/{slug}/owner-guidance": {
+      "get": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Read the owner guidance address, active guidance, and version history for a published managed agent template.",
+        "operationId": "get_managed_agent_template_owner_guidance",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the template",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owner guidance address, active version, and history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentOwnerGuidanceResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner or Admin using a direct unrestricted credential of the publishing organization"
           }
         },
         "security": [
@@ -13921,7 +14299,7 @@
             "description": "Template publication conflict, including a reserved slug for a new template (`managed_agent_template_slug_reserved`), a slug another template uses as its page address (`managed_agent_template_page_slug_taken`), a publisher without a public name (`publisher_name_required`) or store address (`publisher_handle_required`), or a deployment model hires cannot run without an `llm_connection` choice (`publication_model_choice_required`, with `source_model` and `allowed_private_models` details)"
           },
           "503": {
-            "description": "The release asks for purchase protection that Seren doesn't offer yet (`guarded_purchases_unavailable`)"
+            "description": "The release asks for purchase protection (`guarded_purchases_unavailable`) or Owner model reasoning effort (`managed_agent_template_reasoning_effort_unavailable`) that Seren doesn't offer yet"
           }
         },
         "security": [
@@ -13996,7 +14374,7 @@
             "description": "Template publication conflict, including a reserved slug for a new template (`managed_agent_template_slug_reserved`), a slug another template uses as its page address (`managed_agent_template_page_slug_taken`), a publisher without a public name (`publisher_name_required`) or store address (`publisher_handle_required`), or a deployment model hires cannot run without an `llm_connection` choice (`publication_model_choice_required`, with `source_model` and `allowed_private_models` details)"
           },
           "503": {
-            "description": "The release asks for purchase protection that Seren doesn't offer yet (`guarded_purchases_unavailable`)"
+            "description": "The release asks for purchase protection (`guarded_purchases_unavailable`) or Owner model reasoning effort (`managed_agent_template_reasoning_effort_unavailable`) that Seren doesn't offer yet"
           }
         },
         "security": [
@@ -14012,7 +14390,7 @@
           "managed-agent-templates"
         ],
         "summary": "Publish an uploaded release of a managed agent template.",
-        "description": "Test an upload before publishing it: `POST\n/organizations/{organization_id}/templates/{slug}/test-runs` runs it once\nexactly as a hire runs it, without a release or any effect on hires.\nCreates the template when it does not exist, and otherwise adds the\nrelease as its next revision. New templates from outside the platform source\norganization await review before listing or hiring. Later releases preserve\nthe Owner's listing preference. Publication cannot create a template at a reserved slug, and a\nsuspended template accepts no release. Publishing the current revision\nagain adds no revision. A release may carry the Employee's skill lines in\n`capabilities` and their keys in `skill_slugs`, checked as the profile route\nchecks them; once the release is the template's current revision, including\na repeat of it, they replace the template's lines and keys. A release that\nsends neither keeps the current ones. Existing hires receive a release by their\nEmployers' update settings: a content change applies by itself between\ntasks under `automatic`, an access change or any change under `ask_first`\nwaits for the Employer's approval, and `stay` changes nothing. With\n`rollout`, the template's current revision is offered to each existing hire\nnow and the response reports each hire's outcome; otherwise the update job\noffers it on its next pass. `rollout` never applies anything past an\nEmployer's setting or approval. One hire's failure neither fails the\nrelease nor undoes the others. Repeating the current release retries a\npartly applied rollout. The rollout names its offered revision separately\nif another release advanced the template. A hire whose mode differs from\nthe release's is held, and incomplete hires are offered the release once\nthey complete. An optional `release_note` is shown to Employers as the\nOwner's words.\nA release is refused unless a hire can use it with at least one provider,\nand the response lists the providers a hire can select.\nEach publisher in `deploy_defaults.script_publisher_grants` must be\ndeclared as a `seren_publisher` connector in a bundle skill spec, an asset\nwhose path ends in `skill.spec.yaml`, such as `skill.spec.yaml` at the\nbundle root:\n\n```yaml\nskill: template\nconnectors:\n  daytona:\n    kind: seren_publisher\n    publisher: daytona\n```\n\n`skill` is a slug of 2-64 lowercase letters, digits or interior hyphens.\nA root `skill.spec.yaml` also requires the bundle's root `SKILL.md`, if it\nhas one, to start with YAML frontmatter that sets `name` and `description`\nand to include a top-level `# ` heading. An undeclared publisher refuses the\nrelease with `400`, naming every undeclared publisher and the connector\nentries to add.\nA skill spec may also declare the steps and error codes its Employees name\nin support reports, which reach Seren support as is only for this\ntemplate:\n\n```yaml\nsupport_report:\n  steps: [repo_read]\n  error_codes: [repo_not_found]\n```\n\nEach value is snake_case and at most 40 characters, with at most 30 steps\nand 30 error codes across the bundle's specs. Any other value or field\nrefuses the release with `400`, naming it.\nAccepts a release pass for the publishing organization (from an approved\nrelease source or an approver's in-person session) or a user API key with\n`managed-agent-template:publish` granted by a built-in owner of the\npublishing organization. With a release source pass, first releases and\nreleases that change what hired copies can reach are held (`409\nmanaged_agent_release_held`) until an Owner or Admin approves them, while\ncontent-only releases publish at once. With an in-person pass, every valid\nrelease publishes immediately and returns any itemized `access_changes`. Any\norganization can publish, and only the organization that published a\ntemplate can release it again. An issued publish key remains valid if its\ncreator later loses ownership, until it expires or is revoked.",
+        "description": "Test a slug's first upload or any later upload before publishing it: `POST\n/organizations/{organization_id}/templates/{slug}/test-runs` runs it once\nexactly as a hire runs it, without a release or any effect on hires.\nCreates the template when it does not exist, and otherwise adds the\nrelease as its next revision. New templates from outside the platform source\norganization await review before listing or hiring. Later releases preserve\nthe Owner's listing preference. Publication cannot create a template at a reserved slug, and a\nsuspended template accepts no release. Publishing the current revision\nagain adds no revision. A release may carry the Employee's skill lines in\n`capabilities` and their keys in `skill_slugs`, checked as the profile route\nchecks them; once the release is the template's current revision, including\na repeat of it, they replace the template's lines and keys. A release that\nsends neither keeps the current ones. Existing hires receive a release by their\nEmployers' update settings: a content change applies by itself between\ntasks under `automatic`, an access change or any change under `ask_first`\nwaits for the Employer's approval, and `stay` changes nothing. With\n`rollout`, the template's current revision is offered to each existing hire\nnow and the response reports each hire's outcome; otherwise the update job\noffers it on its next pass. `rollout` never applies anything past an\nEmployer's setting or approval. One hire's failure neither fails the\nrelease nor undoes the others. Repeating the current release retries a\npartly applied rollout. The rollout names its offered revision separately\nif another release advanced the template. A hire whose mode differs from\nthe release's is held, and incomplete hires are offered the release once\nthey complete. An optional `release_note` is shown to Employers as the\nOwner's words.\nA release is refused unless a hire can use it with at least one provider,\nand the response lists the providers a hire can select.\nEach publisher in `deploy_defaults.script_publisher_grants` must be\ndeclared as a `seren_publisher` connector in a bundle skill spec, an asset\nwhose path ends in `skill.spec.yaml`, such as `skill.spec.yaml` at the\nbundle root:\n\n```yaml\nskill: template\nconnectors:\n  daytona:\n    kind: seren_publisher\n    publisher: daytona\n```\n\n`skill` is a slug of 2-64 lowercase letters, digits or interior hyphens.\nA root `skill.spec.yaml` also requires the bundle's root `SKILL.md`, if it\nhas one, to start with YAML frontmatter that sets `name` and `description`\nand to include a top-level `# ` heading. An undeclared publisher refuses the\nrelease with `400`, naming every undeclared publisher and the connector\nentries to add.\nA skill spec may also declare the steps and error codes its Employees name\nin support reports, which reach Seren support as is only for this\ntemplate:\n\n```yaml\nsupport_report:\n  steps: [repo_read]\n  error_codes: [repo_not_found]\n```\n\nEach value is snake_case and at most 40 characters, with at most 30 steps\nand 30 error codes across the bundle's specs. Any other value or field\nrefuses the release with `400`, naming it.\nAccepts a signed-in session of an active built-in Owner or Admin of the\npublishing organization, or a release pass for the publishing organization\n(from an approved release source or an approver's in-person session). With a\nrelease source pass, first releases and releases that change what hired\ncopies can reach are held (`409 managed_agent_release_held`) until an Owner\nor Admin approves them, while content-only releases publish at once. With a\nsigned-in Owner or Admin session or an in-person pass, every valid release\npublishes immediately and returns any itemized `access_changes`. Any\norganization can publish, and only the organization that published a\ntemplate can release it again. API keys of any kind are refused (`403\nmanaged_agent_release_sign_in_required`).",
         "operationId": "publish_managed_agent_template_release",
         "parameters": [
           {
@@ -14063,7 +14441,7 @@
             "description": "Authentication required"
           },
           "403": {
-            "description": "The credential or organization may not publish this template, the template is suspended (`managed_agent_template_suspended`), or the release changes the skill lines of a suspended profile (`managed_agent_profile_suspended`)"
+            "description": "Releasing requires a signed-in Owner or Admin of the publishing organization or a release pass (`managed_agent_release_sign_in_required`), the organization may not publish this template, the template is suspended (`managed_agent_template_suspended`), or the release changes the skill lines of a suspended profile (`managed_agent_profile_suspended`)"
           },
           "404": {
             "description": "The release asks for a sandbox runtime class Seren doesn't offer (`runtime_class_not_found`)"
@@ -14072,7 +14450,7 @@
             "description": "The release from an approved release source waits for Owner or Admin approval (`managed_agent_release_held`, with `held_release_id`, `reason`, `comparison`, `changes_fingerprint` and `approve_path` in `details`), another release changed the template while this release was prepared (`managed_agent_release_base_changed`), the slug is reserved, or is kept for Seren's own organization, and no template exists there (`managed_agent_template_slug_reserved`), another template uses the slug as its page address (`managed_agent_template_page_slug_taken`), a new template's publisher has no public name (`publisher_name_required`) or store address (`publisher_handle_required`), the display name differs from the template's current name, which the message names (`managed_agent_template_display_name_mismatch`), a new template's name was used before (`managed_agent_template_name_retired`), the release conflicts with the template or its bundle, the rollout of a published release could not start because the current revision is unavailable or the template is suspended, or one of the template's run kinds is priced below its minimum (`run_fee_below_minimum`)"
           },
           "503": {
-            "description": "The release asks for purchase protection that Seren doesn't offer yet (`guarded_purchases_unavailable`)"
+            "description": "Seren does not yet offer the requested purchase protection (`guarded_purchases_unavailable`) or Owner model reasoning effort (`managed_agent_template_reasoning_effort_unavailable`)"
           }
         },
         "security": [
@@ -14238,7 +14616,7 @@
           "managed-agent-templates"
         ],
         "summary": "Start a test run of an uploaded bundle.",
-        "description": "Runs an uploaded, unpublished bundle once with the given release settings,\nexactly as a hire's task runs: through a test revision of the template and\na temporary hire of it in the caller's organization. The test revision is\nnever offered to hirers, never becomes the template's current revision,\nand is not listed, reviewed or counted. No release, rollout or Employer\napproval happens. The run is charged to the caller's organization at the\ntemplate's run cost; an organization that can't pay is refused with\n`402` (`managed_agent_run_fee_unfunded`) before the run starts. The test\nrun never appears in Owner problems. Read its result with\n`GET .../test-runs/{test_run_id}`. Test runs and their test hires are\nremoved after 7 days. Test an upload this way before publishing it.\nRequires the publishing organization's built-in Owner or Admin on a direct\ncredential, or its user API key with `managed-agent-template:publish`.",
+        "description": "Runs an uploaded, unpublished bundle once with the given release settings,\nexactly as a hire's task runs: through a test revision of the template and\na temporary hire of it in the caller's organization. Works for a free\nslug's first upload before its first release as well as an existing\ntemplate; a new slug stays a hidden draft out of the catalog, hiring and\nreview until its first release. The test revision is never offered to\nhirers, never becomes the template's current revision, and is not listed,\nreviewed or counted. No release, rollout or Employer approval happens. The\nrun is charged to the caller's organization at the template's run cost; an\norganization that can't pay is refused with `402`\n(`managed_agent_run_fee_unfunded`) before the run starts. The test run\nnever appears in Owner problems. Read its result with\n`GET .../test-runs/{test_run_id}`. Test runs and their test hires are\nremoved after 7 days. Test a slug's first upload or any later upload this\nway before publishing it. Requires the publishing organization's built-in\nOwner or Admin on a direct credential, or a release pass for the\norganization.",
         "operationId": "start_managed_agent_template_test_run",
         "parameters": [
           {
@@ -14295,13 +14673,13 @@
             "description": "The credential may not test this template's uploads (`managed_agent_template_test_runner_required`), the template is published by another organization, or it is suspended (`managed_agent_template_suspended`)"
           },
           "404": {
-            "description": "Template not found, or the settings ask for a sandbox runtime class Seren doesn't offer (`runtime_class_not_found`)"
+            "description": "The settings ask for a sandbox runtime class Seren doesn't offer (`runtime_class_not_found`)"
           },
           "409": {
-            "description": "Another test run or hire of this template by the caller is still being set up (`hire_in_progress`), or the test hire could not be set up"
+            "description": "The slug is reserved (`managed_agent_template_slug_reserved`), another template uses the slug as its page address (`managed_agent_template_page_slug_taken`), a new slug's organization has no public name (`publisher_name_required`) or store address (`publisher_handle_required`), another test run or hire of this template by the caller is still being set up (`hire_in_progress`), or the test hire could not be set up"
           },
           "503": {
-            "description": "The settings ask for purchase protection that Seren doesn't offer yet (`guarded_purchases_unavailable`)"
+            "description": "The settings ask for purchase protection (`guarded_purchases_unavailable`) or Owner model reasoning effort (`managed_agent_template_reasoning_effort_unavailable`) that Seren doesn't offer yet"
           }
         },
         "security": [
@@ -21179,7 +21557,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Optional least-privilege scopes. Omit for an unrestricted user API key.\nPublisher invocation scopes, `managed-deployment:<operation>`, and the\nexact publisher-administration scopes `organization:read`,\n`publisher-definition:{read,create,update}`, `publisher-pricing:update`,\n`oauth-provider:{read,create,update}`, and `oauth-connection:read` grant\nseparate capabilities and may be combined. No administration wildcard\nor delete scope is supported. Publisher create or update payloads that\nset pricing, billing, or accepted-asset fields also require\n`publisher-pricing:update`. `managed-agent-template:publish` allows\npublishing managed agent template releases; no other scope and no\nunrestricted key allows it. Only an owner of the resolved organization\ncan grant it.\nPlatform deployment support uses explicit `deployment-support:read`,\n`deployment-support:logs`, and `deployment-support:control` scopes.\nThese scopes require platform-admin authority and are not implied by an unrestricted key."
+            "description": "Optional least-privilege scopes. Omit for an unrestricted user API key.\nPublisher invocation scopes, `managed-deployment:<operation>`, and the\nexact publisher-administration scopes `organization:read`,\n`publisher-definition:{read,create,update}`, `publisher-pricing:update`,\n`oauth-provider:{read,create,update}`, and `oauth-connection:read` grant\nseparate capabilities and may be combined. No administration wildcard\nor delete scope is supported. Publisher create or update payloads that\nset pricing, billing, or accepted-asset fields also require\n`publisher-pricing:update`.\nPlatform deployment support uses explicit `deployment-support:read`,\n`deployment-support:logs`, and `deployment-support:control` scopes.\nThese scopes require platform-admin authority and are not implied by an unrestricted key."
           }
         }
       },
@@ -21361,7 +21739,7 @@
                   "string",
                   "null"
                 ],
-                "description": "The token issuer. Fixed for `github_actions` and `seren_ci`;\ndefaults to `https://gitlab.com` for `gitlab`; required for\n`circleci` as `https://oidc.circleci.com/org/<organization id>`."
+                "description": "The token issuer. Fixed for `github_actions`; defaults to\n`https://gitlab.com` for `gitlab`; required for `circleci` as\n`https://oidc.circleci.com/org/<organization id>`."
               },
               "kind": {
                 "type": "string",
@@ -21375,7 +21753,7 @@
               },
               "repository": {
                 "type": "string",
-                "description": "`owner/name` for GitHub Actions and Seren CI, the project path for\nGitLab, and `host/org/repo` for CircleCI."
+                "description": "`owner/name` for GitHub Actions, the project path for GitLab, and\n`host/org/repo` for CircleCI."
               },
               "templates": {
                 "type": "array",
@@ -25743,6 +26121,68 @@
           }
         }
       },
+      "DataResponse_ManagedAgentOwnerGuidanceResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Publisher console read response for a managed agent template's owner guidance.",
+            "required": [
+              "history"
+            ],
+            "properties": {
+              "active_version": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "Currently active guidance version applied to hires, or null when unset/cleared."
+              },
+              "current": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentOwnerGuidanceVersion",
+                    "description": "Currently active guidance record, or null when unset/cleared."
+                  }
+                ]
+              },
+              "history": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentOwnerGuidanceVersion"
+                },
+                "description": "Full append-only history, newest version first."
+              },
+              "owner_email": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Stable owner guidance email address for this managed agent template once allocated."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedAgentReferralCampaign": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -26750,6 +27190,10 @@
                 "type": "string",
                 "description": "Display name of `model_id`."
               },
+              "reasoning_effort": {
+                "$ref": "#/components/schemas/OwnerModelReasoningEffort",
+                "description": "Reasoning effort sent on each Codex or provider-key model call. Omitted\nwhen unset (Codex runs at `medium`; provider-key models use the\nprovider's default)."
+              },
               "revision": {
                 "type": "integer",
                 "format": "int64",
@@ -26802,6 +27246,10 @@
                 "type": "string",
                 "description": "Display name of `model_id`."
               },
+              "reasoning_effort": {
+                "$ref": "#/components/schemas/OwnerModelReasoningEffort",
+                "description": "Reasoning effort sent on each Codex or provider-key model call. Omitted\nwhen unset (Codex runs at `medium`; provider-key models use the\nprovider's default)."
+              },
               "revision": {
                 "type": "integer",
                 "format": "int64",
@@ -26809,7 +27257,7 @@
               },
               "revision_added": {
                 "type": "boolean",
-                "description": "Whether this request added the revision. False when the model and\nbackup models already matched."
+                "description": "Whether this request added the revision. False when the model, backup\nmodels, and reasoning effort already matched."
               },
               "rollout": {
                 "oneOf": [
@@ -26928,6 +27376,17 @@
               },
               "pronouns": {
                 "$ref": "#/components/schemas/Pronouns"
+              },
+              "reply_words": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentTemplateReplyWords",
+                    "description": "Owner-supplied describing words, things, and word order used to build per-hire\nreply addresses; null when using Seren's default list. In languages where a\ndescribing word changes with the noun (Spanish, Italian, French, Polish), choose\nwords that fit every pair, for example adjectives that are the same for masculine\nand feminine nouns."
+                  }
+                ]
               },
               "skill_slugs": {
                 "type": "array",
@@ -27237,6 +27696,13 @@
                   "null"
                 ],
                 "description": "Why the run could not start."
+              },
+              "failure_message": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Safe explanation of why the run could not start, when known (for example naming an unpackable bundle file path)."
               },
               "id": {
                 "type": "string",
@@ -29167,8 +29633,12 @@
                 "format": "uuid"
               },
               "employer_organization_id": {
-                "type": "string",
-                "format": "uuid"
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "Employer organization, or null for the grant shared by every Employer without its own grant."
               },
               "id": {
                 "type": "string",
@@ -29254,6 +29724,46 @@
                   "null"
                 ],
                 "format": "int64"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_OwnerTemplateModelCredentials": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "The Owner model credentials attached to a managed agent, in failover order.",
+            "required": [
+              "template_id",
+              "credentials"
+            ],
+            "properties": {
+              "credentials": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/OwnerTemplateModelCredential"
+                }
+              },
+              "template_id": {
+                "type": "string",
+                "format": "uuid"
               }
             }
           },
@@ -34140,8 +34650,12 @@
                   "format": "uuid"
                 },
                 "employer_organization_id": {
-                  "type": "string",
-                  "format": "uuid"
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid",
+                  "description": "Employer organization, or null for the grant shared by every Employer without its own grant."
                 },
                 "id": {
                   "type": "string",
@@ -39914,6 +40428,92 @@
           "deep"
         ]
       },
+      "ManagedAgentOwnerGuidanceResponse": {
+        "type": "object",
+        "description": "Publisher console read response for a managed agent template's owner guidance.",
+        "required": [
+          "history"
+        ],
+        "properties": {
+          "active_version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Currently active guidance version applied to hires, or null when unset/cleared."
+          },
+          "current": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentOwnerGuidanceVersion",
+                "description": "Currently active guidance record, or null when unset/cleared."
+              }
+            ]
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentOwnerGuidanceVersion"
+            },
+            "description": "Full append-only history, newest version first."
+          },
+          "owner_email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Stable owner guidance email address for this managed agent template once allocated."
+          }
+        }
+      },
+      "ManagedAgentOwnerGuidanceVersion": {
+        "type": "object",
+        "description": "One historical owner guidance entry returned to the publishing organization's console.",
+        "required": [
+          "version",
+          "source_kind",
+          "cleared",
+          "actor_user_id",
+          "created_at"
+        ],
+        "properties": {
+          "actor_user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cleared": {
+            "type": "boolean"
+          },
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "restored_from_version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "source_kind": {
+            "$ref": "#/components/schemas/OwnerGuidanceSourceKind"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "ManagedAgentPrivateOutputPolicy": {
         "type": "string",
         "enum": [
@@ -41719,6 +42319,13 @@
             },
             "description": "Stage names the hired copy's skill scripts may report while they run.\nA stage report naming any other stage is refused. At most 30, each\nunique and matching `^[a-z][a-z0-9_]{0,39}$`. Omit for none."
           },
+          "store_password_rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StorePasswordRule"
+            },
+            "description": "Per-store password generation rules and form selectors for protected browser password changes."
+          },
           "workload_egress": {
             "type": "boolean",
             "description": "Whether every hired copy's trusted runtime may also reach the hostname\ndestinations in `network_egress`. Requires at least one hostname rule.\nDefaults to false when omitted."
@@ -41862,6 +42469,9 @@
                 "enum": [
                   "codex"
                 ]
+              },
+              "reasoning_effort": {
+                "$ref": "#/components/schemas/OwnerModelReasoningEffort"
               }
             },
             "additionalProperties": false
@@ -41885,6 +42495,9 @@
                 "enum": [
                   "provider_keys"
                 ]
+              },
+              "reasoning_effort": {
+                "$ref": "#/components/schemas/OwnerModelReasoningEffort"
               }
             },
             "additionalProperties": false
@@ -41974,6 +42587,10 @@
             "type": "string",
             "description": "Display name of `model_id`."
           },
+          "reasoning_effort": {
+            "$ref": "#/components/schemas/OwnerModelReasoningEffort",
+            "description": "Reasoning effort sent on each Codex or provider-key model call. Omitted\nwhen unset (Codex runs at `medium`; provider-key models use the\nprovider's default)."
+          },
           "revision": {
             "type": "integer",
             "format": "int64",
@@ -42006,6 +42623,10 @@
             "type": "string",
             "description": "Display name of `model_id`."
           },
+          "reasoning_effort": {
+            "$ref": "#/components/schemas/OwnerModelReasoningEffort",
+            "description": "Reasoning effort sent on each Codex or provider-key model call. Omitted\nwhen unset (Codex runs at `medium`; provider-key models use the\nprovider's default)."
+          },
           "revision": {
             "type": "integer",
             "format": "int64",
@@ -42013,7 +42634,7 @@
           },
           "revision_added": {
             "type": "boolean",
-            "description": "Whether this request added the revision. False when the model and\nbackup models already matched."
+            "description": "Whether this request added the revision. False when the model, backup\nmodels, and reasoning effort already matched."
           },
           "rollout": {
             "oneOf": [
@@ -42050,7 +42671,8 @@
         "enum": [
           "mail_and_files",
           "sign_in_only",
-          "mail_read"
+          "mail_read",
+          "directory_read"
         ]
       },
       "ManagedAgentTemplatePricing": {
@@ -42191,6 +42813,17 @@
           },
           "pronouns": {
             "$ref": "#/components/schemas/Pronouns"
+          },
+          "reply_words": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplateReplyWords",
+                "description": "Owner-supplied describing words, things, and word order used to build per-hire\nreply addresses; null when using Seren's default list. In languages where a\ndescribing word changes with the noun (Spanish, Italian, French, Polish), choose\nwords that fit every pair, for example adjectives that are the same for masculine\nand feminine nouns."
+              }
+            ]
           },
           "skill_slugs": {
             "type": "array",
@@ -42490,6 +43123,39 @@
           }
         }
       },
+      "ManagedAgentTemplateReplyWords": {
+        "type": "object",
+        "description": "Owner-supplied describing words, things, and word order used to build per-hire\nreply addresses.\n\nIn languages where a describing word changes with the noun (Spanish, Italian,\nFrench, Polish), choose words that fit every pair, for example adjectives that\nare the same for masculine and feminine nouns.",
+        "required": [
+          "describing",
+          "things"
+        ],
+        "properties": {
+          "describing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "16 to 500 unique lowercase ASCII describing words (3 to 10 letters each),\ndisjoint from `things` and outside the blocked list.",
+            "maxItems": 500,
+            "minItems": 16
+          },
+          "order": {
+            "$ref": "#/components/schemas/ReplyWordOrder",
+            "description": "Word order for generated addresses (`describing_first` by default, or `thing_first`)."
+          },
+          "things": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "48 to 1,500 unique lowercase ASCII thing words (3 to 10 letters each),\ndisjoint from `describing` and outside the blocked list.",
+            "maxItems": 1500,
+            "minItems": 48
+          }
+        },
+        "additionalProperties": false
+      },
       "ManagedAgentTemplateReviewState": {
         "type": "string",
         "description": "Seren's review of a template before the catalog lists it or anyone hires\nit. An approved template never returns to review.",
@@ -42696,6 +43362,13 @@
               "null"
             ],
             "description": "Why the run could not start."
+          },
+          "failure_message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Safe explanation of why the run could not start, when known (for example naming an unpackable bundle file path)."
           },
           "id": {
             "type": "string",
@@ -43076,6 +43749,20 @@
               "proposal_id": {
                 "type": "string",
                 "format": "uuid"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "vault_read_access"
+                ]
               }
             }
           }
@@ -45111,6 +45798,14 @@
           "unreviewed"
         ]
       },
+      "OwnerGuidanceSourceKind": {
+        "type": "string",
+        "description": "Source of one immutable owner guidance version.",
+        "enum": [
+          "email",
+          "undo"
+        ]
+      },
       "OwnerModelBudget": {
         "type": "object",
         "required": [
@@ -45159,8 +45854,12 @@
             "format": "uuid"
           },
           "employer_organization_id": {
-            "type": "string",
-            "format": "uuid"
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Employer organization, or null for the grant shared by every Employer without its own grant."
           },
           "id": {
             "type": "string",
@@ -45200,6 +45899,16 @@
           "revoked"
         ]
       },
+      "OwnerModelReasoningEffort": {
+        "type": "string",
+        "description": "Reasoning effort configured for an Owner model connection (`codex` or\n`provider_keys`).\n\nChatGPT's Codex backend accepts `low`, `medium`, `high`, and `xhigh` across\ncurrent Codex models (`xhigh` depends on the model; older checkpoints such\nas `gpt-5-codex` did not support it, while `gpt-5.1-codex-max`, `gpt-5.5`,\n`gpt-5.6-*` including `gpt-5.6-terra`, and `gpt-6.*` do). When omitted,\nCodex runs at `medium` and `provider_keys` leaves the provider's default\nunchanged.",
+        "enum": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
+      },
       "OwnerModelSpend": {
         "type": "object",
         "required": [
@@ -45233,6 +45942,72 @@
               "null"
             ],
             "format": "int64"
+          }
+        }
+      },
+      "OwnerTemplateModelCredential": {
+        "type": "object",
+        "description": "One Owner model credential currently attached to a managed agent.",
+        "required": [
+          "name",
+          "method",
+          "oauth_connection_id",
+          "created_by_user_id",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by_user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "method": {
+            "$ref": "#/components/schemas/OwnerTemplateModelCredentialMethod",
+            "description": "Authentication method for this credential slot."
+          },
+          "name": {
+            "type": "string",
+            "description": "Stable credential slot name used for routing and failover order."
+          },
+          "oauth_connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Identifier of the publishing organization's connected ChatGPT sign-in."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OwnerTemplateModelCredentialMethod": {
+        "type": "string",
+        "description": "Authentication method of an Owner model credential attached to a managed agent.",
+        "enum": [
+          "chatgpt_subscription"
+        ]
+      },
+      "OwnerTemplateModelCredentials": {
+        "type": "object",
+        "description": "The Owner model credentials attached to a managed agent, in failover order.",
+        "required": [
+          "template_id",
+          "credentials"
+        ],
+        "properties": {
+          "credentials": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OwnerTemplateModelCredential"
+            }
+          },
+          "template_id": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -45780,6 +46555,60 @@
           "number",
           "array"
         ]
+      },
+      "PasswordGenerationRules": {
+        "type": "object",
+        "description": "Password length bounds and character-class rules a store enforces.",
+        "required": [
+          "min_length",
+          "max_length"
+        ],
+        "properties": {
+          "allow_digit": {
+            "type": "boolean"
+          },
+          "allow_lowercase": {
+            "type": "boolean"
+          },
+          "allow_symbol": {
+            "type": "boolean"
+          },
+          "allow_uppercase": {
+            "type": "boolean"
+          },
+          "allowed_symbols": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional explicit ASCII symbol set when `allow_symbol` is true."
+          },
+          "max_length": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 128,
+            "minimum": 8
+          },
+          "min_length": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 128,
+            "minimum": 8
+          },
+          "require_digit": {
+            "type": "boolean"
+          },
+          "require_lowercase": {
+            "type": "boolean"
+          },
+          "require_symbol": {
+            "type": "boolean"
+          },
+          "require_uppercase": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
       },
       "PasswordReset": {
         "type": "object",
@@ -48573,6 +49402,17 @@
           "pronouns": {
             "$ref": "#/components/schemas/Pronouns"
           },
+          "reply_words": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplateReplyWords",
+                "description": "Describing words (16 to 500) and things (48 to 1,500), each 3 to 10 unique\nlowercase ASCII letters with no word in both lists, plus `order`\n(`describing_first` by default, or `thing_first`), used to form per-hire reply\naddresses; null returns to Seren's default list. In languages where a describing\nword changes with the noun (Spanish, Italian, French, Polish), choose words that\nfit every pair, for example adjectives that are the same for masculine and\nfeminine nouns. Existing hires keep their assigned addresses."
+              }
+            ]
+          },
           "skill_slugs": {
             "type": "array",
             "items": {
@@ -49050,6 +49890,29 @@
           }
         }
       },
+      "RefreshRefusalResponse": {
+        "type": "object",
+        "required": [
+          "error",
+          "message"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Session identifier when the refresh token matched a refused session."
+          }
+        }
+      },
       "RefreshTokenRequest": {
         "type": "object",
         "required": [
@@ -49125,7 +49988,7 @@
       },
       "ReleaseCiProduct": {
         "type": "string",
-        "description": "The CI product that signs a run's identity token.",
+        "description": "The CI product that signs a run's identity token.\n\n`seren_ci` is retired and appears only on old sources; creating a new\n`seren_ci` source is refused.",
         "enum": [
           "github_actions",
           "gitlab",
@@ -49209,6 +50072,14 @@
           }
         },
         "additionalProperties": false
+      },
+      "ReplyWordOrder": {
+        "type": "string",
+        "description": "Order in which describing words and things appear in per-hire reply addresses.",
+        "enum": [
+          "describing_first",
+          "thing_first"
+        ]
       },
       "RequiredConnectorRef": {
         "type": "object",
@@ -49539,6 +50410,33 @@
           }
         }
       },
+      "SetEveryoneOwnerModelGrant": {
+        "type": "object",
+        "description": "Replaces the grant for every Employer without its own grant.\nOmitted `active` defaults to `true`; omitted or null caps are unlimited; zero permits no spend.",
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "default": true
+          },
+          "per_day_atomic": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "per_month_atomic": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
       "SetManagedAgentEarningsPayoutWalletRequest": {
         "type": "object",
         "required": [
@@ -49595,6 +50493,17 @@
           "model_id": {
             "type": "string",
             "description": "Approved Seren Private Model the managed agent's hires run. For a Codex\nor provider-key managed agent, the Seren Private Model its hires run\nwhen the Owner's credentials don't serve them."
+          },
+          "reasoning_effort": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OwnerModelReasoningEffort",
+                "description": "Reasoning effort sent on each Codex or provider-key model call (`low`,\n`medium`, `high`, or `xhigh`). Omit to keep the current setting; send\n`null` to clear it (Codex runs at `medium`; provider-key models use the\nprovider's default). Refused on Seren Private Model managed agents."
+              }
+            ]
           },
           "release_note": {
             "type": [
@@ -49659,6 +50568,53 @@
             ],
             "format": "int64",
             "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "SetOwnerTemplateModelCredential": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Use an organization ChatGPT sign-in connection from the model sign-in routes.",
+            "required": [
+              "oauth_connection_id",
+              "method"
+            ],
+            "properties": {
+              "method": {
+                "type": "string",
+                "enum": [
+                  "chatgpt_subscription"
+                ]
+              },
+              "name": {
+                "type": "string",
+                "description": "Optional slot name (`seren-llm-codex` or `seren-llm-codex-<n>`). Omit to preserve an existing slot name or assign one in order."
+              },
+              "oauth_connection_id": {
+                "type": "string",
+                "format": "uuid",
+                "description": "Identifier of the publishing organization's connected ChatGPT sign-in."
+              }
+            }
+          }
+        ],
+        "description": "One model credential entry to attach to a managed agent in failover order."
+      },
+      "SetOwnerTemplateModelCredentials": {
+        "type": "object",
+        "description": "Replaces the managed agent's ordered Owner model credentials.",
+        "required": [
+          "credentials"
+        ],
+        "properties": {
+          "credentials": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SetOwnerTemplateModelCredential"
+            },
+            "description": "Ordered model credentials tried in failover order. Must contain between 1 and 32 unique entries."
           }
         },
         "additionalProperties": false
@@ -49928,6 +50884,68 @@
               "null"
             ],
             "description": "IANA time zone the test hire's browser uses. Defaults to `UTC`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "StorePasswordFields": {
+        "type": "object",
+        "description": "CSS selectors for a store's new-password form.",
+        "required": [
+          "new_password",
+          "submit"
+        ],
+        "properties": {
+          "confirm_password": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "new_password": {
+            "type": "string"
+          },
+          "submit": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "StorePasswordRule": {
+        "type": "object",
+        "description": "Per-store declaration authorizing protected new-password generation, typing,\nsubmission, and post-confirmation saving.",
+        "required": [
+          "alias",
+          "hosts",
+          "rules",
+          "fields"
+        ],
+        "properties": {
+          "alias": {
+            "type": "string",
+            "description": "Browser grant alias for this store login (e.g. `ringana_login`)."
+          },
+          "fields": {
+            "$ref": "#/components/schemas/StorePasswordFields",
+            "description": "Selectors for the new-password, optional confirm-password, and submit controls."
+          },
+          "hosts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Sorted, unique, exact lowercase DNS hostnames where this form is permitted."
+          },
+          "rules": {
+            "$ref": "#/components/schemas/PasswordGenerationRules",
+            "description": "Store password length and character-class rules."
+          },
+          "success_url_prefixes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional HTTPS URL prefixes on `hosts` confirming the store accepted the password change."
           }
         },
         "additionalProperties": false
@@ -50256,6 +51274,35 @@
                 "type": "string",
                 "enum": [
                   "guarded_submissions_changed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Per-store password generation rules and selectors for protected browser password changes.",
+            "required": [
+              "before",
+              "after",
+              "change"
+            ],
+            "properties": {
+              "after": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/StorePasswordRule"
+                }
+              },
+              "before": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/StorePasswordRule"
+                }
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "store_password_rules_changed"
                 ]
               }
             }
@@ -51353,7 +52400,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Complete replacement scope set. At least one valid scope is required.\nOnly an owner of the resolved organization can grant a set containing\n`managed-agent-template:publish`."
+            "description": "Complete replacement scope set. At least one valid scope is required."
           }
         }
       },

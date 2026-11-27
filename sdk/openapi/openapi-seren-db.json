@@ -7566,6 +7566,14 @@
                 "name": {
                   "type": "string"
                 },
+                "password_changed_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time",
+                  "description": "When the role's password last changed. Absent when no change has been recorded."
+                },
                 "protected": {
                   "type": "boolean"
                 }
@@ -8955,6 +8963,14 @@
           },
           "name": {
             "type": "string"
+          },
+          "password_changed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the role's password last changed. Absent when no change has been recorded."
           },
           "protected": {
             "type": "boolean"

@@ -1229,6 +1229,85 @@
         ]
       }
     },
+    "/deployments/{id}/browser-grants/{grant_id}": {
+      "patch": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Enable or withdraw opt-in password updates on an approved login browser grant for the owner's hired managed agent.",
+        "operationId": "seren_cloud_update_browser_grant",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Hired deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "grant_id",
+            "in": "path",
+            "description": "Browser grant ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBrowserGrant"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_BrowserGrant"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or non-login browser grant"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Human owner session and active access required"
+          },
+          "404": {
+            "description": "Hire or browser grant not found"
+          },
+          "409": {
+            "description": "Browser grant is not approved"
+          },
+          "423": {
+            "description": "Vault is locked due to ongoing key rotation"
+          },
+          "503": {
+            "description": "Browser consent service unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/connectors/{connector_ref}": {
       "put": {
         "tags": [
@@ -10288,7 +10367,7 @@
           },
           "path": {
             "type": "string",
-            "description": "Agent-bundle relative path."
+            "description": "Agent-bundle relative path. At most 1,024 UTF-8 bytes in total and 255 UTF-8 bytes per path component."
           },
           "purpose": {
             "oneOf": [
@@ -10404,6 +10483,13 @@
             "type": "boolean",
             "description": "Gives skill scripts a reader browser that can open any public HTTPS\nsite, in place of the main browser. Requires the enabled full browser\nprofile."
           },
+          "store_password_rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StorePasswordRule"
+            },
+            "description": "Per-store password generation rules and form selectors for protected password changes."
+          },
           "timezone": {
             "type": [
               "string",
@@ -10425,7 +10511,7 @@
       },
       "AgentBundle": {
         "type": "object",
-        "description": "Authored agent bundle used by LLM workloads.",
+        "description": "Authored agent bundle used by LLM workloads.\n\nLimits: at most 512 files, 16 MiB total decoded content, 1 MiB per\ninstruction file, 8 MiB per decoded asset file, and normalized relative\npaths of at most 1,024 UTF-8 bytes with each path component at most 255\nUTF-8 bytes.",
         "properties": {
           "assets": {
             "type": "array",
@@ -10975,7 +11061,7 @@
               "string",
               "null"
             ],
-            "description": "Original or packaged path, when known."
+            "description": "Original or packaged relative bundle path, when known. At most 1,024 UTF-8 bytes in total and 255 UTF-8 bytes per path component."
           },
           "sha256": {
             "type": [
@@ -13162,6 +13248,10 @@
           "consent_text"
         ],
         "properties": {
+          "allow_password_update": {
+            "type": "boolean",
+            "description": "Opt-in right for Core's protected browser flow to replace the password\nof this approved login item. Omitted when false so read-only wire\npayloads stay byte-identical."
+          },
           "approval_deadline": {
             "type": "integer",
             "format": "int64"
@@ -14908,6 +14998,17 @@
           "execution_time_ms": {
             "type": "integer",
             "format": "int32"
+          },
+          "failure_explanation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudRunFailureExplanation",
+                "description": "When Seren refused a publisher request made by this own job's script\nbefore the script stopped with an error, explains which request was\nrefused, why, and what to change. Shown only to the deployment's owner\non non-hire deployments."
+              }
+            ]
           },
           "id": {
             "type": "string",
@@ -17301,6 +17402,39 @@
           "runtime",
           "controller"
         ]
+      },
+      "CloudRunFailureExplanation": {
+        "type": "object",
+        "description": "Plain explanation of a publisher request Seren refused before an own job's\nscript stopped with an error. Shown only to the deployment's owner on\nnon-hire deployments.",
+        "required": [
+          "publisher",
+          "error_code",
+          "request",
+          "why",
+          "what_to_do"
+        ],
+        "properties": {
+          "error_code": {
+            "type": "string",
+            "description": "Stable refusal code from Seren's closed list (`unlisted` when unrecognized)."
+          },
+          "publisher": {
+            "type": "string",
+            "description": "Publisher slug whose request Seren refused, or `*` when unknown."
+          },
+          "request": {
+            "type": "string",
+            "description": "HTTP method or MCP operation and catalog-blanked path (`{value}` marks hidden segments)."
+          },
+          "what_to_do": {
+            "type": "string",
+            "description": "Fixed plain-English next step for the deployment's owner."
+          },
+          "why": {
+            "type": "string",
+            "description": "Fixed plain-English summary of why Seren refused the request."
+          }
+        }
       },
       "CloudRunGuardrailAction": {
         "type": "string",
@@ -20075,6 +20209,10 @@
               "consent_text"
             ],
             "properties": {
+              "allow_password_update": {
+                "type": "boolean",
+                "description": "Opt-in right for Core's protected browser flow to replace the password\nof this approved login item. Omitted when false so read-only wire\npayloads stay byte-identical."
+              },
               "approval_deadline": {
                 "type": "integer",
                 "format": "int64"
@@ -21277,6 +21415,17 @@
               "execution_time_ms": {
                 "type": "integer",
                 "format": "int32"
+              },
+              "failure_explanation": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudRunFailureExplanation",
+                    "description": "When Seren refused a publisher request made by this own job's script\nbefore the script stopped with an error, explains which request was\nrefused, why, and what to change. Shown only to the deployment's owner\non non-hire deployments."
+                  }
+                ]
               },
               "id": {
                 "type": "string",
@@ -27740,7 +27889,7 @@
       },
       "ManagedAgentConnectionState": {
         "type": "string",
-        "description": "Whether a user's connection can serve a provider's mail and files tools.",
+        "description": "Whether a user's connection can serve a provider's mail, files, or directory tools.",
         "enum": [
           "connected",
           "reconnect_required",
@@ -27879,8 +28028,7 @@
                 "items": {
                   "$ref": "#/components/schemas/ManagedCodexAuth"
                 },
-                "description": "Codex credentials in failover order. At least one.",
-                "minItems": 1
+                "description": "Codex credentials in failover order. At least one, except on a hired\ncopy, which lists none and runs on its Owner's credentials while the\nOwner grants them."
               },
               "fallback": {
                 "$ref": "#/components/schemas/ManagedOwnerModelFallback",
@@ -27895,6 +28043,10 @@
                 "enum": [
                   "codex"
                 ]
+              },
+              "reasoning_effort": {
+                "$ref": "#/components/schemas/OwnerModelReasoningEffort",
+                "description": "Reasoning effort sent on each Codex run. Omit to run at `medium`."
               }
             },
             "additionalProperties": false
@@ -27914,7 +28066,7 @@
                 "items": {
                   "$ref": "#/components/schemas/ManagedProviderKeyCredential"
                 },
-                "minItems": 1
+                "description": "Provider keys in failover order. At least one, except on a hired copy,\nwhich lists none and runs on its Owner's keys while the Owner grants them."
               },
               "fallback": {
                 "$ref": "#/components/schemas/ManagedOwnerModelFallback"
@@ -27927,6 +28079,10 @@
                 "enum": [
                   "provider_keys"
                 ]
+              },
+              "reasoning_effort": {
+                "$ref": "#/components/schemas/OwnerModelReasoningEffort",
+                "description": "Reasoning effort sent on each provider-key model call. Omit to leave\nthe provider's default unchanged."
               }
             },
             "additionalProperties": false
@@ -28484,6 +28640,7 @@
           "skill_slug",
           "mode",
           "platform_managed",
+          "owned_by_caller",
           "status",
           "desired_lifecycle_state",
           "routine_set_by_hirer",
@@ -28561,6 +28718,14 @@
             "type": "string",
             "format": "uuid"
           },
+          "last_activity_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Timestamp of the latest conversation activity for this managed agent, or null when it has none."
+          },
           "max_tool_output_chars": {
             "type": [
               "integer",
@@ -28580,6 +28745,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "owned_by_caller": {
+            "type": "boolean",
+            "description": "Whether the caller owns this managed agent deployment."
+          },
           "paused": {
             "oneOf": [
               {
@@ -28594,6 +28763,13 @@
           "platform_managed": {
             "type": "boolean",
             "description": "Always true; distinguishes this view from an ordinary deployment summary."
+          },
+          "reply_email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The hire's unique email address for replying by email. Only the hirer sees it."
           },
           "routine_set_by_hirer": {
             "type": "boolean",
@@ -29536,6 +29712,33 @@
         },
         "additionalProperties": false
       },
+      "ManagedGrokSubscriptionCredential": {
+        "type": "object",
+        "required": [
+          "method",
+          "oauth_connection_id"
+        ],
+        "properties": {
+          "method": {
+            "$ref": "#/components/schemas/ManagedGrokSubscriptionMethod"
+          },
+          "name": {
+            "type": "string"
+          },
+          "oauth_connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The organization's Grok sign-in connection."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedGrokSubscriptionMethod": {
+        "type": "string",
+        "enum": [
+          "grok_subscription"
+        ]
+      },
       "ManagedHealthAlertChannel": {
         "type": "object",
         "description": "Platform-authored infrastructure-health destination.",
@@ -29589,6 +29792,12 @@
             "type": "string",
             "enum": [
               "chatgpt_subscription"
+            ]
+          },
+          {
+            "type": "string",
+            "enum": [
+              "grok_subscription"
             ]
           },
           {
@@ -29842,7 +30051,7 @@
         },
         "additionalProperties": false
       },
-      "ManagedProviderKeyCredential": {
+      "ManagedProviderApiKeyCredential": {
         "type": "object",
         "required": [
           "provider",
@@ -29867,6 +30076,19 @@
           }
         },
         "additionalProperties": false
+      },
+      "ManagedProviderKeyCredential": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ManagedProviderApiKeyCredential",
+            "description": "Bill inference to a provider API key held in Seren Secrets."
+          },
+          {
+            "$ref": "#/components/schemas/ManagedGrokSubscriptionCredential",
+            "description": "Bill inference to the Owner's Grok subscription through a Grok sign-in connection."
+          }
+        ],
+        "description": "One credential in an Owner `provider_keys` failover list: either a Seren\nSecrets-backed provider API key or a Grok subscription sign-in connection."
       },
       "ManagedProviderKeyPrices": {
         "type": "object",
@@ -30796,6 +31018,16 @@
         ],
         "description": "Audience permitted to receive output or protected side effects."
       },
+      "OwnerModelReasoningEffort": {
+        "type": "string",
+        "description": "Reasoning effort configured for an Owner model connection (`codex` or\n`provider_keys`).\n\nChatGPT's Codex backend accepts `low`, `medium`, `high`, and `xhigh` across\ncurrent Codex models (`xhigh` depends on the model; older checkpoints such\nas `gpt-5-codex` did not support it, while `gpt-5.1-codex-max`, `gpt-5.5`,\n`gpt-5.6-*` including `gpt-5.6-terra`, and `gpt-6.*` do). When omitted,\nCodex runs at `medium` and `provider_keys` leaves the provider's default\nunchanged.",
+        "enum": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
+      },
       "PaginationMeta": {
         "type": "object",
         "description": "Pagination metadata included in responses.",
@@ -30832,6 +31064,60 @@
             "description": "Total number of items across all pages"
           }
         }
+      },
+      "PasswordGenerationRules": {
+        "type": "object",
+        "description": "Password length bounds and character-class rules a store enforces.",
+        "required": [
+          "min_length",
+          "max_length"
+        ],
+        "properties": {
+          "allow_digit": {
+            "type": "boolean"
+          },
+          "allow_lowercase": {
+            "type": "boolean"
+          },
+          "allow_symbol": {
+            "type": "boolean"
+          },
+          "allow_uppercase": {
+            "type": "boolean"
+          },
+          "allowed_symbols": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional explicit ASCII symbol set when `allow_symbol` is true."
+          },
+          "max_length": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 128,
+            "minimum": 8
+          },
+          "min_length": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 128,
+            "minimum": 8
+          },
+          "require_digit": {
+            "type": "boolean"
+          },
+          "require_lowercase": {
+            "type": "boolean"
+          },
+          "require_symbol": {
+            "type": "boolean"
+          },
+          "require_uppercase": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
       },
       "PromoteRunToCloudEvalCaseRequest": {
         "type": "object",
@@ -31791,6 +32077,68 @@
           }
         }
       },
+      "StorePasswordFields": {
+        "type": "object",
+        "description": "CSS selectors for a store's new-password form.",
+        "required": [
+          "new_password",
+          "submit"
+        ],
+        "properties": {
+          "confirm_password": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "new_password": {
+            "type": "string"
+          },
+          "submit": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "StorePasswordRule": {
+        "type": "object",
+        "description": "Per-store declaration authorizing protected new-password generation, typing,\nsubmission, and post-confirmation saving.",
+        "required": [
+          "alias",
+          "hosts",
+          "rules",
+          "fields"
+        ],
+        "properties": {
+          "alias": {
+            "type": "string",
+            "description": "Browser grant alias for this store login (e.g. `ringana_login`)."
+          },
+          "fields": {
+            "$ref": "#/components/schemas/StorePasswordFields",
+            "description": "Selectors for the new-password, optional confirm-password, and submit controls."
+          },
+          "hosts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Sorted, unique, exact lowercase DNS hostnames where this form is permitted."
+          },
+          "rules": {
+            "$ref": "#/components/schemas/PasswordGenerationRules",
+            "description": "Store password length and character-class rules."
+          },
+          "success_url_prefixes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional HTTPS URL prefixes on `hosts` confirming the store accepted the password change."
+          }
+        },
+        "additionalProperties": false
+      },
       "TaskLabel": {
         "type": "string",
         "description": "Organization-defined policy selector in canonical form.\n\nThe syntax is enforced during deserialization rather than by convention, so\nevery producer and consumer of an [`OrganizationWorkContext`] agrees on which labels\nexist without each one repeating the check.",
@@ -32171,6 +32519,19 @@
           "exhausted",
           "recovered"
         ]
+      },
+      "UpdateBrowserGrant": {
+        "type": "object",
+        "required": [
+          "allow_password_update"
+        ],
+        "properties": {
+          "allow_password_update": {
+            "type": "boolean",
+            "description": "Whether this hire's protected browser may replace the password of the\napproved login bound to this grant."
+          }
+        },
+        "additionalProperties": false
       },
       "UpdateCloudDeploymentEnvironmentRequest": {
         "type": "object",

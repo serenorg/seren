@@ -1745,6 +1745,27 @@ fn run_output_event_types(spec: &serde_json::Value) -> anyhow::Result<Vec<String
     Ok(types)
 }
 
+/// Every `change` tag the `TemplateAccessChange` union lists.
+fn template_access_change_kinds(spec: &serde_json::Value) -> anyhow::Result<Vec<String>> {
+    let branches = spec
+        .pointer("/components/schemas/TemplateAccessChange/oneOf")
+        .and_then(serde_json::Value::as_array)
+        .context("OpenAPI document is missing TemplateAccessChange")?;
+    let mut kinds = Vec::new();
+    for branch in branches {
+        let values = branch
+            .pointer("/properties/change/enum")
+            .and_then(serde_json::Value::as_array)
+            .context("a TemplateAccessChange branch has no change tag")?;
+        let before = kinds.len();
+        kinds.extend(values.iter().filter_map(|v| v.as_str().map(str::to_string)));
+        if kinds.len() == before {
+            anyhow::bail!("a TemplateAccessChange branch has no string change tag");
+        }
+    }
+    Ok(kinds)
+}
+
 /// Ends each open reply union with an `Other` branch that keeps an event whose
 /// `type` the union doesn't list. A listed `type` must still match its branch.
 fn open_reply_unions(syntax: &mut syn::File) {
@@ -1762,6 +1783,202 @@ fn open_reply_unions(syntax: &mut syn::File) {
         }
     }
     Unions.visit_file_mut(syntax);
+}
+
+/// Opens internally-tagged `TemplateAccessChange` with an `Other` branch so an
+/// unknown `change` tag preserves its raw JSON object instead of breaking
+/// deserialization, while listed tags still validate strictly against their
+/// generated variants.
+fn open_template_access_change_union(syntax: &mut syn::File) -> anyhow::Result<()> {
+    fn open_in_items(items: &mut Vec<syn::Item>) -> bool {
+        for index in 0..items.len() {
+            if let syn::Item::Mod(module) = &mut items[index]
+                && let Some((_, inner)) = &mut module.content
+                && open_in_items(inner)
+            {
+                return true;
+            }
+            let is_target = matches!(
+                &items[index],
+                syn::Item::Enum(item) if item.ident == "TemplateAccessChange"
+            );
+            if !is_target {
+                continue;
+            }
+            let syn::Item::Enum(item) = &mut items[index] else {
+                unreachable!()
+            };
+
+            let mut known = item.clone();
+            known.vis = syn::Visibility::Inherited;
+            known.ident = syn::parse_quote!(KnownTemplateAccessChange);
+            known.attrs.push(syn::parse_quote!(#[doc(hidden)]));
+
+            let mut from_arms: Vec<syn::Arm> = Vec::new();
+            let mut ser_arms: Vec<syn::Arm> = Vec::new();
+            for variant in &known.variants {
+                let v_ident = &variant.ident;
+                match &variant.fields {
+                    syn::Fields::Named(fields) => {
+                        let f_idents: Vec<&syn::Ident> = fields
+                            .named
+                            .iter()
+                            .filter_map(|f| f.ident.as_ref())
+                            .collect();
+                        from_arms.push(syn::parse_quote!(
+                            KnownTemplateAccessChange::#v_ident { #(#f_idents),* } => {
+                                Self::#v_ident { #(#f_idents),* }
+                            }
+                        ));
+                        ser_arms.push(syn::parse_quote!(
+                            Self::#v_ident { #(#f_idents),* } => {
+                                KnownTemplateAccessChange::#v_ident {
+                                    #(#f_idents: #f_idents.clone()),*
+                                }
+                                .serialize(serializer)
+                            }
+                        ));
+                    }
+                    syn::Fields::Unnamed(fields) => {
+                        let f_idents: Vec<syn::Ident> = (0..fields.unnamed.len())
+                            .map(|i| {
+                                syn::parse_str::<syn::Ident>(&format!("v{i}"))
+                                    .expect("valid tuple field ident")
+                            })
+                            .collect();
+                        from_arms.push(syn::parse_quote!(
+                            KnownTemplateAccessChange::#v_ident(#(#f_idents),*) => {
+                                Self::#v_ident(#(#f_idents),*)
+                            }
+                        ));
+                        ser_arms.push(syn::parse_quote!(
+                            Self::#v_ident(#(#f_idents),*) => {
+                                KnownTemplateAccessChange::#v_ident(#(#f_idents.clone()),*)
+                                    .serialize(serializer)
+                            }
+                        ));
+                    }
+                    syn::Fields::Unit => {
+                        from_arms.push(syn::parse_quote!(
+                            KnownTemplateAccessChange::#v_ident => Self::#v_ident
+                        ));
+                        ser_arms.push(syn::parse_quote!(
+                            Self::#v_ident => KnownTemplateAccessChange::#v_ident.serialize(serializer)
+                        ));
+                    }
+                }
+            }
+
+            item.attrs.retain(|attr| !attr.path().is_ident("serde"));
+            for attr in &mut item.attrs {
+                if !attr.path().is_ident("derive") {
+                    continue;
+                }
+                if let Ok(paths) = attr.parse_args_with(
+                    syn::punctuated::Punctuated::<syn::Path, syn::Token![,]>::parse_terminated,
+                ) {
+                    let kept = paths.into_iter().filter(|p| {
+                        let last = p.segments.last().map(|s| s.ident.to_string());
+                        !matches!(
+                            last.as_deref(),
+                            Some("Deserialize" | "Serialize" | "JsonSchema")
+                        )
+                    });
+                    *attr = syn::parse_quote!(#[derive(#(#kept),*)]);
+                }
+            }
+            for variant in &mut item.variants {
+                variant.attrs.retain(|attr| !attr.path().is_ident("serde"));
+                for field in &mut variant.fields {
+                    field.attrs.retain(|attr| !attr.path().is_ident("serde"));
+                }
+            }
+            item.variants.push(syn::parse_quote!(
+                /// An access change with an unknown string `change` tag, preserved as an opaque object.
+                Other(crate::UnknownTemplateAccessChange)
+            ));
+
+            let generated: Vec<syn::Item> = vec![
+                syn::Item::Enum(known),
+                syn::parse_quote!(
+                    impl ::std::convert::From<KnownTemplateAccessChange> for TemplateAccessChange {
+                        fn from(value: KnownTemplateAccessChange) -> Self {
+                            match value {
+                                #(#from_arms),*
+                            }
+                        }
+                    }
+                ),
+                syn::parse_quote!(
+                    impl ::serde::Serialize for TemplateAccessChange {
+                        fn serialize<S: ::serde::Serializer>(
+                            &self,
+                            serializer: S,
+                        ) -> ::std::result::Result<S::Ok, S::Error> {
+                            match self {
+                                #(#ser_arms,)*
+                                Self::Other(unknown) => unknown.serialize(serializer),
+                            }
+                        }
+                    }
+                ),
+                syn::parse_quote!(
+                    impl<'de> ::serde::Deserialize<'de> for TemplateAccessChange {
+                        fn deserialize<D: ::serde::Deserializer<'de>>(
+                            deserializer: D,
+                        ) -> ::std::result::Result<Self, D::Error> {
+                            let raw = ::serde_json::Map::<
+                                ::std::string::String,
+                                ::serde_json::Value,
+                            >::deserialize(deserializer)?;
+                            let tag = raw
+                                .get("change")
+                                .and_then(::serde_json::Value::as_str)
+                                .ok_or_else(|| {
+                                    ::serde::de::Error::custom(
+                                        "template access change `change` must be a string",
+                                    )
+                                })?;
+                            if crate::template_access_change_kinds::TEMPLATE_ACCESS_CHANGE_KINDS
+                                .contains(&tag)
+                            {
+                                let known: KnownTemplateAccessChange =
+                                    ::serde_json::from_value(::serde_json::Value::Object(raw))
+                                        .map_err(::serde::de::Error::custom)?;
+                                Ok(known.into())
+                            } else {
+                                Ok(Self::Other(crate::UnknownTemplateAccessChange(raw)))
+                            }
+                        }
+                    }
+                ),
+                syn::parse_quote!(
+                    impl ::schemars::JsonSchema for TemplateAccessChange {
+                        fn schema_name() -> ::std::borrow::Cow<'static, str> {
+                            ::std::borrow::Cow::Borrowed("TemplateAccessChange")
+                        }
+
+                        fn json_schema(
+                            generator: &mut ::schemars::SchemaGenerator,
+                        ) -> ::schemars::Schema {
+                            let known = <KnownTemplateAccessChange as ::schemars::JsonSchema>::json_schema(generator);
+                            let unknown = <crate::UnknownTemplateAccessChange as ::schemars::JsonSchema>::json_schema(generator);
+                            ::schemars::json_schema!({ "anyOf": [known, unknown] })
+                        }
+                    }
+                ),
+            ];
+            items.splice(index + 1..index + 1, generated);
+            return true;
+        }
+        false
+    }
+
+    anyhow::ensure!(
+        open_in_items(&mut syntax.items),
+        "generated code is missing TemplateAccessChange"
+    );
+    Ok(())
 }
 
 /// Checks the SerenDB query-cell contract before code generation.
@@ -2010,6 +2227,7 @@ fn main() -> anyhow::Result<()> {
     // regenerate as a map.
     validate_query_result_cell_schema(&raw_json)?;
     let event_types = run_output_event_types(&raw_json)?;
+    let access_change_kinds = template_access_change_kinds(&raw_json)?;
 
     let mut refs = HashSet::new();
     collect_refs(&raw_json, &mut refs);
@@ -2086,6 +2304,7 @@ fn main() -> anyhow::Result<()> {
     guard_publisher_value_response(&mut syntax);
     let open_enums = open_marked_reply_enums(&mut syntax);
     open_reply_unions(&mut syntax);
+    open_template_access_change_union(&mut syntax)?;
     let formatted = prettyplease::unparse(&syntax);
     if formatted.contains(OPEN_REPLY_ENUM_MARKER) {
         anyhow::bail!("generated code still carries the open reply enum marker");
@@ -2124,6 +2343,12 @@ fn main() -> anyhow::Result<()> {
     fs::write(
         out_dir.join("run_output_event_types.rs"),
         format!("pub(crate) const RUN_OUTPUT_EVENT_TYPES: &[&str] = &{event_types:?};\n"),
+    )?;
+    fs::write(
+        out_dir.join("template_access_change_kinds.rs"),
+        format!(
+            "pub(crate) const TEMPLATE_ACCESS_CHANGE_KINDS: &[&str] = &{access_change_kinds:?};\n"
+        ),
     )?;
 
     Ok(())

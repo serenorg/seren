@@ -3769,6 +3769,10 @@ fn managed_secrets_apply_guidance(target: &seren::ManagedSecretsApplyTarget) -> 
         seren::ManagedSecretsApplyTarget::VaultProvisioning { proposal_id, .. } => format!(
             "This MCP server cannot apply vault provisioning proposal {proposal_id}. The deployment owner finishes this vault setup in Seren Passwords, which completes it; no apply call follows. Do not use apply_seren_agent_passwords_setup for this setup."
         ),
+        seren::ManagedSecretsApplyTarget::VaultReadAccess => {
+            "This MCP server cannot apply vault read-access setups. The deployment owner finishes this vault setup in Seren Passwords, which completes it; no apply call follows. Do not use apply_seren_agent_passwords_setup for this setup."
+                .to_string()
+        }
     }
 }
 
@@ -19276,16 +19280,48 @@ API endpoint: {endpoint}",
         let request = seren::ApproveHeldReleaseRequest {
             changes_fingerprint: params.changes_fingerprint,
         };
-        let response = api_client
+        match api_client
             .approve_managed_agent_held_release(
                 &params.organization_id,
                 &params.held_release_id,
                 &request,
             )
-            .into_mcp_result()
-            .await?
-            .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+            .await
+        {
+            Ok(response) => Ok(CallToolResult::success(vec![json_content(
+                &response.into_inner(),
+            )?])),
+            Err(seren::Error::InvalidResponsePayload(bytes, decode_err)) => {
+                let payload = serde_json::from_slice::<serde_json::Value>(&bytes).unwrap_or_else(
+                    |_| {
+                        serde_json::json!({
+                            "approved": true,
+                            "held_release_id": params.held_release_id,
+                            "warning": format!(
+                                "Held release was approved on the server, but part of the response could not be decoded by this version: {decode_err}"
+                            ),
+                        })
+                    },
+                );
+                Ok(CallToolResult::success(vec![json_content(&payload)?]))
+            }
+            Err(seren::Error::UnexpectedResponse(response)) if response.status().is_success() => {
+                let status = response.status();
+                let bytes = response.bytes().await.unwrap_or_default();
+                let payload = serde_json::from_slice::<serde_json::Value>(&bytes).unwrap_or_else(
+                    |_| {
+                        serde_json::json!({
+                            "approved": true,
+                            "held_release_id": params.held_release_id,
+                            "status": status.as_u16(),
+                            "warning": "Held release was approved on the server, but this version could not decode the response.",
+                        })
+                    },
+                );
+                Ok(CallToolResult::success(vec![json_content(&payload)?]))
+            }
+            Err(error) => Err(seren_error_to_mcp_error(error).await),
+        }
     }
 
     #[tool(
@@ -29995,6 +30031,182 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn held_release_mcp_tools_preserve_store_password_rules_unknown_kinds_and_partial_approvals()
+     {
+        use wiremock::matchers::{body_json, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let upstream = MockServer::start().await;
+        let organization_id = Uuid::new_v4();
+        let held_release_id = Uuid::new_v4();
+        let partial_release_id = Uuid::new_v4();
+        let approver_id = Uuid::new_v4();
+        let fingerprint = "a".repeat(64);
+        let partial_fingerprint = "b".repeat(64);
+        let timestamp = "2026-11-27T19:00:00Z";
+
+        let store_change = serde_json::json!({
+            "change": "store_password_rules_changed",
+            "before": [],
+            "after": [{
+                "alias": "ringana_login",
+                "hosts": ["shop.ringana.com"],
+                "rules": { "min_length": 12, "max_length": 64 },
+                "fields": {
+                    "new_password": "input[name=new_password]",
+                    "submit": "button[type=submit]"
+                }
+            }]
+        });
+        let unknown_change = serde_json::json!({
+            "change": "future_vault_rule_changed",
+            "before": ["old"],
+            "after": ["new"]
+        });
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/organizations/{organization_id}/held-releases"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{
+                    "id": held_release_id,
+                    "slug": "shopper",
+                    "reason": "access_change",
+                    "comparison": {
+                        "kind": "access",
+                        "access_changes": [store_change.clone(), unknown_change.clone()],
+                        "content_changes": { "added": [], "changed": [], "removed": [] }
+                    },
+                    "changes_fingerprint": fingerprint,
+                    "source_label": "Main CI",
+                    "status": "pending",
+                    "created_at": timestamp
+                }]
+            })))
+            .expect(1)
+            .mount(&upstream)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/held-releases/{held_release_id}/approve"
+            )))
+            .and(body_json(serde_json::json!({
+                "changes_fingerprint": fingerprint
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "slug": "shopper",
+                    "revision": 11,
+                    "created": false,
+                    "revision_added": true,
+                    "active": true,
+                    "listed": true,
+                    "review_state": "approved",
+                    "providers": ["google"],
+                    "access_changes": [store_change.clone(), unknown_change.clone()]
+                }
+            })))
+            .expect(1)
+            .mount(&upstream)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/held-releases/{partial_release_id}/approve"
+            )))
+            .and(body_json(serde_json::json!({
+                "changes_fingerprint": partial_fingerprint
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "slug": "shopper",
+                    "revision": 12,
+                    "created": false,
+                    "revision_added": true,
+                    "active": true,
+                    "listed": true,
+                    "review_state": "approved",
+                    "providers": ["google"],
+                    "rollout": "unrecognized_future_rollout_shape"
+                }
+            })))
+            .expect(1)
+            .mount(&upstream)
+            .await;
+
+        let server = SerenMcpServer::new("owner-key", &upstream.uri()).unwrap();
+        let user_api_key = || {
+            extensions_with_auth_context(crate::SerenRequestAuthContext {
+                user_id: approver_id,
+                email: None,
+                credential: crate::SerenRequestCredential::UserApiKey {
+                    api_key_id: Some(Uuid::new_v4()),
+                    api_key_scopes: None,
+                },
+            })
+        };
+
+        let listed = template_catalog_result_json(
+            server
+                .list_seren_agent_held_releases(
+                    Parameters(ListSerenAgentHeldReleasesParams {
+                        organization_id,
+                        status: None,
+                    }),
+                    user_api_key(),
+                )
+                .await
+                .expect("MCP list_seren_agent_held_releases decodes store_password_rules_changed and unknown kind"),
+        );
+        let changes = listed["data"][0]["comparison"]["access_changes"]
+            .as_array()
+            .unwrap();
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[0]["change"], "store_password_rules_changed");
+        assert_eq!(changes[0]["after"][0]["alias"], "ringana_login");
+        assert_eq!(changes[1], unknown_change);
+
+        let approved = template_catalog_result_json(
+            server
+                .approve_seren_agent_held_release(
+                    Parameters(ApproveSerenAgentHeldReleaseParams {
+                        organization_id,
+                        held_release_id,
+                        changes_fingerprint: fingerprint,
+                    }),
+                    user_api_key(),
+                )
+                .await
+                .expect("MCP approve_seren_agent_held_release returns success with unknown access change"),
+        );
+        assert_eq!(approved["data"]["slug"], "shopper");
+        assert_eq!(approved["data"]["revision"], 11);
+        assert_eq!(approved["data"]["review_state"], "approved");
+        assert_eq!(approved["data"]["access_changes"][1], unknown_change);
+
+        let partial = template_catalog_result_json(
+            server
+                .approve_seren_agent_held_release(
+                    Parameters(ApproveSerenAgentHeldReleaseParams {
+                        organization_id,
+                        held_release_id: partial_release_id,
+                        changes_fingerprint: partial_fingerprint,
+                    }),
+                    user_api_key(),
+                )
+                .await
+                .expect("MCP approve_seren_agent_held_release returns success on partially undecodable 200 body"),
+        );
+        assert_eq!(partial["data"]["slug"], "shopper");
+        assert_eq!(partial["data"]["revision"], 12);
+        assert_eq!(partial["data"]["review_state"], "approved");
+
+        upstream.verify().await;
+    }
+
+    #[tokio::test]
     async fn managed_agent_owner_tools_reject_invalid_credentials_and_read_only_writes() {
         let server = SerenMcpServer::new("test-key", "http://127.0.0.1:1").unwrap();
         let deployment_id = Uuid::new_v4();
@@ -40411,6 +40623,7 @@ pub(crate) mod tests {
                 "spend_limits": {"model_paid_by_owner":false,"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":[{"key":"run","name":"Run","charge":"fee","triggers":["hire_cron","schedule","chat","webhook","api"],"amount":{"atomic":500000,"usd":"$0.50"},"expected_cost_atomic":300000}]},
                 "skill_slug": "managed-hire-00000000000000000000000000009003",
                 "mode": "cron",
+                "owned_by_caller": true,
                 "platform_managed": true,
                 "routine_set_by_hirer": false,
                 "serving_fallback": false,
@@ -42695,7 +42908,7 @@ pub(crate) mod tests {
         prices[0]["measured_cost"]["average_price_atomic"] = serde_json::json!(1000000);
         prices[1]["measured_cost"] = fee_tool_measurement_fixture();
         prices[1]["measured_cost"]["average_price_atomic"] = serde_json::json!(0);
-        let owner = serde_json::json!({"id":deployment_id,"organization_id":Uuid::from_u128(1),"name":"Pricing contract","skill_slug":"pricing-contract","mode":"always_on","platform_managed":true,"routine_set_by_hirer":false,"serving_fallback":false,"status":"running","desired_lifecycle_state":"running","template":{"slug":"pricing-contract","display_name":"Pricing contract","revision":1},"run_kinds":prices.clone(),"spend_limits":{"model_paid_by_owner":false,"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":prices.clone()},"created_at":"2026-10-23T00:00:00Z","updated_at":"2026-10-23T00:00:00Z"});
+        let owner = serde_json::json!({"id":deployment_id,"organization_id":Uuid::from_u128(1),"name":"Pricing contract","skill_slug":"pricing-contract","mode":"always_on","owned_by_caller":true,"platform_managed":true,"routine_set_by_hirer":false,"serving_fallback":false,"status":"running","desired_lifecycle_state":"running","template":{"slug":"pricing-contract","display_name":"Pricing contract","revision":1},"run_kinds":prices.clone(),"spend_limits":{"model_paid_by_owner":false,"per_task_atomic":2000000,"per_day_atomic":10000000,"day_timezone":"UTC","defaults":{"per_task_atomic":2000000,"per_day_atomic":10000000},"run_kinds":prices.clone()},"created_at":"2026-10-23T00:00:00Z","updated_at":"2026-10-23T00:00:00Z"});
         Mock::given(method("GET"))
             .and(path(format!(
                 "/publishers/seren-agent/deployments/{deployment_id}/managed"
