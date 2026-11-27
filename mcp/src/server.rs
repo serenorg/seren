@@ -2074,6 +2074,9 @@ pub struct UpdatePublisherParams {
 pub struct UpdatePublisherPricingParams {
     /// Publisher slug (unique identifier) to update pricing for
     pub slug: String,
+    /// Organization that owns the publisher. Needed when you belong to more than one.
+    #[serde(default)]
+    pub organization_id: Option<Uuid>,
     /// Price per API call (decimal string, e.g., "0.01" for $0.01 per call)
     #[serde(default)]
     pub price_per_call: Option<String>,
@@ -15964,7 +15967,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Update a publisher's pricing configuration. This updates prices for API calls, database queries, and other billable operations. Requires API key authentication (organization-level). Use get_agent_publisher first to see current pricing.",
+        description = "Update a publisher's pricing configuration. This updates prices for API calls, database queries, and other billable operations. Works with a sign-in or an API key of the organization that owns the publisher. Pass organization_id when you belong to more than one organization. Use get_agent_publisher first to see current pricing.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn update_publisher_pricing(
@@ -16016,24 +16019,32 @@ API endpoint: {endpoint}",
                 )
             })?;
 
-        // Get the organization_id from list_organizations (API key is scoped to org)
-        let orgs_response = api_client
-            .list_organizations()
-            .into_mcp_result()
-            .await?
-            .into_inner();
+        let organization_id = if let Some(organization_id) = params.organization_id {
+            organization_id
+        } else {
+            let orgs_response = api_client
+                .list_organizations()
+                .into_mcp_result()
+                .await?
+                .into_inner();
 
-        let organization_id = orgs_response
-            .data
-            .first()
-            .map(|org| org.id)
-            .ok_or_else(|| {
-                McpError::internal_error(
-                    "No organization found for this API key. Cannot update publisher pricing."
-                        .to_string(),
-                    None,
-                )
-            })?;
+            match orgs_response.data.as_slice() {
+                [org] => org.id,
+                [] => {
+                    return Err(McpError::internal_error(
+                        "No organization found for this API key. Cannot update publisher pricing."
+                            .to_string(),
+                        None,
+                    ));
+                }
+                _ => {
+                    return Err(McpError::invalid_params(
+                        "Pass organization_id: you belong to more than one organization. list_organizations shows them.",
+                        None,
+                    ));
+                }
+            }
+        };
 
         // Build the pricing update request
         let body = seren::UpdatePricingRequest {
@@ -35601,6 +35612,166 @@ pub(crate) mod tests {
         assert_eq!(body["payment_expiry_minutes"], 45);
         assert_eq!(body["grace_period_minutes"], 15);
         assert_eq!(body["max_queries_per_minute"], 120);
+    }
+
+    #[tokio::test]
+    async fn update_publisher_pricing_uses_organization_id_or_requires_it_with_multiple_orgs() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let first_org_id = Uuid::from_u128(0x348a);
+        let second_org_id = Uuid::from_u128(0x348b);
+        let publisher_id = Uuid::from_u128(0x348c);
+        let asset_id = Uuid::from_u128(0x348d);
+        let proxy = MockServer::start().await;
+        let mut publisher = serde_json::json!({
+            "data": {
+                "id": publisher_id,
+                "name": "CoinGecko Like",
+                "slug": "coingecko-like",
+                "categories": [],
+                "capabilities": [],
+                "use_cases": [],
+                "publisher_type": "organization",
+                "wallet_address": "0x1111111111111111111111111111111111111111",
+                "wallet_network_id": "eip155:8453",
+                "publisher_category": "integration",
+                "billing_model": "prepaid_credits",
+                "gateway_fee_percent": "0",
+                "auth_type": "static",
+                "allowed_passthrough_headers": [],
+                "passthrough_header_rewrite": {},
+                "forward_caller_identity": false,
+                "request_content_type": "application/json",
+                "upstream_headers": {},
+                "ownership_tracking_enabled": false,
+                "undocumented_endpoint_policy": "default_deny",
+                "is_active": true,
+                "is_verified": false,
+                "total_queries": 0,
+                "unique_agents_served": 0,
+                "total_revenue_atomic": 0,
+                "created_at": "2026-11-16T00:00:00Z",
+                "updated_at": "2026-11-16T00:00:00Z",
+                "requires_user_oauth": false
+            }
+        });
+        publisher["data"]["pricing"] = serde_json::json!([{
+            "asset_id": asset_id,
+            "pricing_model": "per_request",
+            "base_price_per_1000_rows": "0",
+            "markup_multiplier": "1",
+            "min_charge": "0",
+            "payment_expiry_minutes": 30,
+            "prepaid_enabled": true,
+            "onchain_enabled": false,
+            "minimum_balance": "0",
+            "low_balance_threshold": "0",
+            "upstream_cost_unit_price": "0"
+        }]);
+        Mock::given(method("GET"))
+            .and(path("/publishers/coingecko-like"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(publisher))
+            .mount(&proxy)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/organizations"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [
+                    {
+                        "id": first_org_id,
+                        "name": "First Org",
+                        "slug": "first-org",
+                        "created_by": Uuid::from_u128(0x348e),
+                        "is_personal": true,
+                        "created_at": "2026-11-16T00:00:00Z",
+                        "updated_at": "2026-11-16T00:00:00Z"
+                    },
+                    {
+                        "id": second_org_id,
+                        "name": "Second Org",
+                        "slug": "second-org",
+                        "created_by": Uuid::from_u128(0x348e),
+                        "is_personal": false,
+                        "created_at": "2026-11-16T00:00:00Z",
+                        "updated_at": "2026-11-16T00:00:00Z"
+                    }
+                ]
+            })))
+            .mount(&proxy)
+            .await;
+        let second_pricing_path =
+            format!("/organizations/{second_org_id}/publishers/{publisher_id}/pricing");
+        Mock::given(method("PUT"))
+            .and(path(second_pricing_path.as_str()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "asset_id": asset_id,
+                    "pricing_model": "per_request",
+                    "base_price_per_1000_rows": "0",
+                    "markup_multiplier": "1.2",
+                    "min_charge": "0",
+                    "payment_expiry_minutes": 30,
+                    "prepaid_enabled": true,
+                    "onchain_enabled": false,
+                    "minimum_balance": "0",
+                    "low_balance_threshold": "0",
+                    "upstream_cost_unit_price": "0"
+                }
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+
+        let err = server
+            .update_publisher_pricing(
+                Parameters(
+                    serde_json::from_value(serde_json::json!({
+                        "slug": "coingecko-like",
+                        "markup_multiplier": "1.2"
+                    }))
+                    .expect("pricing params without organization_id"),
+                ),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .expect_err("multiple organizations require organization_id");
+        assert_eq!(err.code, rmcp::model::ErrorCode::INVALID_PARAMS);
+        assert_eq!(
+            err.message,
+            "Pass organization_id: you belong to more than one organization. list_organizations shows them."
+        );
+        let requests_before_org_id = proxy.received_requests().await.unwrap();
+        assert!(
+            requests_before_org_id
+                .iter()
+                .all(|request| request.method.as_str() != "PUT"),
+            "no pricing request should be sent when organization_id is omitted with multiple orgs"
+        );
+
+        server
+            .update_publisher_pricing(
+                Parameters(
+                    serde_json::from_value(serde_json::json!({
+                        "slug": "coingecko-like",
+                        "organization_id": second_org_id,
+                        "markup_multiplier": "1.2"
+                    }))
+                    .expect("pricing params with organization_id"),
+                ),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .expect("the pricing is updated for the second organization");
+        let requests = proxy.received_requests().await.unwrap();
+        let put_paths: Vec<&str> = requests
+            .iter()
+            .filter(|request| request.method.as_str() == "PUT")
+            .map(|request| request.url.path())
+            .collect();
+        assert_eq!(put_paths, vec![second_pricing_path.as_str()]);
     }
 
     #[tokio::test]
