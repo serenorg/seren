@@ -23,7 +23,7 @@ fn prices(changed_at: Value) -> Value {
 fn owner(deployment_id: Uuid, run_kinds: Value) -> Value {
     json!({
         "id": deployment_id, "organization_id": Uuid::from_u128(1), "name": "Pricing contract",
-        "skill_slug": "pricing-contract", "mode": "always_on", "platform_managed": true,
+        "skill_slug": "pricing-contract", "mode": "always_on", "owned_by_caller": true, "platform_managed": true,
         "routine_set_by_hirer": false,
         "status": "running", "desired_lifecycle_state": "running", "serving_fallback": false,
         "template": {"slug": "pricing-contract", "display_name": "Pricing contract", "revision": 1},

@@ -789,7 +789,7 @@ fn held_access_change_sentences(details: &Value) -> Vec<String> {
                         .unwrap_or_else(|_| {
                             item.get("change")
                                 .and_then(Value::as_str)
-                                .map(|name| format!("Access change: {name}."))
+                                .map(describe_unknown_access_change)
                                 .unwrap_or_else(|| item.to_string())
                         })
                 })
@@ -1020,6 +1020,7 @@ fn owner_connection_label(value: &str) -> &str {
     match value {
         "mail_and_files" => "mail and files",
         "mail_read" => "mail read",
+        "directory_read" => "directory read",
         "sign_in_only" => "sign-in only",
         other => other,
     }
@@ -1090,11 +1091,15 @@ fn llm_connection_label(connection: Option<&seren::ManagedAgentTemplateLlmConnec
             "Seren Private Models ({model_id}; fallback: {})",
             fallback_models.join(", ")
         ),
-        Some(seren::ManagedAgentTemplateLlmConnection::Codex { model_id, fallback }) => format!(
+        Some(seren::ManagedAgentTemplateLlmConnection::Codex {
+            model_id, fallback, ..
+        }) => format!(
             "Codex ({model_id}; fallback: {})",
             owner_model_fallback_label(fallback)
         ),
-        Some(seren::ManagedAgentTemplateLlmConnection::ProviderKeys { model_id, fallback }) => {
+        Some(seren::ManagedAgentTemplateLlmConnection::ProviderKeys {
+            model_id, fallback, ..
+        }) => {
             format!(
                 "provider keys ({model_id}; fallback: {})",
                 owner_model_fallback_label(fallback)
@@ -1192,6 +1197,65 @@ fn native_tools_label(tools: &[seren::AgentNativeToolSet]) -> String {
             })
             .collect::<Vec<_>>()
             .join(", ")
+    }
+}
+
+fn describe_unknown_access_change(kind: &str) -> String {
+    let name = match kind.trim() {
+        "" => "unknown",
+        trimmed => trimmed,
+    };
+    format!(
+        "Unknown access change `{name}` (this version of seren cannot describe it; update seren to review it)."
+    )
+}
+
+fn describe_store_password_rules_change(
+    before: &[seren::StorePasswordRule],
+    after: &[seren::StorePasswordRule],
+) -> String {
+    fn group_by_alias(
+        rules: &[seren::StorePasswordRule],
+    ) -> std::collections::BTreeMap<&str, Vec<Value>> {
+        let mut grouped: std::collections::BTreeMap<&str, Vec<Value>> =
+            std::collections::BTreeMap::new();
+        for rule in rules {
+            grouped
+                .entry(rule.alias.as_str())
+                .or_default()
+                .push(serde_json::to_value(rule).unwrap_or(Value::Null));
+        }
+        grouped
+    }
+    let before_map = group_by_alias(before);
+    let after_map = group_by_alias(after);
+    let aliases: std::collections::BTreeSet<&str> =
+        before_map.keys().chain(after_map.keys()).copied().collect();
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
+    let mut changed = Vec::new();
+    for alias in aliases {
+        match (before_map.get(alias), after_map.get(alias)) {
+            (None, Some(_)) => added.push(alias),
+            (Some(_), None) => removed.push(alias),
+            (Some(prev), Some(next)) if prev != next => changed.push(alias),
+            _ => {}
+        }
+    }
+    let mut parts = Vec::new();
+    if !added.is_empty() {
+        parts.push(format!("added {}", added.join(", ")));
+    }
+    if !removed.is_empty() {
+        parts.push(format!("removed {}", removed.join(", ")));
+    }
+    if !changed.is_empty() {
+        parts.push(format!("changed {}", changed.join(", ")));
+    }
+    if parts.is_empty() {
+        "Changed store password rules.".to_string()
+    } else {
+        format!("Changed store password rules: {}.", parts.join("; "))
     }
 }
 
@@ -1378,6 +1442,12 @@ fn describe_access_change(change: &seren::TemplateAccessChange) -> String {
                 format_tools(after.as_ref())
             )
         }
+        seren::TemplateAccessChange::StorePasswordRulesChanged { before, after } => {
+            describe_store_password_rules_change(before, after)
+        }
+        seren::TemplateAccessChange::Other(unknown) => {
+            describe_unknown_access_change(unknown.change())
+        }
     }
 }
 
@@ -1551,12 +1621,43 @@ struct ApprovalPrompt<'a, R, W> {
     out: &'a mut W,
 }
 
+fn unknown_access_change_kinds(hold: &seren::HeldReleaseSummary) -> Vec<String> {
+    hold.comparison
+        .as_ref()
+        .map(|comparison| {
+            let mut kinds = Vec::new();
+            for change in &comparison.access_changes {
+                if let seren::TemplateAccessChange::Other(unknown) = change {
+                    let kind = match unknown.change().trim() {
+                        "" => "unknown".to_string(),
+                        name => name.to_string(),
+                    };
+                    if !kinds.contains(&kind) {
+                        kinds.push(kind);
+                    }
+                }
+            }
+            kinds
+        })
+        .unwrap_or_default()
+}
+
 fn confirm_held_release_approval<R: BufRead, W: Write>(
     organization_id: Uuid,
     hold: &seren::HeldReleaseSummary,
     prompt: &mut ApprovalPrompt<'_, R, W>,
 ) -> Result<()> {
     writeln!(prompt.out, "{}", held_release_review_text(hold))?;
+    let unknown_kinds = unknown_access_change_kinds(hold);
+    if !unknown_kinds.is_empty() {
+        anyhow::bail!(
+            "Cannot approve held release {} without --fingerprint because this version of seren cannot describe access change kind(s): {}. Update seren to review them, or review elsewhere and re-run: seren agent managed-held-releases {organization_id} approve {} --fingerprint {}",
+            hold.id,
+            unknown_kinds.join(", "),
+            hold.id,
+            hold.changes_fingerprint
+        );
+    }
     if !prompt.interactive {
         anyhow::bail!(
             "Cannot approve held release {} without --fingerprint on a non-interactive terminal. Review the changes above and re-run: seren agent managed-held-releases {organization_id} approve {} --fingerprint {}",
@@ -1575,16 +1676,15 @@ fn confirm_held_release_approval<R: BufRead, W: Write>(
     Ok(())
 }
 
-async fn approve_held_release<R: BufRead, W: Write>(
+async fn resolve_approval_fingerprint<R: BufRead, W: Write>(
     client: &seren::Client,
     organization_id: Uuid,
     held_release_id: Uuid,
     fingerprint: Option<String>,
-    ctx: &CommandContext,
     prompt: &mut ApprovalPrompt<'_, R, W>,
-) -> Result<()> {
-    let changes_fingerprint = match fingerprint {
-        Some(fingerprint) => fingerprint,
+) -> Result<String> {
+    match fingerprint {
+        Some(fingerprint) => Ok(fingerprint),
         None => {
             let holds = match client
                 .list_managed_agent_held_releases(
@@ -1609,11 +1709,151 @@ async fn approve_held_release<R: BufRead, W: Write>(
                     anyhow::anyhow!("No pending held release found with ID {held_release_id}.")
                 })?;
             confirm_held_release_approval(organization_id, &hold, prompt)?;
-            hold.changes_fingerprint
+            Ok(hold.changes_fingerprint)
+        }
+    }
+}
+
+fn write_key_value_table_to(rows: &[(&str, String)], out: &mut impl Write) -> Result<()> {
+    let mut table = comfy_table::Table::new();
+    table
+        .load_style(comfy_table::presets::UTF8_FULL)
+        .set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
+    table.set_header(vec![
+        comfy_table::Cell::new("Field").fg(comfy_table::Color::Green),
+        comfy_table::Cell::new("Value").fg(comfy_table::Color::Green),
+    ]);
+    for (field, value) in rows {
+        table.add_row(vec![
+            comfy_table::Cell::new(*field),
+            comfy_table::Cell::new(value),
+        ]);
+    }
+    output::keep_id_columns_whole(&mut table);
+    writeln!(out, "{table}")?;
+    Ok(())
+}
+
+fn write_value_to(value: &Value, out: &mut impl Write) -> Result<()> {
+    match value {
+        Value::Array(items) if items.is_empty() => writeln!(out, "No results found")?,
+        Value::Array(items) => {
+            for item in items {
+                write_value_to(item, out)?;
+            }
+        }
+        Value::Object(fields) => {
+            let rows: Vec<(&str, String)> = fields
+                .iter()
+                .map(|(key, value)| {
+                    let text = match value {
+                        Value::String(text) => text.clone(),
+                        Value::Null => "-".to_string(),
+                        _ => serde_json::to_string_pretty(value).expect("JSON value serializes"),
+                    };
+                    (key.as_str(), text)
+                })
+                .collect();
+            write_key_value_table_to(&rows, out)?;
+        }
+        _ => writeln!(out, "{value}")?,
+    }
+    Ok(())
+}
+
+async fn list_held_releases_with_writer(
+    client: &seren::Client,
+    organization_id: Uuid,
+    status: Option<seren::HeldReleaseStatus>,
+    format: OutputFormat,
+    stdout: &mut impl Write,
+) -> Result<()> {
+    let response = match client
+        .list_managed_agent_held_releases(&organization_id, status)
+        .await
+    {
+        Ok(response) => response.into_inner(),
+        Err(error) => {
+            return Err(super::agent::anyhow_from_seren_error(
+                "Managed agent request failed",
+                error,
+            )
+            .await);
         }
     };
+    match format {
+        OutputFormat::Json => {
+            writeln!(stdout, "{}", serde_json::to_string_pretty(&response)?)?;
+        }
+        OutputFormat::Table => {
+            if response.data.is_empty() {
+                writeln!(stdout, "No results found")?;
+            } else {
+                for hold in &response.data {
+                    let rows = held_release_table_rows(hold);
+                    write_key_value_table_to(&rows, stdout)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn write_held_release_approval_value(
+    held_release_id: Uuid,
+    value: Option<&Value>,
+    partial_decode_warning: Option<&str>,
+    format: OutputFormat,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+) -> Result<()> {
+    match (format, value) {
+        (OutputFormat::Json, Some(payload)) => {
+            writeln!(stdout, "{}", serde_json::to_string_pretty(payload)?)?;
+            if let Some(warning) = partial_decode_warning {
+                writeln!(stderr, "Warning: {warning}")?;
+            }
+        }
+        (OutputFormat::Json, None) => {
+            let warning = partial_decode_warning.unwrap_or(
+                "Approval succeeded on the server, but this version of seren could not decode the response; update seren.",
+            );
+            let payload = json!({
+                "approved": true,
+                "held_release_id": held_release_id,
+                "warning": warning,
+            });
+            writeln!(stdout, "{}", serde_json::to_string_pretty(&payload)?)?;
+        }
+        (OutputFormat::Table, Some(payload)) => {
+            write_value_to(payload.get("data").unwrap_or(payload), stdout)?;
+            if let Some(warning) = partial_decode_warning {
+                writeln!(stderr, "Warning: {warning}")?;
+            }
+        }
+        (OutputFormat::Table, None) => {
+            writeln!(
+                stdout,
+                "Approved held release {held_release_id}, but this version of seren could not decode the full response; update seren."
+            )?;
+            if let Some(warning) = partial_decode_warning {
+                writeln!(stderr, "Warning: {warning}")?;
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn send_held_release_approval_with_writers(
+    organization_id: Uuid,
+    held_release_id: Uuid,
+    changes_fingerprint: String,
+    ctx: &CommandContext,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+) -> Result<()> {
     let approve_client = client_with_timeout(ctx, TEMPLATE_ROLLOUT_TIMEOUT_SECS).await?;
-    let response = match approve_client
+    match approve_client
         .approve_managed_agent_held_release(
             &organization_id,
             &held_release_id,
@@ -1623,17 +1863,136 @@ async fn approve_held_release<R: BufRead, W: Write>(
         )
         .await
     {
-        Ok(response) => response,
+        Ok(response) => {
+            let value = serde_json::to_value(response.into_inner())?;
+            write_held_release_approval_value(
+                held_release_id,
+                Some(&value),
+                None,
+                ctx.format,
+                stdout,
+                stderr,
+            )
+        }
+        Err(seren::Error::InvalidResponsePayload(bytes, decode_err)) => {
+            let raw_value = serde_json::from_slice::<Value>(&bytes).ok();
+            let warning = format!(
+                "Held release {held_release_id} was approved on the server, but part of the response could not be decoded by this version of seren ({decode_err}); update seren."
+            );
+            write_held_release_approval_value(
+                held_release_id,
+                raw_value.as_ref(),
+                Some(&warning),
+                ctx.format,
+                stdout,
+                stderr,
+            )
+        }
+        Err(seren::Error::UnexpectedResponse(response)) if response.status().is_success() => {
+            let status = response.status();
+            let bytes = response.bytes().await.unwrap_or_default();
+            let raw_value = serde_json::from_slice::<Value>(&bytes).ok();
+            let warning = format!(
+                "Held release {held_release_id} was approved on the server (HTTP {status}), but this version of seren could not decode the response; update seren."
+            );
+            write_held_release_approval_value(
+                held_release_id,
+                raw_value.as_ref(),
+                Some(&warning),
+                ctx.format,
+                stdout,
+                stderr,
+            )
+        }
         Err(error) => {
-            return Err(format_held_release_approval_error(
+            Err(format_held_release_approval_error(organization_id, held_release_id, error).await)
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn approve_held_release_with_writers<R: BufRead, WOut: Write, WErr: Write>(
+    client: &seren::Client,
+    organization_id: Uuid,
+    held_release_id: Uuid,
+    fingerprint: Option<String>,
+    ctx: &CommandContext,
+    interactive: bool,
+    reader: &mut R,
+    stdout: &mut WOut,
+    stderr: &mut WErr,
+) -> Result<()> {
+    let changes_fingerprint = match ctx.format {
+        OutputFormat::Json => {
+            let mut prompt = ApprovalPrompt {
+                interactive,
+                reader,
+                out: stderr,
+            };
+            resolve_approval_fingerprint(
+                client,
                 organization_id,
                 held_release_id,
-                error,
+                fingerprint,
+                &mut prompt,
             )
-            .await);
+            .await?
+        }
+        OutputFormat::Table => {
+            let mut prompt = ApprovalPrompt {
+                interactive,
+                reader,
+                out: stdout,
+            };
+            resolve_approval_fingerprint(
+                client,
+                organization_id,
+                held_release_id,
+                fingerprint,
+                &mut prompt,
+            )
+            .await?
         }
     };
-    print_response(&response.into_inner(), ctx)
+    send_held_release_approval_with_writers(
+        organization_id,
+        held_release_id,
+        changes_fingerprint,
+        ctx,
+        stdout,
+        stderr,
+    )
+    .await
+}
+
+#[cfg(test)]
+async fn approve_held_release<R: BufRead, W: Write>(
+    client: &seren::Client,
+    organization_id: Uuid,
+    held_release_id: Uuid,
+    fingerprint: Option<String>,
+    ctx: &CommandContext,
+    prompt: &mut ApprovalPrompt<'_, R, W>,
+) -> Result<()> {
+    let changes_fingerprint = resolve_approval_fingerprint(
+        client,
+        organization_id,
+        held_release_id,
+        fingerprint,
+        prompt,
+    )
+    .await?;
+    let mut stdout = std::io::stdout().lock();
+    let mut stderr = std::io::stderr().lock();
+    send_held_release_approval_with_writers(
+        organization_id,
+        held_release_id,
+        changes_fingerprint,
+        ctx,
+        &mut stdout,
+        &mut stderr,
+    )
+    .await
 }
 
 fn format_held_release_changed_conflict(
@@ -2222,32 +2581,15 @@ pub async fn execute(action: ManagedAction, ctx: &CommandContext) -> Result<()> 
             action,
         } => match action {
             HeldReleaseAction::List { status } => {
-                let response = match client
-                    .list_managed_agent_held_releases(&organization_id, status.map(Into::into))
-                    .await
-                {
-                    Ok(response) => response.into_inner(),
-                    Err(error) => {
-                        return Err(super::agent::anyhow_from_seren_error(
-                            "Managed agent request failed",
-                            error,
-                        )
-                        .await);
-                    }
-                };
-                match ctx.format {
-                    OutputFormat::Json => output::print_json(&response)?,
-                    OutputFormat::Table => {
-                        if response.data.is_empty() {
-                            println!("No results found");
-                        } else {
-                            for hold in &response.data {
-                                let rows = held_release_table_rows(hold);
-                                output::print_key_value_table(None, &rows);
-                            }
-                        }
-                    }
-                }
+                let mut stdout = std::io::stdout().lock();
+                list_held_releases_with_writer(
+                    &client,
+                    organization_id,
+                    status.map(Into::into),
+                    ctx.format,
+                    &mut stdout,
+                )
+                .await?;
             }
             HeldReleaseAction::Approve {
                 held_release_id,
@@ -2255,42 +2597,20 @@ pub async fn execute(action: ManagedAction, ctx: &CommandContext) -> Result<()> 
             } => {
                 let interactive = std::io::stdin().is_terminal();
                 let mut stdin = std::io::stdin().lock();
-                match ctx.format {
-                    OutputFormat::Json => {
-                        let mut stderr = std::io::stderr().lock();
-                        let mut prompt = ApprovalPrompt {
-                            interactive,
-                            reader: &mut stdin,
-                            out: &mut stderr,
-                        };
-                        approve_held_release(
-                            &client,
-                            organization_id,
-                            held_release_id,
-                            fingerprint,
-                            ctx,
-                            &mut prompt,
-                        )
-                        .await?;
-                    }
-                    OutputFormat::Table => {
-                        let mut stdout = std::io::stdout().lock();
-                        let mut prompt = ApprovalPrompt {
-                            interactive,
-                            reader: &mut stdin,
-                            out: &mut stdout,
-                        };
-                        approve_held_release(
-                            &client,
-                            organization_id,
-                            held_release_id,
-                            fingerprint,
-                            ctx,
-                            &mut prompt,
-                        )
-                        .await?;
-                    }
-                }
+                let mut stdout = std::io::stdout().lock();
+                let mut stderr = std::io::stderr().lock();
+                approve_held_release_with_writers(
+                    &client,
+                    organization_id,
+                    held_release_id,
+                    fingerprint,
+                    ctx,
+                    interactive,
+                    &mut stdin,
+                    &mut stdout,
+                    &mut stderr,
+                )
+                .await?;
             }
             HeldReleaseAction::Refuse {
                 held_release_id,
@@ -4558,6 +4878,341 @@ mod tests {
                 .unwrap(),
             bundled_script
         );
+        server.verify().await;
+    }
+
+    #[tokio::test]
+    async fn held_release_list_and_approve_handle_store_password_rules_and_unknown_kinds() {
+        use wiremock::matchers::{body_json, method, path, query_param};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        let org_id = Uuid::from_u128(950);
+        let store_hold_id = Uuid::from_u128(951);
+        let unknown_hold_id = Uuid::from_u128(952);
+        let partial_hold_id = Uuid::from_u128(953);
+        let fp_store = "1".repeat(64);
+        let fp_unknown = "2".repeat(64);
+        let fp_partial = "3".repeat(64);
+        let timestamp = "2026-11-27T19:00:00Z";
+
+        let secret_selector_new = "input#secret-new-password-selector";
+        let secret_selector_confirm = "input#secret-confirm-password-selector";
+        let secret_selector_submit = "button#secret-submit-selector";
+
+        let make_store_rule = |alias: &str, min_length: i32| {
+            json!({
+                "alias": alias,
+                "hosts": [format!("{alias}.example.com")],
+                "rules": { "min_length": min_length, "max_length": 64 },
+                "fields": {
+                    "new_password": secret_selector_new,
+                    "confirm_password": secret_selector_confirm,
+                    "submit": secret_selector_submit
+                }
+            })
+        };
+
+        let store_password_change = json!({
+            "change": "store_password_rules_changed",
+            "before": [
+                make_store_rule("legacy_store", 10),
+                make_store_rule("ringana_login", 12),
+                make_store_rule("steady_store", 16)
+            ],
+            "after": [
+                make_store_rule("acme_shop", 14),
+                make_store_rule("ringana_login", 16),
+                make_store_rule("steady_store", 16)
+            ]
+        });
+        let made_up_change = json!({
+            "change": "future_vault_rule_changed",
+            "before": ["a"],
+            "after": ["b"]
+        });
+
+        let store_hold_wire = json!({
+            "id": store_hold_id,
+            "slug": "shopper",
+            "reason": "access_change",
+            "comparison": {
+                "kind": "access",
+                "access_changes": [store_password_change.clone()],
+                "content_changes": { "added": [], "changed": [], "removed": [] }
+            },
+            "changes_fingerprint": fp_store,
+            "source_label": "Main CI",
+            "status": "pending",
+            "created_at": timestamp
+        });
+        let unknown_hold_wire = json!({
+            "id": unknown_hold_id,
+            "slug": "vault-helper",
+            "reason": "access_change",
+            "comparison": {
+                "kind": "access",
+                "access_changes": [store_password_change.clone(), made_up_change.clone()],
+                "content_changes": { "added": [], "changed": [], "removed": [] }
+            },
+            "changes_fingerprint": fp_unknown,
+            "source_label": "Main CI",
+            "status": "pending",
+            "created_at": timestamp
+        });
+
+        Mock::given(method("GET"))
+            .and(path(format!("/organizations/{org_id}/held-releases")))
+            .and(wiremock::matchers::query_param_is_missing("status"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": [store_hold_wire, unknown_hold_wire.clone()]
+            })))
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!("/organizations/{org_id}/held-releases")))
+            .and(query_param("status", "pending"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": [unknown_hold_wire]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        // Approving the hold with a made-up access change kind succeeds (200) and echoes the made-up kind.
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{org_id}/held-releases/{unknown_hold_id}/approve"
+            )))
+            .and(body_json(json!({ "changes_fingerprint": fp_unknown })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": {
+                    "slug": "vault-helper",
+                    "revision": 9,
+                    "created": false,
+                    "revision_added": true,
+                    "active": true,
+                    "listed": true,
+                    "review_state": "approved",
+                    "providers": ["google"],
+                    "access_changes": [made_up_change.clone()]
+                }
+            })))
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        // Even when another field in the 200 approval payload fails typed decoding, CLI still succeeds.
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{org_id}/held-releases/{partial_hold_id}/approve"
+            )))
+            .and(body_json(json!({ "changes_fingerprint": fp_partial })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": {
+                    "slug": "partial-employee",
+                    "revision": 12,
+                    "created": false,
+                    "revision_added": true,
+                    "active": true,
+                    "listed": true,
+                    "review_state": "approved",
+                    "providers": ["google"],
+                    "rollout": "unrecognized_future_rollout_shape"
+                }
+            })))
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        let table_ctx = CommandContext::new(
+            Some(server.uri()),
+            Some("seren_test_key".into()),
+            OutputFormat::Table,
+        );
+        let json_ctx = CommandContext::new(
+            Some(server.uri()),
+            Some("seren_test_key".into()),
+            OutputFormat::Json,
+        );
+        let client = table_ctx.client().await.unwrap();
+
+        // 1. Table list decodes store_password_rules_changed (naming stores, hiding selectors)
+        //    and still lists the hold with a made-up kind by name with an update hint.
+        let mut table_list_out = Vec::new();
+        list_held_releases_with_writer(
+            &client,
+            org_id,
+            None,
+            OutputFormat::Table,
+            &mut table_list_out,
+        )
+        .await
+        .unwrap();
+        let table_list = String::from_utf8(table_list_out).unwrap();
+        assert!(
+            table_list.contains(
+                "Changed store password rules: added acme_shop; removed legacy_store; changed ringana_login."
+            ),
+            "expected store aliases sentence in list output:\n{table_list}"
+        );
+        assert!(
+            !table_list.contains("steady_store"),
+            "unchanged store must not be listed as changed:\n{table_list}"
+        );
+        for selector in [
+            secret_selector_new,
+            secret_selector_confirm,
+            secret_selector_submit,
+        ] {
+            assert!(
+                !table_list.contains(selector),
+                "store password selectors must not be printed:\n{table_list}"
+            );
+        }
+        assert!(
+            table_list.contains("vault-helper")
+                && table_list.contains("future_vault_rule_changed")
+                && table_list.contains("cannot describe")
+                && table_list.contains("update seren"),
+            "unknown kind must be shown by name with update notice:\n{table_list}"
+        );
+
+        // 2. JSON list preserves both holds and the unknown kind verbatim.
+        let mut json_list_out = Vec::new();
+        list_held_releases_with_writer(
+            &client,
+            org_id,
+            None,
+            OutputFormat::Json,
+            &mut json_list_out,
+        )
+        .await
+        .unwrap();
+        let json_list: Value = serde_json::from_slice(&json_list_out).unwrap();
+        assert_eq!(json_list["data"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            json_list["data"][1]["comparison"]["access_changes"][1],
+            made_up_change
+        );
+
+        // 3. Interactive approval of a hold with a made-up kind is refused before any POST approve call.
+        let mut interactive_in = std::io::Cursor::new(b"yes\n");
+        let mut interactive_out = Vec::new();
+        let mut interactive_err = Vec::new();
+        let interactive_refusal = approve_held_release_with_writers(
+            &client,
+            org_id,
+            unknown_hold_id,
+            None,
+            &table_ctx,
+            true,
+            &mut interactive_in,
+            &mut interactive_out,
+            &mut interactive_err,
+        )
+        .await
+        .unwrap_err();
+        let refusal_text = interactive_refusal.to_string();
+        assert!(
+            refusal_text.contains("future_vault_rule_changed")
+                && refusal_text.contains("--fingerprint")
+                && refusal_text.contains("Update seren"),
+            "unexpected interactive refusal: {refusal_text}"
+        );
+        assert_eq!(
+            interactive_in.position(),
+            0,
+            "interactive approval must refuse before reading stdin confirmation"
+        );
+        assert!(
+            !server
+                .received_requests()
+                .await
+                .unwrap()
+                .iter()
+                .any(|req| req.method.as_str() == "POST"),
+            "no approve POST may be sent when interactive approval is refused"
+        );
+
+        // 4. `approve --fingerprint` succeeds (Ok(())) and prints slug, revision, and review_state
+        //    when the 200 answer contains a made-up access change kind.
+        for ctx in [&table_ctx, &json_ctx] {
+            let mut empty_in = std::io::Cursor::new(b"");
+            let mut out = Vec::new();
+            let mut err = Vec::new();
+            approve_held_release_with_writers(
+                &client,
+                org_id,
+                unknown_hold_id,
+                Some(fp_unknown.clone()),
+                ctx,
+                false,
+                &mut empty_in,
+                &mut out,
+                &mut err,
+            )
+            .await
+            .expect("approve --fingerprint with made-up kind must succeed");
+            let stdout_text = String::from_utf8(out).unwrap();
+            assert!(
+                stdout_text.contains("vault-helper")
+                    && stdout_text.contains('9')
+                    && stdout_text.contains("approved"),
+                "missing approval summary ({:?}):\n{stdout_text}",
+                ctx.format
+            );
+            if matches!(ctx.format, OutputFormat::Json) {
+                let parsed: Value = serde_json::from_str(&stdout_text).unwrap();
+                assert_eq!(parsed["data"]["slug"], "vault-helper");
+                assert_eq!(parsed["data"]["revision"], 9);
+                assert_eq!(parsed["data"]["review_state"], "approved");
+            }
+        }
+
+        // 5. `approve --fingerprint` STILL succeeds (Ok(())) and prints slug, revision, and review_state
+        //    when another part of Core's 200 answer cannot be decoded into the typed struct.
+        for ctx in [&table_ctx, &json_ctx] {
+            let mut empty_in = std::io::Cursor::new(b"");
+            let mut out = Vec::new();
+            let mut err = Vec::new();
+            approve_held_release_with_writers(
+                &client,
+                org_id,
+                partial_hold_id,
+                Some(fp_partial.clone()),
+                ctx,
+                false,
+                &mut empty_in,
+                &mut out,
+                &mut err,
+            )
+            .await
+            .expect("partially undecodable 200 approval must still succeed");
+            let stdout_text = String::from_utf8(out).unwrap();
+            let stderr_text = String::from_utf8(err).unwrap();
+            assert!(
+                stdout_text.contains("partial-employee")
+                    && stdout_text.contains("12")
+                    && stdout_text.contains("approved"),
+                "missing partial approval summary ({:?}):\n{stdout_text}",
+                ctx.format
+            );
+            assert!(
+                stderr_text.contains("approved on the server")
+                    && stderr_text.contains("update seren"),
+                "expected partial-decode warning on stderr:\n{stderr_text}"
+            );
+            if matches!(ctx.format, OutputFormat::Json) {
+                let parsed: Value = serde_json::from_str(&stdout_text).unwrap();
+                assert_eq!(parsed["data"]["slug"], "partial-employee");
+                assert_eq!(parsed["data"]["revision"], 12);
+                assert_eq!(parsed["data"]["review_state"], "approved");
+            }
+        }
+
         server.verify().await;
     }
 }

@@ -8730,6 +8730,7 @@ async fn main() -> anyhow::Result<()> {
                     &seren::SetManagedAgentTemplateModel {
                         model_id,
                         fallback_models,
+                        reasoning_effort: None,
                         release_note: release_note
                             .map(|note| note.parse())
                             .transpose()

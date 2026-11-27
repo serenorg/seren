@@ -28,6 +28,10 @@ mod run_output_event_types {
     include!(concat!(env!("OUT_DIR"), "/run_output_event_types.rs"));
 }
 
+mod template_access_change_kinds {
+    include!(concat!(env!("OUT_DIR"), "/template_access_change_kinds.rs"));
+}
+
 /// A run event with an unknown string `type`, preserved as an opaque object.
 /// Listed types must satisfy their generated schema.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, schemars::JsonSchema)]
@@ -47,6 +51,42 @@ impl<'de> serde::Deserialize<'de> for UnknownRunOutputEvent {
                 "run event does not match the branch its type names",
             )),
             _ => Err(serde::de::Error::custom("run event type must be a string")),
+        }
+    }
+}
+
+/// An access change with an unknown string `change` tag, preserved as an opaque object.
+/// Listed `change` tags must satisfy their generated schema.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, schemars::JsonSchema)]
+#[serde(transparent)]
+pub struct UnknownTemplateAccessChange(pub serde_json::Map<String, serde_json::Value>);
+
+impl UnknownTemplateAccessChange {
+    /// The unknown `change` tag reported by the server.
+    pub fn change(&self) -> &str {
+        self.0
+            .get("change")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for UnknownTemplateAccessChange {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let change = serde_json::Map::<String, serde_json::Value>::deserialize(deserializer)?;
+        match change.get("change") {
+            Some(serde_json::Value::String(tag))
+                if !template_access_change_kinds::TEMPLATE_ACCESS_CHANGE_KINDS
+                    .contains(&tag.as_str()) =>
+            {
+                Ok(Self(change))
+            }
+            Some(serde_json::Value::String(_)) => Err(serde::de::Error::custom(
+                "template access change does not match the branch its change tag names",
+            )),
+            _ => Err(serde::de::Error::custom(
+                "template access change `change` must be a string",
+            )),
         }
     }
 }
@@ -868,7 +908,7 @@ mod tests {
     #[test]
     fn managed_owner_and_update_views_preserve_serving_revisions() {
         let owner_wire = json!({"id": Uuid::new_v4(), "organization_id": Uuid::new_v4(),
-            "name": "Researcher", "skill_slug": "research", "mode": "cron", "platform_managed": true,
+            "name": "Researcher", "skill_slug": "research", "mode": "cron", "owned_by_caller": true, "platform_managed": true,
             "routine_set_by_hirer": false,
             "status": "running", "desired_lifecycle_state": "running",
             "template": {"slug": "research", "display_name": "Researcher", "revision": 9},
@@ -1767,7 +1807,7 @@ mod tests {
     #[test]
     fn an_employer_sees_the_tool_output_limit_a_hire_runs_with() {
         let wire = json!({"id": Uuid::new_v4(), "organization_id": Uuid::new_v4(),
-            "name": "Vera Hale", "skill_slug": "vera-hale", "mode": "cron", "platform_managed": true,
+            "name": "Vera Hale", "skill_slug": "vera-hale", "mode": "cron", "owned_by_caller": true, "platform_managed": true,
             "routine_set_by_hirer": false,
             "status": "running", "desired_lifecycle_state": "running",
             "template": {"slug": "vera-hale", "display_name": "Vera Hale", "revision": 9},
@@ -3962,6 +4002,144 @@ mod tests {
             approve_resp.json::<serde_json::Value>().await.unwrap(),
             changed_body
         );
+
+        server.verify().await;
+    }
+
+    #[tokio::test]
+    async fn held_releases_decode_store_password_rules_and_unknown_access_changes() {
+        let server = MockServer::start().await;
+        let organization_id = Uuid::from_u128(701);
+        let held_id = Uuid::from_u128(702);
+        let fingerprint = "e".repeat(64);
+        let store_change = json!({
+            "change": "store_password_rules_changed",
+            "before": [],
+            "after": [{
+                "alias": "ringana_login",
+                "hosts": ["shop.ringana.com"],
+                "rules": {
+                    "min_length": 12,
+                    "max_length": 64
+                },
+                "fields": {
+                    "new_password": "input[name=new_password]",
+                    "confirm_password": "input[name=confirm_password]",
+                    "submit": "button[type=submit]"
+                }
+            }]
+        });
+        let unknown_change = json!({
+            "change": "future_vault_rule_changed",
+            "before": ["a"],
+            "after": ["b"]
+        });
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/organizations/{organization_id}/held-releases"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": [{
+                    "id": held_id,
+                    "slug": "shopper",
+                    "reason": "access_change",
+                    "comparison": {
+                        "kind": "access",
+                        "access_changes": [store_change.clone(), unknown_change.clone()],
+                        "content_changes": {"added": [], "changed": [], "removed": []}
+                    },
+                    "changes_fingerprint": fingerprint,
+                    "source_label": "Main CI",
+                    "status": "pending",
+                    "created_at": "2026-11-27T18:00:00Z"
+                }]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/held-releases/{held_id}/approve"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": {
+                    "slug": "shopper",
+                    "revision": 7,
+                    "created": false,
+                    "revision_added": true,
+                    "active": true,
+                    "listed": true,
+                    "review_state": "approved",
+                    "providers": ["google"],
+                    "access_changes": [store_change.clone(), unknown_change.clone()]
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = Client::new(&server.uri());
+        let holds = client
+            .list_managed_agent_held_releases(&organization_id, None)
+            .await
+            .expect("held release list with store_password_rules_changed and unknown kind decodes")
+            .into_inner()
+            .data;
+        assert_eq!(holds.len(), 1);
+        let changes = &holds[0].comparison.as_ref().unwrap().access_changes;
+        assert_eq!(changes.len(), 2);
+        assert!(matches!(
+            &changes[0],
+            crate::TemplateAccessChange::StorePasswordRulesChanged { before, after }
+                if before.is_empty() && after.len() == 1 && after[0].alias == "ringana_login"
+        ));
+        assert!(matches!(
+            &changes[1],
+            crate::TemplateAccessChange::Other(unknown)
+                if unknown.change() == "future_vault_rule_changed"
+        ));
+        let encoded_changes = serde_json::to_value(changes).unwrap();
+        assert_eq!(encoded_changes[0]["change"], "store_password_rules_changed");
+        assert_eq!(encoded_changes[0]["after"][0]["alias"], "ringana_login");
+        assert_eq!(encoded_changes[1], unknown_change);
+
+        let approved = client
+            .approve_managed_agent_held_release(
+                &organization_id,
+                &held_id,
+                &crate::ApproveHeldReleaseRequest {
+                    changes_fingerprint: fingerprint,
+                },
+            )
+            .await
+            .expect("held release approval with unknown access change decodes")
+            .into_inner()
+            .data;
+        assert_eq!(approved.slug, "shopper");
+        assert_eq!(approved.revision, 7);
+        let approved_changes = serde_json::to_value(approved.access_changes.unwrap()).unwrap();
+        assert_eq!(approved_changes[1], unknown_change);
+
+        // Listed change kinds with invalid payloads and untagged objects remain refused.
+        for invalid in [
+            json!({"change": "store_password_rules_changed", "before": "not-an-array", "after": []}),
+            json!({"change": "network_host_added", "rule": {}}),
+            json!({"before": [], "after": []}),
+            json!({"change": 42}),
+        ] {
+            assert!(
+                serde_json::from_value::<crate::TemplateAccessChange>(invalid.clone()).is_err(),
+                "invalid access change must fail decoding: {invalid}"
+            );
+        }
+        assert!(
+            serde_json::from_value::<crate::UnknownTemplateAccessChange>(store_change).is_err(),
+            "known access change tag must not decode as UnknownTemplateAccessChange"
+        );
+        let schema = serde_json::to_value(schemars::schema_for!(crate::TemplateAccessChange))
+            .expect("TemplateAccessChange schema serializes");
+        assert!(schema.get("anyOf").is_some(), "{schema}");
 
         server.verify().await;
     }

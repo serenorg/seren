@@ -841,7 +841,6 @@
               "scope",
               "limit_atomic",
               "used_atomic",
-              "suggested_increase_atomic",
               "code"
             ],
             "properties": {
@@ -886,8 +885,12 @@
                 "description": "Additional allowance for one step; zero when the existing allowance covers it."
               },
               "suggested_increase_atomic": {
-                "type": "integer",
-                "format": "int64"
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "Suggested increase for a hirer-controlled limit; absent when Seren fixes the limit."
               },
               "used_atomic": {
                 "type": "integer",
