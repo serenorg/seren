@@ -116,7 +116,7 @@ Every CI token must be signed with RS256 and addressed to audience (`aud`) `http
 
 ## Copy-Ready CI Pipelines
 
-Each pipeline below downloads the pre-built `seren-x86_64-unknown-linux-musl` binary and `SHA256SUMS.txt` from Seren CLI release `v0.16.1`, checks the binary with `sha256sum --check --ignore-missing`, and runs `seren agent managed-release`.
+Each pipeline below downloads the pre-built `seren-x86_64-unknown-linux-musl` binary and `SHA256SUMS.txt` from Seren CLI release `v0.16.2`, checks the binary with `sha256sum --check --ignore-missing`, and runs `seren agent managed-release`.
 
 Replace `<organization-id>` with your Seren organization ID and `./my-employee` with the path to your Employee folder containing `seren-release.json`.
 
@@ -141,7 +141,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SEREN_ORGANIZATION_ID: "<organization-id>"
-      SEREN_CLI_VERSION: "v0.16.1"
+      SEREN_CLI_VERSION: "v0.16.2"
     steps:
       - uses: actions/checkout@v4
 
@@ -176,7 +176,7 @@ release-employee:
   image: buildpack-deps:bookworm-scm
   variables:
     SEREN_ORGANIZATION_ID: "<organization-id>"
-    SEREN_CLI_VERSION: "v0.16.1"
+    SEREN_CLI_VERSION: "v0.16.2"
   id_tokens:
     SEREN_RELEASE_ID_TOKEN:
       aud: https://api.serendb.com
@@ -218,7 +218,7 @@ jobs:
       - image: cimg/base:current
     environment:
       SEREN_ORGANIZATION_ID: "<organization-id>"
-      SEREN_CLI_VERSION: "v0.16.1"
+      SEREN_CLI_VERSION: "v0.16.2"
     steps:
       - checkout
       - run:
@@ -293,7 +293,7 @@ Store the key as a masked secret environment variable named `SEREN_RELEASE_KEY` 
 ```bash
 set -eu
 SEREN_ORGANIZATION_ID="<organization-id>"
-SEREN_CLI_VERSION="v0.16.1"
+SEREN_CLI_VERSION="v0.16.2"
 bin_dir=$(mktemp -d)
 trap 'rm -rf "$bin_dir"' EXIT
 (
