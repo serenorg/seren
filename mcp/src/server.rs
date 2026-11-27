@@ -18886,6 +18886,25 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "Read what an organization has earned from the Employees and add-ons it sells on Seren: totals earned, available to collect, pending and already paid out, and earnings by Employee. Amounts are decimal strings in millionths of a US dollar. Requires the organization's Owner or Admin.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_organization_earnings(
+        &self,
+        Parameters(params): Parameters<OrganizationTemplatesParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .get_managed_agent_earnings(&params.organization_id)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
         description = "List the organization's published add-ons with each one's price in US cents, buyers who were not refunded, and the organization's earnings from their sales in USD atomic units (1,000,000 = $1), plus the listing words buyers read. Requires a built-in Owner or Admin of the publishing organization using an unrestricted direct credential.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
@@ -30593,6 +30612,7 @@ pub(crate) mod tests {
             ("get_owner_model_budget", true),
             ("update_owner_model_budget", false),
             ("get_owner_model_spend", true),
+            ("get_organization_earnings", true),
             ("list_seren_agent_addons", true),
             ("update_seren_agent_addon_listing", false),
             ("set_seren_agent_addon_price", false),
