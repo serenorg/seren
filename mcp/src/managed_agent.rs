@@ -1133,6 +1133,124 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_employee_address_reports_a_listing_and_a_hire_request() {
+        use axum::{body::Body, http::Request, middleware::Next};
+        use rmcp::ServiceExt;
+        use rmcp::transport::{StreamableHttpClientTransport, StreamableHttpService};
+        use std::{sync::Arc, time::Duration};
+        use wiremock::matchers::header;
+
+        let core = MockServer::start().await;
+        catalog(&core, &listing()).await;
+        let user_id = Uuid::new_v4();
+        for kind in ["page_view", "hire_click"] {
+            Mock::given(method("POST"))
+                .and(path("/visits"))
+                .and(header("authorization", "Bearer test-visits-pass"))
+                .and(body_partial_json(json!({"events": [{
+                    "user_id": user_id,
+                    "template_slug": "alina-golub",
+                    "kind": kind,
+                    "source": "mcp"
+                }]})))
+                .respond_with(ResponseTemplate::new(202))
+                .expect(1)
+                .mount(&core)
+                .await;
+        }
+        let server = ManagedAgentMcpServer::new(&core.uri(), reqwest::Client::new())
+            .with_visits_token(Some("test-visits-pass".to_string()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let authority = listener.local_addr().unwrap().to_string();
+        let cancellation = tokio_util::sync::CancellationToken::new();
+        let service = StreamableHttpService::new(
+            move || Ok(server.clone()),
+            Arc::new(crate::NeverSessionManager::default()),
+            crate::streamable_http_config(
+                vec!["127.0.0.1".to_string(), authority.clone()],
+                cancellation.clone(),
+            ),
+        );
+        let app = axum::Router::new()
+            .route(
+                "/employees/alina-golub",
+                axum::routing::any_service(service),
+            )
+            .layer(axum::middleware::from_fn(
+                move |mut request: Request<Body>, next: Next| async move {
+                    request
+                        .headers_mut()
+                        .insert("x-user-id", user_id.to_string().parse().unwrap());
+                    request
+                        .headers_mut()
+                        .insert("authorization", "Bearer upstream-access".parse().unwrap());
+                    next.run(request).await
+                },
+            ));
+        let shutdown = cancellation.clone();
+        let task = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(shutdown.cancelled_owned())
+                .await
+                .unwrap();
+        });
+        let transport = StreamableHttpClientTransport::from_uri(format!(
+            "http://{authority}/employees/alina-golub"
+        ));
+        let client = rmcp::model::ClientConfig::default()
+            .serve(transport)
+            .await
+            .unwrap();
+        assert!(
+            !client
+                .list_tools(Default::default())
+                .await
+                .unwrap()
+                .tools
+                .is_empty()
+        );
+        for (expected_count, kind) in [(1, "page_view"), (2, "hire_click")] {
+            if kind == "hire_click" {
+                let result = client
+                    .call_tool(CallToolRequestParams::new("hire"))
+                    .await
+                    .unwrap();
+                assert_ne!(result.is_error, Some(true));
+            }
+            tokio::time::timeout(Duration::from_secs(3), async {
+                loop {
+                    let requests = core.received_requests().await.unwrap();
+                    let visits: Vec<_> = requests
+                        .iter()
+                        .filter(|r| r.url.path() == "/visits")
+                        .collect();
+                    if visits.len() == expected_count {
+                        let body: Value = visits.last().unwrap().body_json().unwrap();
+                        let event = &body["events"][0];
+                        assert_eq!(event["kind"], kind);
+                        assert_eq!(event["source"], "mcp");
+                        assert!(
+                            event["occurred_at"]
+                                .as_str()
+                                .unwrap()
+                                .parse::<jiff::Timestamp>()
+                                .is_ok()
+                        );
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("visit must arrive promptly");
+        }
+        core.verify().await;
+        client.cancel().await.unwrap();
+        cancellation.cancel();
+        task.await.unwrap();
+    }
+
+    #[tokio::test]
     async fn declared_names_cannot_shadow_builtin_tools() {
         let core = MockServer::start().await;
         let mut listing = listing();
