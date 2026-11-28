@@ -40085,6 +40085,74 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn analytics_statement_tool_sends_each_filter_under_its_own_name() {
+        use wiremock::matchers::{method, path, query_param};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let organization_id = Uuid::new_v4();
+        let proxy = MockServer::start().await;
+        let response = serde_json::json!({"data": {
+            "organization_id": organization_id,
+            "timezone": "America/New_York",
+            "start": "2026-11-01",
+            "end": "2026-11-20",
+            "state": "available",
+            "reasons": [],
+            "rows": [],
+            "totals": {
+                "billed_atomic": "0",
+                "running_cost_atomic": "0",
+                "sales_atomic": "0",
+                "refunds_atomic": "0",
+                "seren_share_atomic": "0",
+                "other_sellers_share_atomic": "0",
+                "proceeds_atomic": "0",
+                "proceeds_cash_atomic": "0",
+                "proceeds_promotional_atomic": "0",
+                "owner_model_cost_atomic": "0",
+                "referral_rewards_atomic": "0",
+                "profit_atomic": "0",
+                "sales_from_excluded_accounts_atomic": "0",
+                "sales_through_own_publishers_atomic": "0"
+            }
+        }});
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/organizations/{organization_id}/analytics/statement"
+            )))
+            .and(query_param("start", "2026-11-01"))
+            .and(query_param("end", "2026-11-20"))
+            .and(query_param("timezone", "America/New_York"))
+            .and(query_param("product", "managed_agent:example-employee"))
+            .and(query_param("release", "7"))
+            .and(query_param("by_release", "true"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&response))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let result = server
+            .get_organization_analytics_statement(
+                Parameters(OrganizationAnalyticsParams {
+                    organization_id,
+                    start: Some("2026-11-01".into()),
+                    end: Some("2026-11-20".into()),
+                    timezone: Some("America/New_York".into()),
+                    product: Some("managed_agent:example-employee".into()),
+                    release: Some(7),
+                    by_release: Some(true),
+                }),
+                Extensions::default(),
+            )
+            .await
+            .expect("statement filters should reach the API under their own names");
+        assert!(!result.is_error.unwrap_or(false));
+        assert_eq!(template_catalog_result_json(result), response);
+        proxy.verify().await;
+    }
+
+    #[tokio::test]
     async fn template_run_tools_preserve_cleaned_error_lines() {
         use wiremock::{
             Mock, MockServer, ResponseTemplate,
