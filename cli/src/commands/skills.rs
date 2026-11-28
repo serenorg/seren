@@ -11,6 +11,11 @@ use crate::CommandContext;
 use crate::OutputFormat;
 use crate::output;
 
+mod onboarding;
+pub use onboarding::{
+    CATALOG_ORIGIN, SkillAgent, offer_after_login, set_auto_update, setup, update_hook,
+};
+
 // --- Constants ---
 
 /// Path of the public skills publisher under the configured Seren API address.
@@ -56,9 +61,21 @@ pub struct SkillEntry {
 struct CatalogSkill {
     slug: String,
     #[serde(default)]
+    owner_organization_id: Option<Uuid>,
+    #[serde(default)]
+    owner_kind: Option<CatalogOwnerKind>,
+    #[serde(default)]
     skill_folder_name: Option<String>,
     #[serde(default)]
     description: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum CatalogOwnerKind {
+    Organization,
+    #[serde(other)]
+    Other,
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,6 +101,10 @@ struct SkillBundle {
     skill: CatalogSkill,
     skill_md: String,
     #[serde(default)]
+    version: Option<String>,
+    #[serde(default)]
+    content_hash_bundle: Option<String>,
+    #[serde(default)]
     files: Vec<BundleFile>,
 }
 
@@ -91,9 +112,8 @@ struct SkillBundle {
 struct BundleFile {
     path: String,
     content_b64: String,
-    /// Unix permission bits. Windows has none, so only Unix builds read this.
+    /// Publisher permission bits. Included in the digest on every platform.
     #[serde(default)]
-    #[cfg_attr(not(unix), allow(dead_code))]
     mode: Option<u32>,
 }
 
@@ -109,6 +129,8 @@ struct SkillManifest {
     skill: CatalogSkill,
     version: String,
     skill_md: String,
+    #[serde(default)]
+    content_hash_bundle: Option<String>,
     #[serde(default)]
     files: Vec<ManifestFile>,
 }
@@ -249,12 +271,16 @@ enum CatalogReply {
 #[derive(Clone)]
 struct SkillsCatalog {
     client: reqwest::Client,
-    base: String,
+    api_base: String,
 }
 
 impl SkillsCatalog {
     fn new(api_base: &str) -> Result<Self> {
-        let client = reqwest::Client::builder()
+        Self::with_client(api_base, reqwest::Client::builder())
+    }
+
+    fn with_client(api_base: &str, builder: reqwest::ClientBuilder) -> Result<Self> {
+        let client = builder
             .user_agent(concat!("seren-cli/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(std::time::Duration::from_secs(15))
             .timeout(std::time::Duration::from_secs(120))
@@ -262,11 +288,7 @@ impl SkillsCatalog {
             .context("Failed to create HTTP client")?;
         Ok(Self {
             client,
-            base: format!(
-                "{}{}",
-                api_base.trim_end_matches('/'),
-                SKILLS_PUBLISHER_PATH
-            ),
+            api_base: api_base.trim_end_matches('/').to_owned(),
         })
     }
 
@@ -276,14 +298,15 @@ impl SkillsCatalog {
 
     fn unreachable(&self, reason: impl std::fmt::Display) -> anyhow::Error {
         anyhow::anyhow!(
-            "Couldn't reach the Seren skills catalog at {}: {}",
-            self.base,
+            "Couldn't reach the Seren skills catalog at {}{}: {}",
+            self.api_base,
+            SKILLS_PUBLISHER_PATH,
             reason
         )
     }
 
     async fn get(&self, path: &str, query: &[(&str, String)]) -> Result<CatalogReply> {
-        let url = format!("{}{}", self.base, path);
+        let url = format!("{}{SKILLS_PUBLISHER_PATH}{path}", self.api_base);
         let mut attempt = 0;
         loop {
             let delay = TRANSIENT_RETRY_DELAYS_MS.get(attempt).copied();
@@ -431,6 +454,8 @@ impl SkillsCatalog {
         Ok(Some(SkillBundle {
             skill: manifest.skill,
             skill_md: manifest.skill_md,
+            version: Some(manifest.version),
+            content_hash_bundle: manifest.content_hash_bundle,
             files,
         }))
     }
@@ -772,15 +797,34 @@ fn prompt_yes_no(message: &str) -> bool {
     answer.is_empty() || answer == "y" || answer == "yes"
 }
 
-fn copy_skill_to_dir(skill_dir: &Path, target_base: &Path, org: &str, name: &str) -> Result<()> {
+fn copy_skill_to_dir(skill_dir: &Path, target_base: &Path, org: &str, name: &str) -> Result<bool> {
     check_skill_tree(skill_dir)?;
     let slug = format!("{}-{}", org, name);
+    let (_setup_lock, setup_copy) =
+        onboarding::lock_setup_copy(&skills_dir()?, target_base, &slug)?;
+    match setup_copy {
+        onboarding::SetupCopy::Free => {}
+        onboarding::SetupCopy::Managed => {
+            eprintln!(
+                "Kept {slug} in {}. Update it with `seren skills setup`.",
+                target_base.display()
+            );
+            return Ok(false);
+        }
+        onboarding::SetupCopy::Edited => {
+            eprintln!(
+                "Kept the locally modified {slug} in {}. Run `seren skills remove {slug}` to stop managing it; installing it again then replaces your copy.",
+                target_base.display()
+            );
+            return Ok(false);
+        }
+    }
     let target = check_skill_destination(target_base, &[&slug])?;
     if target.exists() {
         std::fs::remove_dir_all(&target).ok();
     }
     copy_dir_recursive(skill_dir, &target)?;
-    Ok(())
+    Ok(true)
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
@@ -799,10 +843,14 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-fn remove_skill_from_agents(slug: &str) -> Result<()> {
+fn remove_skill_from_agents(slug: &str, preserved: &[PathBuf]) -> Result<()> {
     let home = home_dir()?;
     for (agent_name, relative_path) in AGENT_DIRS {
-        let skill_path = check_skill_destination(&home.join(relative_path), &[slug])?;
+        let root = home.join(relative_path);
+        if preserved.contains(&resolve_skill_path(&root)?.join(slug)) {
+            continue;
+        }
+        let skill_path = check_skill_destination(&root, &[slug])?;
         if skill_path.exists() {
             std::fs::remove_dir_all(&skill_path)
                 .with_context(|| format!("Failed to remove from {} directory", agent_name))?;
@@ -828,45 +876,47 @@ async fn install_single_skill(
     })?;
     let (org, name) = validate_catalog_skill(&bundle.skill, slug)?;
     let final_path = check_skill_destination(target_dir, &[&org, &name])?;
+    install_bundle_at(&bundle, &final_path)?;
+    Ok((org, name))
+}
 
-    let org_dir = target_dir.join(&org);
-    std::fs::create_dir_all(&org_dir)?;
+fn install_bundle_at(bundle: &SkillBundle, final_path: &Path) -> Result<()> {
+    let parent = final_path
+        .parent()
+        .context("Skill has no parent directory")?;
+    std::fs::create_dir_all(parent)?;
+    let staging_path = parent.join(format!(".skill-staging-{}", Uuid::new_v4()));
+    std::fs::create_dir(&staging_path)?;
 
-    let staging_path = org_dir.join(format!(".{}.staging-{}", name, Uuid::new_v4()));
-    std::fs::create_dir_all(&staging_path)?;
-
-    if let Err(err) = write_bundle(&bundle, &staging_path) {
+    if let Err(err) = write_bundle(bundle, &staging_path) {
         std::fs::remove_dir_all(&staging_path).ok();
         return Err(err);
     }
 
     if final_path.exists() {
-        let backup_path = org_dir.join(format!(".{}.backup-{}", name, Uuid::new_v4()));
-        std::fs::rename(&final_path, &backup_path).with_context(|| {
-            format!(
-                "Failed to backup existing skill at {}",
-                final_path.display()
-            )
-        })?;
+        let backup_path = parent.join(format!(".skill-backup-{}", Uuid::new_v4()));
+        if let Err(err) = std::fs::rename(final_path, &backup_path) {
+            std::fs::remove_dir_all(&staging_path).ok();
+            return Err(err).with_context(|| format!("Failed to back up {}", final_path.display()));
+        }
 
-        if let Err(err) = std::fs::rename(&staging_path, &final_path) {
-            let _ = std::fs::rename(&backup_path, &final_path);
+        if let Err(err) = std::fs::rename(&staging_path, final_path) {
+            let _ = std::fs::rename(&backup_path, final_path);
             let _ = std::fs::remove_dir_all(&staging_path);
             return Err(anyhow::anyhow!(
-                "Failed to finalize install for '{}/{}': {}",
-                org,
-                name,
+                "Failed to finalize install at {}: {}",
+                final_path.display(),
                 err
             ));
         }
 
         std::fs::remove_dir_all(&backup_path).ok();
-    } else {
-        std::fs::rename(&staging_path, &final_path)
-            .with_context(|| format!("Failed to finalize install at {}", final_path.display()))?;
+    } else if let Err(err) = std::fs::rename(&staging_path, final_path) {
+        std::fs::remove_dir_all(&staging_path).ok();
+        return Err(err).with_context(|| format!("Failed to install at {}", final_path.display()));
     }
 
-    Ok((org, name))
+    Ok(())
 }
 
 /// Install each slug with bounded concurrency; returns the installed count and
@@ -1120,7 +1170,12 @@ pub async fn add(slug: Option<&str>, all: bool, yes: bool, ctx: &CommandContext)
 
 pub async fn installed(ctx: &CommandContext) -> Result<()> {
     let base = skills_dir()?;
-    let skills = scan_installed_skills(&base)?;
+    let mut skills = scan_installed_skills(&base)?;
+    for managed in onboarding::list_managed(&base)? {
+        if !skills.iter().any(|skill| skill.slug == managed.slug) {
+            skills.push(managed);
+        }
+    }
 
     if skills.is_empty() {
         println!("No skills installed");
@@ -1147,8 +1202,19 @@ pub async fn installed(ctx: &CommandContext) -> Result<()> {
 
 pub async fn remove(slug: &str) -> Result<()> {
     let base = skills_dir()?;
-    let (org, name) = resolve_installed_slug(&base, slug)?;
+    let (org, name) = match resolve_installed_slug(&base, slug) {
+        Ok(layout) => layout,
+        // Setup installs defaults straight into agent folders, not this directory.
+        Err(error) => {
+            if onboarding::remove_managed(&base, slug)?.is_some() {
+                return Ok(());
+            }
+            return Err(error);
+        }
+    };
     let skill_path = check_skill_destination(&base, &[&org, &name])?;
+    let resolved_slug = format!("{org}-{name}");
+    let preserved = onboarding::remove_managed(&base, &resolved_slug)?.unwrap_or_default();
 
     std::fs::remove_dir_all(&skill_path)
         .with_context(|| format!("Failed to remove {}", skill_path.display()))?;
@@ -1168,8 +1234,7 @@ pub async fn remove(slug: &str) -> Result<()> {
     );
 
     // Also remove from agent directories
-    let resolved_slug = format!("{}-{}", org, name);
-    remove_skill_from_agents(&resolved_slug)?;
+    remove_skill_from_agents(&resolved_slug, &preserved)?;
 
     Ok(())
 }
@@ -1318,8 +1383,7 @@ fn offer_agent_install_single(skill_path: &Path, org: &str, name: &str, yes: boo
             ))
         };
 
-        if should_install {
-            copy_skill_to_dir(skill_path, agent_dir, org, name)?;
+        if should_install && copy_skill_to_dir(skill_path, agent_dir, org, name)? {
             eprintln!("    {}", format!("Installed to {}", agent_name).green());
         }
     }
@@ -1354,13 +1418,16 @@ fn offer_agent_install_all(skills_base: &Path, yes: bool) -> Result<()> {
         };
 
         if should_install {
+            let mut count = 0;
             for skill in &skills {
                 let skill_path = skills_base.join(&skill.org).join(&skill.name);
-                copy_skill_to_dir(&skill_path, agent_dir, &skill.org, &skill.name)?;
+                if copy_skill_to_dir(&skill_path, agent_dir, &skill.org, &skill.name)? {
+                    count += 1;
+                }
             }
             eprintln!(
                 "    {}",
-                format!("Installed {} skills to {}", skills.len(), agent_name).green()
+                format!("Installed {count} skills to {agent_name}").green()
             );
         }
     }

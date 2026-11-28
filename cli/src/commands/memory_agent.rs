@@ -81,7 +81,7 @@ const VALIDATED_HOOK_EVENTS: [&str; 5] = [
     "Notification",
 ];
 
-fn claude_settings_path() -> Result<PathBuf> {
+pub(super) fn claude_settings_path() -> Result<PathBuf> {
     if let Some(config_dir) = std::env::var_os("CLAUDE_CONFIG_DIR")
         && !config_dir.is_empty()
     {
@@ -91,7 +91,7 @@ fn claude_settings_path() -> Result<PathBuf> {
     Ok(home.join(".claude").join("settings.json"))
 }
 
-fn codex_settings_path() -> Result<PathBuf> {
+pub(super) fn codex_settings_path() -> Result<PathBuf> {
     if let Some(config_dir) = std::env::var_os("CODEX_HOME")
         && !config_dir.is_empty()
     {
@@ -140,7 +140,7 @@ fn configure_hook(hook: &mut serde_json::Value, definition: &HookDefinition) -> 
     changed
 }
 
-fn owned_command_matches(command: &str, canonical: &str) -> bool {
+pub(super) fn owned_command_matches(command: &str, canonical: &str) -> bool {
     if command == canonical {
         return true;
     }
@@ -540,7 +540,7 @@ fn codex_uninstall_from(settings: &mut serde_json::Value) -> Result<bool> {
     Ok(changed)
 }
 
-fn load_settings(path: &Path) -> Result<(serde_json::Value, Option<Vec<u8>>)> {
+pub(super) fn load_settings(path: &Path) -> Result<(serde_json::Value, Option<Vec<u8>>)> {
     match std::fs::read(path) {
         Ok(raw) => {
             let settings = serde_json::from_slice(&raw)
@@ -591,7 +591,7 @@ fn current_settings_bytes(path: &Path) -> Result<Option<Vec<u8>>> {
     }
 }
 
-fn write_new_file(
+pub(super) fn write_new_file(
     path: &Path,
     contents: &[u8],
     permissions: Option<std::fs::Permissions>,
@@ -612,7 +612,7 @@ fn write_new_file(
     Ok(())
 }
 
-fn write_settings_with_backup(
+pub(super) fn write_settings_with_backup(
     path: &Path,
     settings: &serde_json::Value,
     expected_original: Option<&[u8]>,

@@ -293,7 +293,7 @@ enum Commands {
 enum SkillsAction {
     /// List all available skills
     List {
-        /// Force refresh from GitHub (ignore cache)
+        /// Refresh from the public skills catalog
         #[arg(long)]
         refresh: bool,
     },
@@ -320,6 +320,17 @@ enum SkillsAction {
     },
     /// List locally installed skills
     Installed,
+    /// Install official Seren skills for supported coding agents
+    Setup,
+    /// Enable or disable automatic updates for the default Seren skills
+    AutoUpdate {
+        /// Coding agent whose updater to change
+        #[arg(long, value_enum)]
+        agent: commands::skills::SkillAgent,
+        /// Turn off automatic updates and remove the startup hook
+        #[arg(long)]
+        disable: bool,
+    },
     /// Remove an installed skill
     Remove {
         /// Skill slug to remove
@@ -332,6 +343,10 @@ enum SkillsAction {
         /// Auto-confirm agent directory installation
         #[arg(long, short)]
         yes: bool,
+        #[arg(long, hide = true, requires = "agent", conflicts_with_all = ["slug", "yes"])]
+        hook: bool,
+        #[arg(long, hide = true, value_enum, requires = "hook")]
+        agent: Option<commands::skills::SkillAgent>,
     },
     /// Initialize a new skill template
     Init {
@@ -5928,7 +5943,18 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Auth { action } => match action {
-            AuthAction::Login => commands::auth::login().await?,
+            AuthAction::Login => {
+                let first_login = config::Config::config_path().is_ok_and(|path| !path.exists());
+                commands::auth::login().await?;
+                if first_login
+                    && matches!(ctx.format, OutputFormat::Table)
+                    && ctx.api_base() == commands::skills::CATALOG_ORIGIN
+                    && let Err(error) = commands::skills::offer_after_login().await
+                {
+                    eprintln!("Seren skills setup: {error:#}");
+                    eprintln!("Run `seren skills setup` to try again.");
+                }
+            }
             AuthAction::Status => commands::auth::status().await?,
             AuthAction::Logout => commands::auth::logout().await?,
             AuthAction::RecoveryEmail { action } => match action {
@@ -9027,9 +9053,22 @@ async fn main() -> anyhow::Result<()> {
                 commands::skills::add(slug.as_deref(), all, yes, &ctx).await?
             }
             SkillsAction::Installed => commands::skills::installed(&ctx).await?,
+            SkillsAction::Setup => commands::skills::setup().await?,
+            SkillsAction::AutoUpdate { agent, disable } => {
+                commands::skills::set_auto_update(agent, disable)?
+            }
             SkillsAction::Remove { slug } => commands::skills::remove(&slug).await?,
-            SkillsAction::Update { slug, yes } => {
-                commands::skills::update(slug.as_deref(), yes, &ctx).await?
+            SkillsAction::Update {
+                slug,
+                yes,
+                hook: _,
+                agent,
+            } => {
+                if let Some(agent) = agent {
+                    commands::skills::update_hook(agent).await?;
+                } else {
+                    commands::skills::update(slug.as_deref(), yes, &ctx).await?;
+                }
             }
             SkillsAction::Init { name, path } => {
                 commands::skills::init(name.as_deref(), path.as_deref())?

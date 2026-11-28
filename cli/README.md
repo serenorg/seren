@@ -343,9 +343,17 @@ seren skills add linear-issue-tracking   # install into detected agent directori
 seren skills add --all                   # install every available skill
 seren skills installed                   # list locally installed skills
 seren skills update                      # update all installed skills
+seren skills setup                       # install default skills for supported coding agents
+seren skills auto-update --agent codex --disable  # remove the Codex updater
 seren skills remove linear-issue-tracking
 seren skills init my-skill               # scaffold a new skill template
 ```
+
+On the first interactive `seren auth login` for a profile against the production API, Seren offers to set up skills if you haven't already done so or dismissed the offer. Run `seren skills setup` to make these choices later. Setup installs Seren API, Seren Agent, Publishers, and SerenDB in that order. Getting Started is available separately in the catalog as a guide to Seren's skills panel. If an earlier setup installed Getting Started, setup and the updater leave that copy alone: remove it with `seren skills remove seren-getting-started`, or run `seren skills add seren-getting-started` to manage an unmodified copy with `seren skills update`.
+
+Setup detects Claude Code and installs to its skills directory. Codex, Gemini CLI, OpenCode, Grok Build, Cursor, and GitHub Copilot CLI can share one installation in `~/.agents/skills`. Setup also offers that directory when `~/.agents` already exists. If Gemini CLI uses `GEMINI_CLI_HOME`, setup uses that home's shared skills directory for Gemini CLI. In Claude Code and Codex, MCP registration and automatic updates each require a separate confirmation. The Codex updater also refreshes the shared directory for the other agents that read it; without Codex, or for a separate Gemini CLI home, run `seren skills setup` to refresh the defaults. Review and trust the Codex startup hook in `/hooks` before it can run.
+
+Setup and the updater fetch the Seren Agent guide from the Seren Agent publisher and the other defaults from the public Skills catalog. The updater checks about once a day. It preserves edited files and leaves skills you remove, with `seren skills remove <slug>` or by deleting the folder, out until you run setup again. Run `seren skills setup` to refresh the defaults manually. `seren skills update` refreshes skills installed with `seren skills add`. Disable automatic updates with `seren skills auto-update --agent claude-code --disable` or the corresponding Codex command.
 
 ### Agent Commerce
 
