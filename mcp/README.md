@@ -40,6 +40,10 @@ Run locally when you need an API key based stdio server, a custom API backend, l
 seren mcp start
 ```
 
+## Skills over MCP
+
+Clients that support the MCP Skills extension can discover Seren API, Seren Agent, Publishers, and SerenDB over the same MCP connection. The server reads the official public skill bundles and caches them for up to a minute. Hosted connections use the usual Seren sign-in. In Claude Code 2.1.331 or later, use `/skills` to find the skills. A connection named `seren` exposes Seren API as `/seren:api`. The [MCP Skills extension](https://modelcontextprotocol.io/seps/2640-skills-extension) describes discovery and file retrieval.
+
 ## Features
 
 - Hosted streamable-HTTP MCP at `https://mcp.serendb.com/mcp`
@@ -146,11 +150,8 @@ values under each key position, unencrypted values, values no key opens, rewrite
 
 To replace a key:
 
-1. Put the new key first and keep the old one after it, for example
-   `OAUTH_TOKEN_ENCRYPTION_KEYS="new-key,old-key"`.
-2. Deploy, and wait until every replica's `stored_token_key_sweep` lines report nothing under
-   key position 1 (redeploy or restart to run the sweep again if a table had more changes than
-   one run makes).
+1. Put the new key first and keep the old one after it, for example `OAUTH_TOKEN_ENCRYPTION_KEYS="new-key,old-key"`.
+2. Deploy, and wait until every replica's `stored_token_key_sweep` lines report nothing under key position 1 (redeploy or restart to run the sweep again if a table had more changes than one run makes).
 3. Remove the old key and deploy again.
 
 ### Claude Desktop Setup

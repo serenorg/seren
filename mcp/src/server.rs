@@ -24,8 +24,9 @@ use rmcp::{
     handler::server::{router::tool::ToolRouter, tool::ToolCallContext, wrapper::Parameters},
     model::{
         CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock,
-        Extensions, ListToolsResult, MetaObject, PaginatedRequestParams, ServerCapabilities,
-        ServerConfig,
+        Extensions, GetSkillRequestParams, GetSkillResult, ListSkillsResult, ListToolsResult,
+        MetaObject, PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResponse,
+        ServerCapabilities, ServerConfig,
     },
     service::{RequestContext, RoleServer},
     tool, tool_router,
@@ -23446,6 +23447,39 @@ impl ServerHandler for SerenMcpServer {
         Ok(tools_list_result(items))
     }
 
+    async fn list_skills(
+        &self,
+        request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListSkillsResult, McpError> {
+        if request.is_some_and(|params| params.cursor.is_some()) {
+            return Err(McpError::invalid_params(
+                "Unknown Seren skills cursor",
+                None,
+            ));
+        }
+        crate::skills::catalog()?.list().await
+    }
+
+    async fn get_skill(
+        &self,
+        request: GetSkillRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<GetSkillResult, McpError> {
+        crate::skills::catalog()?.skill(&request.uri).await
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResponse, McpError> {
+        crate::skills::catalog()?
+            .read(&request.uri)
+            .await
+            .map(Into::into)
+    }
+
     fn get_info(&self) -> ServerConfig {
         let server_info =
             rmcp::model::Implementation::new(crate::MCP_SERVER_NAME, env!("CARGO_PKG_VERSION"))
@@ -23455,7 +23489,13 @@ impl ServerHandler for SerenMcpServer {
                 )
                 .with_website_url("https://serendb.com");
 
-        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+        ServerConfig::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .enable_skills()
+                .build(),
+        )
             .with_server_info(server_info)
             .with_instructions(
                 r#"Seren MCP Server - Manage Seren projects, databases, publishers, managed agents, and seren-cloud deployments.

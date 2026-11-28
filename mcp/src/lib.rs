@@ -9,6 +9,7 @@ mod money;
 mod oauth;
 mod passwords;
 mod server;
+mod skills;
 mod telemetry;
 mod wallet;
 
