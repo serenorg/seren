@@ -4830,6 +4830,140 @@
         }
       }
     },
+    "/organizations/{organization_id}/analytics/customers": {
+      "get": {
+        "tags": [
+          "seller-analytics"
+        ],
+        "summary": "Customer counts and usage by calendar day for the organization's products.",
+        "operationId": "get_seller_analytics_customers",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that sells the products",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "description": "First included day (`YYYY-MM-DD`). Default: 30 days before today in `timezone`.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "description": "Exclusive end day (`YYYY-MM-DD`). Default: tomorrow in `timezone`, so today is included. The range is 1 to 366 days and cannot end after tomorrow.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "timezone",
+            "in": "query",
+            "description": "An IANA time zone name such as `America/New_York`. Default: the organization's day time zone, else `UTC`.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "product",
+            "in": "query",
+            "description": "One product key from the products list.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "release",
+            "in": "query",
+            "description": "One release number. Requires a `managed_agent` product.",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "by_release",
+            "in": "query",
+            "description": "When `true`, adds per-release rows for managed agents.",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Daily customer counts and usage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SellerCustomers"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid report parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not an authorized seller analytics reader",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/organizations/{organization_id}/analytics/products": {
       "get": {
         "tags": [
@@ -4865,6 +4999,253 @@
           },
           "403": {
             "description": "The caller is not a built-in Owner or Admin of the organization (`seller_analytics_reader_required`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/analytics/statement": {
+      "get": {
+        "tags": [
+          "seller-analytics"
+        ],
+        "summary": "Read daily seller money and totals in the selected calendar time zone.",
+        "operationId": "get_seller_analytics_statement",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that sells the products",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "description": "First included day (`YYYY-MM-DD`). Default: 30 days before today in `timezone`.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "description": "Exclusive end day (`YYYY-MM-DD`). Default: tomorrow in `timezone`, so today is included. The range is 1 to 366 days and cannot end after tomorrow.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "timezone",
+            "in": "query",
+            "description": "An IANA time zone name such as `America/New_York`. Default: the organization's day time zone, else `UTC`.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "product",
+            "in": "query",
+            "description": "One product key from the products list.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "release",
+            "in": "query",
+            "description": "One release number. Requires a `managed_agent` product.",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "by_release",
+            "in": "query",
+            "description": "When `true`, adds per-release rows for managed agents.",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Daily seller statement and totals",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SellerStatement"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid day, time zone, range or product"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner or Admin of the organization (`seller_analytics_reader_required`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/analytics/visits": {
+      "get": {
+        "tags": [
+          "seller-analytics"
+        ],
+        "summary": "Read visits, hire attribution, and aggregate comparisons for the organization's managed agents.",
+        "operationId": "get_seller_analytics_visits",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that sells the products",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "timezone",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "product",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/VisitSource"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Visits by day and source",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SellerVisits"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid report parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Analytics reader required",
             "content": {
               "application/json": {
                 "schema": {
@@ -10070,7 +10451,14 @@
             "description": "Invalid request"
           },
           "403": {
-            "description": "Not authorized"
+            "description": "Not authorized, or changing publisher pricing requires the organization's built-in Owner or Admin role (`publisher_pricing_owner_or_admin_required`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "404": {
             "description": "Publisher not found"
@@ -10728,7 +11116,14 @@
             "description": "Invalid request"
           },
           "403": {
-            "description": "Not authorized"
+            "description": "Not authorized, or the caller is not the organization's built-in Owner or Admin (`publisher_pricing_owner_or_admin_required`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "404": {
             "description": "Publisher not found"
@@ -31923,6 +32318,246 @@
           }
         }
       },
+      "DataResponse_SellerCustomers": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Customers and usage in the selected calendar-day window.",
+            "required": [
+              "organization_id",
+              "timezone",
+              "start",
+              "end",
+              "state",
+              "reasons",
+              "managed_agents",
+              "releases",
+              "addons",
+              "publishers"
+            ],
+            "properties": {
+              "addons": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SellerAddonCustomers"
+                }
+              },
+              "end": {
+                "type": "string"
+              },
+              "managed_agents": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SellerManagedAgentCustomers"
+                }
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "publishers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SellerPublisherCustomers"
+                }
+              },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SellerAnalyticsReason"
+                }
+              },
+              "releases": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SellerReleaseUsage"
+                }
+              },
+              "start": {
+                "type": "string"
+              },
+              "state": {
+                "$ref": "#/components/schemas/GrowthMetricState"
+              },
+              "timezone": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_SellerStatement": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "An organization's daily seller statement and totals.",
+            "required": [
+              "organization_id",
+              "timezone",
+              "start",
+              "end",
+              "state",
+              "reasons",
+              "rows",
+              "totals"
+            ],
+            "properties": {
+              "end": {
+                "type": "string"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SellerAnalyticsReason"
+                }
+              },
+              "rows": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SellerStatementRow"
+                }
+              },
+              "start": {
+                "type": "string"
+              },
+              "state": {
+                "$ref": "#/components/schemas/GrowthMetricState"
+              },
+              "timezone": {
+                "type": "string"
+              },
+              "totals": {
+                "$ref": "#/components/schemas/SellerStatementLines"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_SellerVisits": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "organization_id",
+              "timezone",
+              "start",
+              "end",
+              "state",
+              "reasons",
+              "days",
+              "funnel",
+              "sources",
+              "comparison"
+            ],
+            "properties": {
+              "comparison": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SellerVisitComparison"
+                }
+              },
+              "days": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SellerVisitDay"
+                }
+              },
+              "end": {
+                "type": "string"
+              },
+              "funnel": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SellerVisitFunnel"
+                }
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SellerAnalyticsReason"
+                }
+              },
+              "recording_began": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SellerVisitSource"
+                }
+              },
+              "start": {
+                "type": "string"
+              },
+              "state": {
+                "$ref": "#/components/schemas/GrowthMetricState"
+              },
+              "timezone": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_SessionsRevoked": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -38554,6 +39189,15 @@
         "type": "string",
         "maxLength": 300,
         "minLength": 1
+      },
+      "GrowthMetricState": {
+        "type": "string",
+        "enum": [
+          "available",
+          "partial",
+          "unavailable",
+          "immature"
+        ]
       },
       "GuardedCheckout": {
         "type": "string",
@@ -50493,6 +51137,37 @@
         },
         "additionalProperties": false
       },
+      "SellerAddonCustomers": {
+        "type": "object",
+        "description": "Daily buyers and usage for an add-on.",
+        "required": [
+          "day",
+          "product",
+          "buyers",
+          "activations",
+          "tasks_done"
+        ],
+        "properties": {
+          "activations": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "buyers": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "day": {
+            "type": "string"
+          },
+          "product": {
+            "$ref": "#/components/schemas/SellerProductRef"
+          },
+          "tasks_done": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "SellerAnalyticsProducts": {
         "type": "object",
         "description": "Products an organization offers and its default day time zone for analytics reports.",
@@ -50510,6 +51185,182 @@
           "timezone": {
             "type": "string",
             "description": "Default IANA day time zone for the organization's analytics reports."
+          }
+        }
+      },
+      "SellerAnalyticsReason": {
+        "type": "string",
+        "description": "Why a report is partial, immature, or unavailable, or why a figure is omitted.",
+        "enum": [
+          "day_not_finished",
+          "visits_not_recorded_before",
+          "cohort_immature",
+          "below_minimum",
+          "unpriced_assets",
+          "no_similar_group"
+        ]
+      },
+      "SellerCustomers": {
+        "type": "object",
+        "description": "Customers and usage in the selected calendar-day window.",
+        "required": [
+          "organization_id",
+          "timezone",
+          "start",
+          "end",
+          "state",
+          "reasons",
+          "managed_agents",
+          "releases",
+          "addons",
+          "publishers"
+        ],
+        "properties": {
+          "addons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SellerAddonCustomers"
+            }
+          },
+          "end": {
+            "type": "string"
+          },
+          "managed_agents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SellerManagedAgentCustomers"
+            }
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "publishers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SellerPublisherCustomers"
+            }
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SellerAnalyticsReason"
+            }
+          },
+          "releases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SellerReleaseUsage"
+            }
+          },
+          "start": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/GrowthMetricState"
+          },
+          "timezone": {
+            "type": "string"
+          }
+        }
+      },
+      "SellerManagedAgentCustomers": {
+        "type": "object",
+        "description": "Daily customers and usage for a managed agent.",
+        "required": [
+          "day",
+          "product",
+          "new_hires",
+          "fires",
+          "current_customers",
+          "active_customers_1d",
+          "active_customers_7d",
+          "active_customers_30d",
+          "paying_customers_1d",
+          "paying_customers_7d",
+          "paying_customers_30d",
+          "requests",
+          "requests_by_kind",
+          "tasks_done",
+          "failed_runs",
+          "cohort_hires"
+        ],
+        "properties": {
+          "active_customers_1d": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "active_customers_30d": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "active_customers_7d": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cohort_hires": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "current_customers": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "day": {
+            "type": "string"
+          },
+          "failed_runs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "fires": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "new_hires": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "paying_customers_1d": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "paying_customers_30d": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "paying_customers_7d": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "product": {
+            "$ref": "#/components/schemas/SellerProductRef"
+          },
+          "requests": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "requests_by_kind": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SellerRequestsByKind"
+            }
+          },
+          "still_hired_30d": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "still_hired_7d": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tasks_done": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -50557,6 +51408,33 @@
           "publisher"
         ]
       },
+      "SellerProductRef": {
+        "type": "object",
+        "description": "One product a report row belongs to.",
+        "required": [
+          "key",
+          "kind",
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Product slug or identifier within its kind."
+          },
+          "key": {
+            "type": "string",
+            "description": "Product key formatted as `<kind>:<id>`."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SellerProductKind"
+          },
+          "name": {
+            "type": "string",
+            "description": "Display name of the product."
+          }
+        }
+      },
       "SellerProductRelease": {
         "type": "object",
         "description": "One published release of a managed agent.",
@@ -50572,6 +51450,464 @@
           "released_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "SellerPublisherCustomers": {
+        "type": "object",
+        "description": "Daily paying customers and requests for a publisher.",
+        "required": [
+          "day",
+          "product",
+          "paying_customers",
+          "requests"
+        ],
+        "properties": {
+          "day": {
+            "type": "string"
+          },
+          "paying_customers": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "product": {
+            "$ref": "#/components/schemas/SellerProductRef"
+          },
+          "requests": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "SellerReleaseUsage": {
+        "type": "object",
+        "description": "Daily hires and usage for a managed agent release.",
+        "required": [
+          "day",
+          "product",
+          "new_hires",
+          "requests",
+          "tasks_done",
+          "failed_runs"
+        ],
+        "properties": {
+          "day": {
+            "type": "string"
+          },
+          "failed_runs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "new_hires": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "product": {
+            "$ref": "#/components/schemas/SellerProductRef"
+          },
+          "release": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "requests": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "tasks_done": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "SellerRequestsByKind": {
+        "type": "object",
+        "description": "Requests grouped by the seller's run kind.",
+        "required": [
+          "run_kind",
+          "requests"
+        ],
+        "properties": {
+          "requests": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "run_kind": {
+            "type": "string"
+          }
+        }
+      },
+      "SellerStatement": {
+        "type": "object",
+        "description": "An organization's daily seller statement and totals.",
+        "required": [
+          "organization_id",
+          "timezone",
+          "start",
+          "end",
+          "state",
+          "reasons",
+          "rows",
+          "totals"
+        ],
+        "properties": {
+          "end": {
+            "type": "string"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SellerAnalyticsReason"
+            }
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SellerStatementRow"
+            }
+          },
+          "start": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/GrowthMetricState"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/SellerStatementLines"
+          }
+        }
+      },
+      "SellerStatementLines": {
+        "type": "object",
+        "description": "Daily statement amounts in millionths of a US dollar.",
+        "required": [
+          "billed_atomic",
+          "running_cost_atomic",
+          "sales_atomic",
+          "refunds_atomic",
+          "seren_share_atomic",
+          "other_sellers_share_atomic",
+          "proceeds_atomic",
+          "proceeds_cash_atomic",
+          "proceeds_promotional_atomic",
+          "owner_model_cost_atomic",
+          "referral_rewards_atomic",
+          "profit_atomic",
+          "sales_from_excluded_accounts_atomic",
+          "sales_through_own_publishers_atomic"
+        ],
+        "properties": {
+          "billed_atomic": {
+            "type": "string",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "other_sellers_share_atomic": {
+            "type": "string",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "owner_model_cost_atomic": {
+            "type": "string",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "proceeds_atomic": {
+            "type": "string",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "proceeds_cash_atomic": {
+            "type": "string",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "proceeds_promotional_atomic": {
+            "type": "string",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "profit_atomic": {
+            "type": "string",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "referral_rewards_atomic": {
+            "type": "string",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "refunds_atomic": {
+            "type": "string",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "running_cost_atomic": {
+            "type": "string",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "sales_atomic": {
+            "type": "string",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "sales_from_excluded_accounts_atomic": {
+            "type": "string",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "sales_through_own_publishers_atomic": {
+            "type": "string",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "seren_share_atomic": {
+            "type": "string",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          }
+        }
+      },
+      "SellerStatementRow": {
+        "type": "object",
+        "description": "Money for one day, product and optional managed agent release.",
+        "required": [
+          "day",
+          "product",
+          "lines"
+        ],
+        "properties": {
+          "day": {
+            "type": "string"
+          },
+          "lines": {
+            "$ref": "#/components/schemas/SellerStatementLines"
+          },
+          "product": {
+            "$ref": "#/components/schemas/SellerProductRef"
+          },
+          "release": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "SellerVisitComparison": {
+        "type": "object",
+        "required": [
+          "product",
+          "similar_products",
+          "median_hire_rate"
+        ],
+        "properties": {
+          "median_hire_rate": {
+            "type": "string"
+          },
+          "product": {
+            "$ref": "#/components/schemas/SellerProductRef"
+          },
+          "similar_products": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "SellerVisitDay": {
+        "type": "object",
+        "required": [
+          "day",
+          "product",
+          "source",
+          "cards_shown",
+          "cards_shown_visitors",
+          "page_views",
+          "page_view_visitors",
+          "hire_clicks",
+          "hire_click_visitors",
+          "hires"
+        ],
+        "properties": {
+          "cards_shown": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cards_shown_visitors": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "day": {
+            "type": "string"
+          },
+          "hire_click_visitors": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "hire_clicks": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "hires": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "page_view_visitors": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "page_views": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "product": {
+            "$ref": "#/components/schemas/SellerProductRef"
+          },
+          "source": {
+            "$ref": "#/components/schemas/VisitSource"
+          }
+        }
+      },
+      "SellerVisitFunnel": {
+        "type": "object",
+        "required": [
+          "product",
+          "visitors",
+          "page_view_visitors",
+          "hire_click_visitors",
+          "hires"
+        ],
+        "properties": {
+          "hire_click_visitors": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "hire_rate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hires": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "page_view_visitors": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "product": {
+            "$ref": "#/components/schemas/SellerProductRef"
+          },
+          "visitors": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "SellerVisitSource": {
+        "type": "object",
+        "required": [
+          "product",
+          "source",
+          "visitors"
+        ],
+        "properties": {
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hires": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "product": {
+            "$ref": "#/components/schemas/SellerProductRef"
+          },
+          "sales_atomic": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          },
+          "source": {
+            "$ref": "#/components/schemas/VisitSource"
+          },
+          "visitors": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "SellerVisits": {
+        "type": "object",
+        "required": [
+          "organization_id",
+          "timezone",
+          "start",
+          "end",
+          "state",
+          "reasons",
+          "days",
+          "funnel",
+          "sources",
+          "comparison"
+        ],
+        "properties": {
+          "comparison": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SellerVisitComparison"
+            }
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SellerVisitDay"
+            }
+          },
+          "end": {
+            "type": "string"
+          },
+          "funnel": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SellerVisitFunnel"
+            }
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SellerAnalyticsReason"
+            }
+          },
+          "recording_began": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SellerVisitSource"
+            }
+          },
+          "start": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/GrowthMetricState"
+          },
+          "timezone": {
+            "type": "string"
           }
         }
       },
@@ -54533,6 +55869,18 @@
             "type": "string"
           }
         }
+      },
+      "VisitSource": {
+        "type": "string",
+        "enum": [
+          "browse",
+          "search",
+          "website",
+          "campaign",
+          "referral",
+          "mcp",
+          "direct"
+        ]
       },
       "WalletAddress": {
         "type": "string",

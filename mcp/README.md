@@ -147,10 +147,10 @@ values under each key position, unencrypted values, values no key opens, rewrite
 To replace a key:
 
 1. Put the new key first and keep the old one after it, for example
-   `OAUTH_TOKEN_ENCRYPTION_KEYS="new-key,old-key"`.
+    `OAUTH_TOKEN_ENCRYPTION_KEYS="new-key,old-key"`.
 2. Deploy, and wait until every replica's `stored_token_key_sweep` lines report nothing under
-   key position 1 (redeploy or restart to run the sweep again if a table had more changes than
-   one run makes).
+    key position 1 (redeploy or restart to run the sweep again if a table had more changes than
+    one run makes).
 3. Remove the old key and deploy again.
 
 ### Claude Desktop Setup
@@ -309,6 +309,16 @@ An Owner can run their Employees on their own model keys or ChatGPT plan, and le
 | Read Owner-funded spend per Employer against its caps | `get_owner_model_spend` |
 
 These tools accept the Owner's session or user API key; agent keys and organization work contexts are refused, and Core refuses anyone but the Owner. Entering the sign-in code is a human action, and no tool returns provider tokens. Writes are blocked in read-only mode. A hire uses the Owner's credentials only while its Employer's grant is active and no cap or budget is reached; otherwise its calls run on Seren's model at the Employer's cost.
+
+### Seller analytics
+
+| Task | Tool |
+|------|------|
+| List the organization's Employees, add-ons and data publishers, their product keys and default day time zone | `list_organization_analytics_products` |
+| Read money by day and product, including sales, proceeds, running cost and profit | `get_organization_analytics_statement` |
+| Read customer and usage counts by day and product, without customer details | `get_organization_analytics_customers` |
+
+These read-only tools require the organization's Owner or Admin using a session or user API key. Statement and customer reports accept `start`, exclusive `end`, `timezone`, `product`, `release` and `by_release`. The range is 1 to 366 days; omitted dates start 30 days before today and end tomorrow in the chosen time zone, which defaults to the organization's own. Money is in decimal strings of millionths of a US dollar. A null count is unavailable, never zero.
 
 ### Approval Inbox
 
