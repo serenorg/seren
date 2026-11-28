@@ -2,6 +2,108 @@
 
 Changes to Seren are documented in this file.
 
+## [0.17.0] - 2026-11-28
+
+### Changed
+
+- **Breaking:** Rust SDK `Client::new` now returns `Result<Client, reqwest::Error>` because building its HTTP client can fail. Propagate the error with `?` or handle it explicitly. `Client::new_with_client`, which takes a configured HTTP client, still returns a client directly.
+- **Breaking:** SDK timestamp fields now use Jiff 1. Update any direct `jiff` dependency to version 1 when passing timestamps into or out of the SDK. Generated JSON Schemas still describe timestamps as `date-time` strings.
+- Updated workspace dependencies, including Progenitor 0.17, `rmcp` 3.12, `jsonwebtoken` 12, and `jiff-sqlx` 1. The SDK's re-exported `Error`, `ResponseValue`, and `ByteStream` now come from `progenitor-client` 0.17.
+
+## [0.16.2] - 2026-11-27
+
+### Added
+
+- MCP `get_organization_earnings` reports what an organization has earned from the Employees and add-ons it sells, including amounts available to collect, pending, and paid out.
+- The Rust SDK adds Employee operations for bulk lifecycle changes, failed-task retries, approved actions, browser site access, and support cards, plus Owner operations for Grok sign-in, per-Employee Owner model credentials, model grants shared by every Employer, and Owner guidance.
+
+### Changed
+
+- Interactive publication through MCP `publish_seren_agent_template_release` now uses a signed-in Owner or Admin of the publishing organization. Run `seren auth login` before releasing interactively. Move automation using a `managed-agent-template:publish` API key to an approved release source.
+- **Breaking:** `ManagedAgentOwnerView` requires `owned_by_caller`, and `OwnerModelGrant::employer_organization_id` is now optional; `None` marks the grant shared by every Employer without their own. Supply `owned_by_caller` from the API in struct literals and fixtures, and handle a missing Employer organization when reading grants.
+- **Breaking:** `ManagedProviderKeyCredential` is now an enum of a provider API key or a Grok subscription sign-in. Move the former fields into `ManagedProviderApiKeyCredential` and wrap it in `ManagedProviderKeyCredential::ProviderApiKeyCredential`.
+- **Breaking:** `TemplateAccessChange` gains `StorePasswordRulesChanged` and `Other(UnknownTemplateAccessChange)`, and `ManagedSecretsApplyTarget` gains `VaultReadAccess`. Add these variants to exhaustive matches.
+
+### Removed
+
+- **Breaking:** The SDK no longer exposes `seren_agent_create_guest_session` or its `CreateGuestSessionRequest` and `GuestSessionResponse` types. Remove calls to that operation when upgrading.
+
+### Fixed
+
+- Employee MCP task calls return the Employee's reply and attached files when the run fails after replying, together with the failure message.
+- CLI and MCP held-release reviews describe store password rule changes. The SDK preserves unfamiliar access-change kinds so callers can surface them; `seren agent managed-held-releases approve` requires `--fingerprint` when it cannot describe a change. An approval whose response cannot be fully decoded is reported as approved with a warning.
+- The CLI and MCP explain that vault read-access Seren Passwords setups finish in Seren Passwords and need no apply call.
+- MCP `update_publisher_pricing` accepts `organization_id` and works with a sign-in as well as an organization API key. Without `organization_id` it uses the caller's only organization, and it requires the field when the caller belongs to several organizations.
+
+## [0.16.1] - 2026-11-25
+
+### Added
+
+- The [repository release guide](docs/release-an-employee.md) covers release sources, release keys, interactive releases, held-release approval, and `requirements_txt` in deployment defaults. It includes GitHub Actions, GitLab, and CircleCI examples.
+
+### Fixed
+
+- CLI Employee bundles include a top-level `.skills/` directory. Other hidden entries, and hidden entries inside `.skills/`, remain excluded.
+
+## [0.16.0] - 2026-11-25
+
+### Added
+
+- `seren agent managed-release-pass` obtains a short-lived release pass from a signed CI run (GitHub Actions, GitLab, or CircleCI), an organization release key, or a browser sign-in session. `seren agent managed-release` packages and uploads a folder, then publishes the release or reports that it is held for approval. The bundle excludes the selected settings file when it is inside the folder.
+- `seren agent managed-release-sources` approves, edits, and revokes release sources and creates release keys. `seren agent managed-held-releases` lists, approves, and refuses held releases. Approval without `--fingerprint` shows the pending changes and asks for confirmation on an interactive terminal; scripts must pass the fingerprint they reviewed.
+- MCP manages approved signed-run release sources and lists, approves, and refuses held releases. Held-release approval requires the `changes_fingerprint` shown to the Owner or Admin.
+- The Rust SDK exposes the release source, release pass, held-release, and account notice subscription APIs.
+
+### Security
+
+- Hosted MCP no longer accepts stored upstream sign-in tokens or hosted Seren Passwords credentials that are unencrypted or that no key in `OAUTH_TOKEN_ENCRYPTION_KEYS` opens; affected users must sign in again. At startup, each replica rewrites values stored under an older key with the first key and deletes rows it cannot open, logging counts as `stored_token_key_sweep`. When replacing a key, list the new key first and keep the old key until the sweeps report no values under it.
+- A hosted MCP migration drops the unused `mcp_oauth.mcp_sessions` table, which held unencrypted access tokens.
+
+## [0.15.0] - 2026-11-24
+
+### Added
+
+- Employee Owners can run their Employees on their own model keys or ChatGPT plan. The CLI previews, creates, and applies model credential proposals, and the CLI and MCP start ChatGPT sign-in, choose the Seren Private Model and backup models that hires run, grant Employers use of the Owner's credentials with daily and monthly caps, set the Owner's monthly budget, and report Owner-funded spend.
+- `seren agent managed-passwords-approve` and the local MCP `approve_seren_agent_passwords_setup` tool approve a Seren Passwords setup with an unlocked vault instead of the launch link, signing only the approval built locally. Hosted MCP directs Owners to the launch link.
+
+### Security
+
+- The hosted MCP `/revoke` endpoint accepts MCP access tokens and ends that token's session, including its refresh token, without signing out the user's other sessions. It refuses to revoke a token issued to a different `client_id` than the request names. Other replicas can accept a revoked token for up to 60 seconds from their lookup cache.
+
+## [0.14.0] - 2026-11-23
+
+### Added
+
+- MCP event tools let an Employee's Owner draft, preview, publish, change, and cancel events for Employers, with optional Google Meet, Microsoft Teams, or Zoom meetings, and list Employers who agreed to share their contact details for private events. These tools require the publishing organization's built-in Owner.
+- MCP can preview and create model credential proposals for an Owner's own model credentials, including ordered provider keys and ChatGPT sign-in. Provider keys are entered in Seren Passwords, and a ChatGPT sign-in or a change that needs no new keys applies without a Passwords setup.
+- MCP `deploy_seren_agent` accepts `llm_connection`, and `update_seren_agent_deployment` accepts `llm_connection` and `clear_llm_connection`.
+- The Rust SDK adds Employee event, Owner model funding, ChatGPT sign-in, and model Responses API operations.
+
+### Changed
+
+- **Breaking:** The refreshed Rust SDK requires `terms_version` in `SignupRequest` and `AgentRegisterRequest`, `model_paid_by_owner` in `HireSpendLimits`, `free_to_hirer` in `ManagedAgentTemplateCatalogFacts`, and `upstream_cost_unit_price` in `PricingConfigResponse`. Populate these fields from the corresponding API values in requests, struct literals, and fixtures.
+- **Breaking:** `ManagedModelCredentialAuthMethod` gains a `ProviderKey` variant with provider details and loses `Copy` and `PartialEq`. Handle the new variant, borrow or clone values, and compare the relevant fields explicitly.
+- **Breaking:** `SetManagedAgentRunFee::run_fee_atomic` is now optional. Set exactly one of `run_fee_atomic` and `run_fee_percent`. Replace `ManagedCodexFallback` with `ManagedOwnerModelFallback`.
+
+## [0.13.2] - 2026-11-19
+
+### Fixed
+
+- Hosted MCP sign-in for an Employee's own MCP address (`/employees/{slug}`) advertises that address as the protected resource and accepts access tokens issued for it.
+
+## [0.13.1] - 2026-11-18
+
+### Added
+
+- MCP `create_publisher` and `update_publisher` accept `passthrough_header_value_format` to format forwarded header values, such as `Bearer ...`. On update, omit it to keep the current formats or pass an empty map to clear them.
+- MCP publisher pricing controls: `create_publisher` sets `markup_multiplier`, `minimum_balance`, `low_balance_threshold`, and `grace_period_minutes`, and `update_publisher_pricing` adds those controls plus `payment_expiry_minutes` and `max_queries_per_minute`.
+- Platform admins can read and record publisher credential reviews through MCP `get_publisher_credential_review` and `record_publisher_credential_review`. Employers can save their own keys for a publisher only after a valid review, and changing its endpoints, headers, or credentials invalidates the review.
+
+### Fixed
+
+- CLI and MCP publisher create and update accept an OAuth2 token URL with `auth_type=passthrough`, such as for Xero connections. Other OAuth2 client fields still require `oauth2_cc`.
+- Guarded checkout settings accept the `ringana` provider.
+
 ## [0.13.0] - 2026-11-16
 
 ### Added

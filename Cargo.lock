@@ -6036,7 +6036,7 @@ dependencies = [
 
 [[package]]
 name = "seren-cli"
-version = "0.16.2"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -6075,7 +6075,7 @@ dependencies = [
 
 [[package]]
 name = "seren-mcp"
-version = "0.16.2"
+version = "0.17.0"
 dependencies = [
  "aes-gcm",
  "alloy",
@@ -6145,7 +6145,7 @@ dependencies = [
 
 [[package]]
 name = "seren-sdk"
-version = "0.16.2"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "base62",
