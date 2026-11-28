@@ -13276,6 +13276,17 @@
               }
             ]
           },
+          "item_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Opaque revision tag of the bound item when the grant is active.\nOmitted when unavailable or on non-approved grants."
+          },
+          "registration_ready": {
+            "type": "boolean",
+            "description": "Whether the owner has pre-authorized saving a newly registered store login\nunder this pending permission. Omitted when false."
+          },
           "state": {
             "$ref": "#/components/schemas/BrowserGrantState"
           }
@@ -20236,6 +20247,17 @@
                     "$ref": "#/components/schemas/BrowserGrantItem"
                   }
                 ]
+              },
+              "item_version": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Opaque revision tag of the bound item when the grant is active.\nOmitted when unavailable or on non-approved grants."
+              },
+              "registration_ready": {
+                "type": "boolean",
+                "description": "Whether the owner has pre-authorized saving a newly registered store login\nunder this pending permission. Omitted when false."
               },
               "state": {
                 "$ref": "#/components/schemas/BrowserGrantState"

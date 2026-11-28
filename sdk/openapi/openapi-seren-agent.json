@@ -21684,7 +21684,8 @@
               },
               "skills_count": {
                 "type": "integer",
-                "format": "int32"
+                "format": "int32",
+                "description": "The number of skill lines on the Employee's listing."
               },
               "tasks_done": {
                 "type": "integer",
@@ -35555,7 +35556,8 @@
           },
           "skills_count": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "description": "The number of skill lines on the Employee's listing."
           },
           "tasks_done": {
             "type": "integer",

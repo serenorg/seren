@@ -4830,6 +4830,57 @@
         }
       }
     },
+    "/organizations/{organization_id}/analytics/products": {
+      "get": {
+        "tags": [
+          "seller-analytics"
+        ],
+        "summary": "List the products an organization offers and its default day time zone for analytics reports.",
+        "operationId": "list_seller_analytics_products",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that sells the products",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The organization's products and default day time zone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SellerAnalyticsProducts"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "The caller is not a built-in Owner or Admin of the organization (`seller_analytics_reader_required`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/organizations/{organization_id}/api-keys": {
       "get": {
         "tags": [
@@ -10136,6 +10187,9 @@
           "401": {
             "description": "Unauthorized"
           },
+          "403": {
+            "description": "Not a member of this organization"
+          },
           "404": {
             "description": "Publisher not found"
           }
@@ -10200,6 +10254,9 @@
           "401": {
             "description": "Unauthorized"
           },
+          "403": {
+            "description": "Not a member of this organization"
+          },
           "404": {
             "description": "Publisher not found"
           }
@@ -10263,6 +10320,9 @@
           },
           "401": {
             "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Not a member of this organization"
           },
           "404": {
             "description": "Publisher not found"
@@ -12114,7 +12174,7 @@
         "tags": [
           "managed-agent-templates"
         ],
-        "summary": "Set a fee run kind's additive service price for future admissions: a fixed fee per task, or a percentage of each task's recorded running cost. Cost-only kinds have no editable service fee.",
+        "summary": "Set a run kind's additive service price for future admissions: a fixed fee per task, or a percentage of each task's recorded running cost. On a cost-only kind, this switches it to a fee kind.",
         "operationId": "set_managed_agent_run_fee",
         "parameters": [
           {
@@ -12177,10 +12237,66 @@
             "description": "An unrestricted direct Owner credential of the organization is required, the organization does not publish the managed agent, or the managed agent is suspended"
           },
           "404": {
-            "description": "Managed agent or run kind not found, or the kind has no service fee (`managed_agent_run_fee_not_applicable`)"
+            "description": "Managed agent or run kind not found"
           },
           "409": {
             "description": "A fixed service fee is below the run kind's minimum (`run_fee_below_minimum`); the error details carry the kind and its minimum"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "managed-agent-templates"
+        ],
+        "summary": "Remove a run kind's service fee so future admissions bill running cost only.",
+        "operationId": "delete_managed_agent_run_fee",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization that publishes the managed agent",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "description": "Run kind key of the managed agent's current release",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The run kind now bills running cost only"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "An unrestricted direct Owner credential of the organization is required, the organization does not publish the managed agent, or the managed agent is suspended"
+          },
+          "404": {
+            "description": "Managed agent or run kind not found"
           }
         },
         "security": [
@@ -31767,6 +31883,46 @@
           }
         }
       },
+      "DataResponse_SellerAnalyticsProducts": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Products an organization offers and its default day time zone for analytics reports.",
+            "required": [
+              "timezone",
+              "products"
+            ],
+            "properties": {
+              "products": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SellerProduct"
+                }
+              },
+              "timezone": {
+                "type": "string",
+                "description": "Default IANA day time zone for the organization's analytics reports."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_SessionsRevoked": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core_pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -41147,7 +41303,7 @@
               },
               {
                 "$ref": "#/components/schemas/ManagedAgentRunMinimum",
-                "description": "The lowest fixed fee the kind may be priced at; null for a cost-only kind."
+                "description": "The lowest fixed fee the kind may be priced at."
               }
             ]
           },
@@ -50337,6 +50493,88 @@
         },
         "additionalProperties": false
       },
+      "SellerAnalyticsProducts": {
+        "type": "object",
+        "description": "Products an organization offers and its default day time zone for analytics reports.",
+        "required": [
+          "timezone",
+          "products"
+        ],
+        "properties": {
+          "products": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SellerProduct"
+            }
+          },
+          "timezone": {
+            "type": "string",
+            "description": "Default IANA day time zone for the organization's analytics reports."
+          }
+        }
+      },
+      "SellerProduct": {
+        "type": "object",
+        "description": "One product an organization offers, with its published releases when it is a managed agent.",
+        "required": [
+          "key",
+          "kind",
+          "id",
+          "name",
+          "releases"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Product slug or identifier within its kind."
+          },
+          "key": {
+            "type": "string",
+            "description": "Product key formatted as `<kind>:<id>`."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SellerProductKind"
+          },
+          "name": {
+            "type": "string",
+            "description": "Display name of the product."
+          },
+          "releases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SellerProductRelease"
+            },
+            "description": "Published releases of a managed agent; empty for add-ons and data publishers."
+          }
+        }
+      },
+      "SellerProductKind": {
+        "type": "string",
+        "description": "Kind of product an organization sells on Seren.",
+        "enum": [
+          "managed_agent",
+          "addon",
+          "publisher"
+        ]
+      },
+      "SellerProductRelease": {
+        "type": "object",
+        "description": "One published release of a managed agent.",
+        "required": [
+          "release",
+          "released_at"
+        ],
+        "properties": {
+          "release": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "released_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "Session": {
         "type": "object",
         "description": "Response for listing user sessions (hides sensitive token hash)",
@@ -50460,7 +50698,7 @@
               "null"
             ],
             "format": "int64",
-            "description": "A fixed fee per task in USD atomic units, in whole cents (multiples of\n10,000), at or above the run kind's minimum. Cost-only kinds have no\nservice fee resource. An active Owner model grant lowers the fixed-fee\nfloor to compute and wake costs.",
+            "description": "A fixed fee per task in USD atomic units, in whole cents (multiples of\n10,000), at or above the run kind's minimum. On a cost-only kind, setting\na fee switches it to a fee kind. An active Owner model grant lowers the\nfixed-fee floor to compute and wake costs.",
             "multipleOf": 10000,
             "minimum": 0
           },
@@ -55351,6 +55589,10 @@
     {
       "name": "managed-agent-templates",
       "description": "Managed agent template releases"
+    },
+    {
+      "name": "seller-analytics",
+      "description": "Organization analytics for managed agents, add-ons, and data publishers"
     }
   ]
 }
