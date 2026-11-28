@@ -30834,7 +30834,7 @@ pub(crate) mod tests {
             .expect(1)
             .mount(&proxy)
             .await;
-        let server = SerenMcpServer::new("fallback-key", &proxy.uri()).unwrap();
+        let server = SerenMcpServer::new_oauth(&proxy.uri()).unwrap();
         let params = || SerenAgentTemplateRunFeeParams {
             organization_id,
             slug: "fee-test".into(),
