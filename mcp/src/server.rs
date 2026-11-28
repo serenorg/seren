@@ -3141,6 +3141,31 @@ pub struct UpdateOwnerModelBudgetParams {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct OrganizationAnalyticsParams {
+    /// The organization that sells the products.
+    pub organization_id: Uuid,
+    /// First included day, YYYY-MM-DD. Defaults to 30 days before today.
+    #[serde(default)]
+    pub start: Option<String>,
+    /// Exclusive end day, YYYY-MM-DD. Defaults to tomorrow, so today is included.
+    #[serde(default)]
+    pub end: Option<String>,
+    /// IANA time zone name, such as America/New_York. Defaults to the organization's own.
+    #[serde(default)]
+    pub timezone: Option<String>,
+    /// One product key from list_organization_analytics_products.
+    #[serde(default)]
+    pub product: Option<String>,
+    /// One release number of an Employee.
+    #[serde(default)]
+    pub release: Option<i64>,
+    /// True adds a row per release.
+    #[serde(default)]
+    pub by_release: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct OwnerTemplateModelParams {
     /// The Owner organization that publishes the Employee.
     pub organization_id: Uuid,
@@ -18938,6 +18963,79 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "List what an organization sells on Seren: its Employees, add-ons and data publishers, each with the product key the analytics tools take, and the organization's default day time zone. Requires the organization's Owner or Admin.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_organization_analytics_products(
+        &self,
+        Parameters(params): Parameters<OrganizationTemplatesParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .list_seller_analytics_products(&params.organization_id)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Read an organization's money by day and product. Amounts are decimal strings in millionths of a US dollar. Sales is what customers were billed for the seller's work. Proceeds is what the seller receives after Seren's share and any other seller's share. Running cost is an Employee's model and compute cost billed to the customer at cost; it is not a sale and not the seller's cost. Profit is proceeds minus the two costs Seren can see: model use on the seller's own keys and referral rewards the seller funds. Days are in the given time zone, the end day is exclusive and a range is 1 to 366 days. Requires the organization's Owner or Admin.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_organization_analytics_statement(
+        &self,
+        Parameters(params): Parameters<OrganizationAnalyticsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .get_seller_analytics_statement(
+                &params.organization_id,
+                params.by_release,
+                params.end.as_deref(),
+                params.product.as_deref(),
+                params.release,
+                params.start.as_deref(),
+                params.timezone.as_deref(),
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Read an organization's customer and usage counts by day and product: new hires, fires, current, active and paying customers, requests, finished tasks, failed runs and the share of hires still hired after 7 and 30 days. Counts only; no customer is ever named. Work started by a timer is a request and does not make a customer active. A null value means the number is not available yet, never zero. Requires the organization's Owner or Admin.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_organization_analytics_customers(
+        &self,
+        Parameters(params): Parameters<OrganizationAnalyticsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_agent_owner_credential(&extensions)?;
+        let response = self
+            .api_client(&extensions)?
+            .get_seller_analytics_customers(
+                &params.organization_id,
+                params.by_release,
+                params.end.as_deref(),
+                params.product.as_deref(),
+                params.release,
+                params.start.as_deref(),
+                params.timezone.as_deref(),
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
         description = "List the organization's published add-ons with each one's price in US cents, buyers who were not refunded, and the organization's earnings from their sales in USD atomic units (1,000,000 = $1), plus the listing words buyers read. Requires a built-in Owner or Admin of the publishing organization using an unrestricted direct credential.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
@@ -30646,6 +30744,9 @@ pub(crate) mod tests {
             ("update_owner_model_budget", false),
             ("get_owner_model_spend", true),
             ("get_organization_earnings", true),
+            ("list_organization_analytics_products", true),
+            ("get_organization_analytics_statement", true),
+            ("get_organization_analytics_customers", true),
             ("list_seren_agent_addons", true),
             ("update_seren_agent_addon_listing", false),
             ("set_seren_agent_addon_price", false),
