@@ -824,6 +824,7 @@ mod oauth_provider_update_tests {
                 .await;
             let request: UpdateOAuthProviderRequest = serde_json::from_value(wire.clone()).unwrap();
             let error = crate::Client::new(&proxy.uri())
+                .unwrap()
                 .update_org_oauth_provider(&organization_id, &provider_id, &request)
                 .await
                 .expect_err("the test upstream refuses the update after receiving its exact body");
@@ -889,7 +890,7 @@ mod oauth_provider_update_tests {
             .expect(1)
             .mount(&server)
             .await;
-        let client = crate::Client::new(&server.uri());
+        let client = crate::Client::new(&server.uri()).unwrap();
         let result = match operation {
             ProviderOperation::Get => client
                 .get_org_oauth_provider(&organization_id, &provider_id)
@@ -1138,6 +1139,7 @@ mod release_source_update_tests {
                 .mount(&server)
                 .await;
             let error = crate::Client::new(&server.uri())
+                .unwrap()
                 .update_managed_agent_release_source(&organization_id, &source_id, &request)
                 .await
                 .expect_err("mock returns 409 after verifying exact PATCH body");

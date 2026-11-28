@@ -36,8 +36,8 @@ jsonwebtoken = { version = "12", default-features = false, features = ["rust_cry
 # needed and would duplicate the reqwest 0.13 dependency tree.
 oauth2 = { version = "5", default-features = false }
 openapiv3 = "2"
-progenitor = "0.15"
-progenitor-client = "0.15"
+progenitor = "0.17"
+progenitor-client = "0.17"
 prettyplease = "0.3"
 rand = "0.10"
 regress = "0.12"

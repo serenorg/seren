@@ -1988,6 +1988,7 @@ mod tests {
                 .mount(&upstream)
                 .await;
             let response = seren::Client::new(&upstream.uri())
+                .unwrap()
                 .get_current_user()
                 .await
                 .expect("the complete upstream user fixture must decode")
@@ -2008,6 +2009,7 @@ mod tests {
             .mount(&upstream)
             .await;
         let error = seren::Client::new(&upstream.uri())
+            .unwrap()
             .get_current_user()
             .await
             .expect_err("a user fixture missing email_verified must not decode");

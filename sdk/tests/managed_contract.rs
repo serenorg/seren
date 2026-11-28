@@ -34,6 +34,7 @@ async fn standing_approval_preserves_exact_lease_and_entry_identity() {
         .await;
 
     let response = Client::new(&server.uri())
+        .unwrap()
         .seren_cloud_approval_inbox_decide(entry_id, &request)
         .await
         .unwrap()
@@ -72,6 +73,7 @@ async fn allowance_check_preserves_publisher_operation_arguments_and_denial() {
             .await;
 
         let response = Client::new(&server.uri())
+            .unwrap()
             .seren_agent_check_managed_publisher_allowance(&deployment_id, &request)
             .await
             .unwrap()
@@ -115,6 +117,7 @@ async fn access_list_decodes_owner_reason_and_cursor() {
         .await;
 
     let response = Client::new(&server.uri())
+        .unwrap()
         .seren_agent_list_managed_agent_publisher_access_requests(
             &deployment_id,
             Some("previous-page"),

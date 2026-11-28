@@ -2216,7 +2216,7 @@ mod tests {
                 .expect(1)
                 .mount(&proxy)
                 .await;
-            let client = crate::Client::new(&proxy.uri());
+            let client = crate::Client::new(&proxy.uri()).unwrap();
             let resolved = managed_secrets_apply_target(&client, request.request_id, &request)
                 .await
                 .expect("the original setup binding selects the apply route");
@@ -2273,7 +2273,7 @@ mod tests {
                 .expect(1)
                 .mount(&proxy)
                 .await;
-            let client = crate::Client::new(&proxy.uri());
+            let client = crate::Client::new(&proxy.uri()).unwrap();
             assert!(
                 managed_secrets_apply_target(&client, request.request_id, &request)
                     .await
@@ -2286,7 +2286,7 @@ mod tests {
     #[tokio::test]
     async fn managed_secrets_binding_rejects_unselected_or_unbound_setups_before_lookup() {
         let proxy = wiremock::MockServer::start().await;
-        let client = crate::Client::new(&proxy.uri());
+        let client = crate::Client::new(&proxy.uri()).unwrap();
         let mut request = managed_secrets_policy_request(
             uuid::Uuid::new_v4(),
             uuid::Uuid::new_v4(),

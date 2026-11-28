@@ -8997,7 +8997,7 @@ mod local_delegation_approval_tests {
                 .mount(&passwords)
                 .await;
 
-            let client = seren::Client::new(&passwords.uri());
+            let client = seren::Client::new(&passwords.uri()).unwrap();
             let result = approve_delegation_contribution(
                 &client,
                 &user_kem.private,

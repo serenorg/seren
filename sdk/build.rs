@@ -12,6 +12,7 @@ use progenitor::{GenerationSettings, InterfaceStyle};
 
 /// Named component the SerenDB query result addresses for a single cell.
 const QUERY_RESULT_CELL_SCHEMA: &str = "QueryResultCell";
+const ARBITRARY_JSON_SCHEMA: &str = "ArbitraryJson";
 const QUERY_RESULT_CELL_REFERENCE: &str = "#/components/schemas/QueryResultCell";
 const DIAGNOSTIC_ERROR_OPERATION_IDS: &[&str] = &[
     "seren_db_query",
@@ -2232,6 +2233,35 @@ fn main() -> anyhow::Result<()> {
     let mut refs = HashSet::new();
     collect_refs(&raw_json, &mut refs);
 
+    // Give identical unconstrained JSON responses one type across status codes.
+    // Progenitor compares the types of an operation's responses by schema identity.
+    let arbitrary_json_ref =
+        serde_json::json!({"$ref": format!("#/components/schemas/{ARBITRARY_JSON_SCHEMA}")});
+    for path in raw_json["paths"]
+        .as_object_mut()
+        .context("missing paths")?
+        .values_mut()
+    {
+        for operation in path
+            .as_object_mut()
+            .into_iter()
+            .flat_map(|item| item.values_mut())
+        {
+            if let Some(responses) = operation
+                .get_mut("responses")
+                .and_then(serde_json::Value::as_object_mut)
+            {
+                for response in responses.values_mut() {
+                    if let Some(schema) = response.pointer_mut("/content/application~1json/schema")
+                        && schema.as_object().is_some_and(|object| object.is_empty())
+                    {
+                        *schema = arbitrary_json_ref.clone();
+                    }
+                }
+            }
+        }
+    }
+    raw_json["components"]["schemas"][ARBITRARY_JSON_SCHEMA] = serde_json::json!({});
     let mut spec: openapiv3::OpenAPI = serde_json::from_value(raw_json)?;
 
     let components = spec.components.get_or_insert_with(Default::default);
@@ -2268,7 +2298,14 @@ fn main() -> anyhow::Result<()> {
 
     let mut settings = GenerationSettings::default();
     settings.with_interface(InterfaceStyle::Positional);
-    settings.with_derive("schemars::JsonSchema");
+    // Use the Schemars 1 derive instead of Typespace's built-in Schemars 0.8 implementation.
+    let json_schema = progenitor::typespace::settings::ForeignTrait::new("crate::JsonSchema")?;
+    settings.map_typespace_settings(|types| types.with_derive(json_schema));
+    settings.with_replacement(
+        ARBITRARY_JSON_SCHEMA,
+        "::serde_json::Value",
+        std::iter::empty::<progenitor::TypeImpl>(),
+    );
 
     for (schema, rust_type) in SDK_SCHEMA_REPLACEMENTS {
         settings.with_replacement(
@@ -2296,8 +2333,8 @@ fn main() -> anyhow::Result<()> {
         std::iter::empty::<progenitor::TypeImpl>(),
     );
 
-    let mut generator = progenitor::Generator::new(&settings);
-    let tokens = generator.generate_tokens(&spec)?;
+    let generator = progenitor::Generator::build(&settings, &spec)?;
+    let tokens = generator.generate_sdk().into_stream();
 
     let mut syntax: syn::File = syn::parse2(tokens)?;
     normalize_datetime_types(&mut syntax);

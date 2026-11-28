@@ -53,7 +53,7 @@ async fn deployment_run_events_decode_current_runtime_kinds() {
         .mount(&server)
         .await;
 
-    let client = Client::new(&server.uri());
+    let client = Client::new(&server.uri()).unwrap();
     let events = client
         .seren_cloud_deployment_run_events(&deployment_id, &run_id, None, None, None, None, None)
         .await

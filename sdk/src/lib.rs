@@ -94,6 +94,8 @@ impl<'de> serde::Deserialize<'de> for UnknownTemplateAccessChange {
 mod config;
 mod examples;
 mod models;
+
+pub(crate) use schemars::JsonSchema;
 mod publisher_gateway;
 mod query_error;
 mod shared;
@@ -107,6 +109,31 @@ mod storage_tests;
 // Re-export the generated client and types
 pub use generated::Client;
 pub use generated::types::*;
+
+// Preserve the string conversions Progenitor previously generated for these types.
+macro_rules! impl_string_conversions {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl TryFrom<&str> for $ty {
+                type Error = <Self as std::str::FromStr>::Err;
+
+                fn try_from(value: &str) -> Result<Self, Self::Error> {
+                    value.parse()
+                }
+            }
+
+            impl TryFrom<String> for $ty {
+                type Error = <Self as std::str::FromStr>::Err;
+
+                fn try_from(value: String) -> Result<Self, Self::Error> {
+                    value.parse()
+                }
+            }
+        )+
+    };
+}
+
+impl_string_conversions!(ReviewStars, SimilarityScore, StorageTimestamp);
 
 // Re-export progenitor types used in return values
 pub use progenitor_client::{ByteStream, Error, ResponseValue};
@@ -560,6 +587,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn publisher_root_decodes_json_for_completed_and_accepted_responses() {
+        let server = MockServer::start().await;
+        let client = Client::new(&server.uri()).unwrap();
+        let request = json!({"task": "test"}).into();
+        for (slug, status, body) in [
+            ("synchronous", 200, json!(["result"])),
+            ("asynchronous", 202, json!({"task_id": "pending"})),
+        ] {
+            Mock::given(method("POST"))
+                .and(path(format!("/publishers/{slug}")))
+                .respond_with(ResponseTemplate::new(status).set_body_json(&body))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let response = client.publisher_root_handler(slug, &request).await.unwrap();
+            assert_eq!(response.status().as_u16(), status);
+            assert_eq!(response.into_inner(), body);
+        }
+    }
+
+    #[tokio::test]
     async fn workspace_snapshot_http_reads_typed_download_with_explicit_credential() {
         use wiremock::matchers::header;
         let timestamp = "2026-10-28T00:15:00.123456Z";
@@ -817,6 +865,7 @@ mod tests {
                 .await;
 
             let error = Client::new(&server.uri())
+                .unwrap()
                 .seren_storage_object_status("files", &object_id)
                 .await
                 .expect_err("provisioning must remain an HTTP refusal");
@@ -1125,6 +1174,7 @@ mod tests {
                 .mount(&server)
                 .await;
             let response = Client::new(&server.uri())
+                .unwrap()
                 .seren_agent_get_managed_agent_template_update(&deployment_id)
                 .await
                 .unwrap()
@@ -1578,6 +1628,7 @@ mod tests {
                 .mount(&server)
                 .await;
             let result = Client::new(&server.uri())
+                .unwrap()
                 .get_managed_agent_run_fee(&organization_id, "fee-test", "work")
                 .await;
             assert!(matches!(
@@ -1598,6 +1649,7 @@ mod tests {
             .mount(&server)
             .await;
         let fee = Client::new(&server.uri())
+            .unwrap()
             .get_managed_agent_run_fee(&organization_id, "fee-test", "work")
             .await
             .unwrap();
@@ -1616,6 +1668,7 @@ mod tests {
             .mount(&server)
             .await;
         let result = Client::new(&server.uri())
+            .unwrap()
             .list_managed_agent_run_fee_changes(&organization_id, "fee-test", "work")
             .await;
         assert!(matches!(
@@ -1642,6 +1695,7 @@ mod tests {
             let request: crate::SetManagedAgentRunFee =
                 serde_json::from_value(json!({"run_fee_atomic": 0})).unwrap();
             let error = Client::new(&server.uri())
+                .unwrap()
                 .set_managed_agent_run_fee(&organization_id, "fee-test", "work", &request)
                 .await
                 .unwrap_err();
@@ -1777,6 +1831,7 @@ mod tests {
             .mount(&server)
             .await;
         Client::new(&server.uri())
+            .unwrap()
             .publish_managed_agent_template_release(&organization_id, "release-test", &request)
             .await
             .unwrap();
@@ -1894,7 +1949,7 @@ mod tests {
                 .expect(1)
                 .mount(&server)
                 .await;
-            let client = Client::new(&server.uri());
+            let client = Client::new(&server.uri()).unwrap();
             let response = client
                 .publish_managed_agent_template_release(&organization_id, "release-test", &request)
                 .await
@@ -2258,6 +2313,7 @@ mod tests {
             .await;
 
         let response = Client::new(&server.uri())
+            .unwrap()
             .seren_agent_list_managed_agent_templates()
             .await
             .unwrap()
@@ -2296,6 +2352,7 @@ mod tests {
             .mount(&server)
             .await;
         let stats = Client::new(&server.uri())
+            .unwrap()
             .seren_agent_get_managed_agent_template_stats("vera-hale")
             .await
             .unwrap()
@@ -2335,6 +2392,7 @@ mod tests {
                 .mount(&server)
                 .await;
             let response = Client::new(&server.uri())
+                .unwrap()
                 .put_managed_agent_template_profile(&organization_id, "research", &request)
                 .await
                 .unwrap()
@@ -2373,6 +2431,7 @@ mod tests {
                 .mount(&server)
                 .await;
             let error = Client::new(&server.uri())
+                .unwrap()
                 .get_managed_agent_template_profile(&organization_id, "research")
                 .await
                 .expect_err("malformed profile must reject the typed response");
@@ -2408,6 +2467,7 @@ mod tests {
                 .mount(&server)
                 .await;
             let error = Client::new(&server.uri())
+                .unwrap()
                 .seren_agent_list_managed_agent_templates()
                 .await
                 .expect_err("incomplete card must reject the typed response");
@@ -2473,7 +2533,7 @@ mod tests {
                 .expect(1)
                 .mount(&server)
                 .await;
-            let client = Client::new(&server.uri());
+            let client = Client::new(&server.uri()).unwrap();
             let request: crate::PutManagedAgentTemplateListing =
                 serde_json::from_value(json!({"listed": false})).unwrap();
             let listing = client
@@ -2545,6 +2605,7 @@ mod tests {
             .mount(&server)
             .await;
         let response = Client::new(&server.uri())
+            .unwrap()
             .rename_organization(&organization_id, &request)
             .await
             .unwrap()
@@ -2698,7 +2759,7 @@ mod tests {
                 .expect(1)
                 .mount(&server)
                 .await;
-            let client = Client::new(&server.uri());
+            let client = Client::new(&server.uri()).unwrap();
             let release = client
                 .publish_managed_agent_template_release(&organization_id, "release-test", &request)
                 .await
@@ -2763,7 +2824,7 @@ mod tests {
                     .mount(&server)
                     .await;
             }
-            let client = Client::new(&server.uri());
+            let client = Client::new(&server.uri()).unwrap();
             let global = client
                 .seren_cloud_run_events(&run_id, None, None, None, None, None)
                 .await;
@@ -2882,7 +2943,7 @@ mod tests {
                     .mount(&server)
                     .await;
             }
-            let client = Client::new(&server.uri());
+            let client = Client::new(&server.uri()).unwrap();
             let global = client
                 .seren_cloud_run_events(&run_id, None, None, None, None, None)
                 .await;
@@ -3132,6 +3193,7 @@ mod tests {
             .await;
 
         let response = Client::new(&server.uri())
+            .unwrap()
             .upload_managed_agent_template_avatar(
                 &organization_id,
                 "team/research?#",
@@ -3721,7 +3783,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = Client::new(&server.uri());
+        let client = Client::new(&server.uri()).unwrap();
 
         let listed = client
             .list_managed_agent_release_sources(&organization_id)
@@ -3965,7 +4027,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = Client::new(&server.uri());
+        let client = Client::new(&server.uri()).unwrap();
 
         let release_err = client
             .publish_managed_agent_template_release(
@@ -4079,7 +4141,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = Client::new(&server.uri());
+        let client = Client::new(&server.uri()).unwrap();
         let holds = client
             .list_managed_agent_held_releases(&organization_id, None)
             .await

@@ -98,7 +98,7 @@ async fn managed_pricing_success_bodies_preserve_fee_and_cost_contracts() {
             .mount(&server)
             .await;
 
-        let client = Client::new(&server.uri());
+        let client = Client::new(&server.uri()).unwrap();
         let detail = client
             .seren_agent_get_managed_deployment(&deployment_id)
             .await
@@ -165,6 +165,7 @@ async fn managed_owner_pricing_rejects_missing_serving_fallback() {
         .mount(&server)
         .await;
     let error = Client::new(&server.uri())
+        .unwrap()
         .seren_agent_get_managed_deployment(&deployment_id)
         .await
         .unwrap_err();
@@ -210,7 +211,7 @@ async fn hired_managed_agent_reads_keep_measured_task_costs() {
             .mount(&server)
             .await;
 
-        let client = Client::new(&server.uri());
+        let client = Client::new(&server.uri()).unwrap();
         let detail = client
             .seren_agent_get_managed_deployment(&deployment_id)
             .await

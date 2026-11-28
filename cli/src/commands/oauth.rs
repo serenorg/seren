@@ -405,7 +405,7 @@ mod tests {
             .expect(1)
             .mount(&server)
             .await;
-        let client = seren::Client::new(&server.uri());
+        let client = seren::Client::new(&server.uri()).unwrap();
         let result = resolve_consent_connection(&client, "google", "this-consent-attempt")
             .await
             .unwrap();
@@ -425,7 +425,7 @@ mod tests {
             .expect(1)
             .mount(&server)
             .await;
-        let client = seren::Client::new(&server.uri());
+        let client = seren::Client::new(&server.uri()).unwrap();
         assert!(
             resolve_consent_connection(&client, "google", "this-consent-attempt")
                 .await

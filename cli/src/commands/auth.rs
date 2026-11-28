@@ -558,7 +558,7 @@ pub async fn verify_recovery_email(token: &str, ctx: &crate::CommandContext) -> 
     let request = seren::VerifyRecoveryEmailRequest {
         token: token.to_string(),
     };
-    let response = seren::Client::new(&ctx.api_base())
+    let response = seren::Client::new(&ctx.api_base())?
         .verify_recovery_email(&request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to verify recovery email: {}", e))?
