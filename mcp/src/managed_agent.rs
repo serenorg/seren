@@ -1136,6 +1136,7 @@ mod tests {
     async fn an_employee_address_reports_a_listing_and_a_hire_request() {
         use axum::{body::Body, http::Request, middleware::Next};
         use rmcp::ServiceExt;
+        use rmcp::transport::streamable_http_server::session::never::NeverSessionManager;
         use rmcp::transport::{StreamableHttpClientTransport, StreamableHttpService};
         use std::{sync::Arc, time::Duration};
         use wiremock::matchers::header;
@@ -1165,7 +1166,7 @@ mod tests {
         let cancellation = tokio_util::sync::CancellationToken::new();
         let service = StreamableHttpService::new(
             move || Ok(server.clone()),
-            Arc::new(crate::NeverSessionManager::default()),
+            Arc::new(NeverSessionManager::default()),
             crate::streamable_http_config(
                 vec!["127.0.0.1".to_string(), authority.clone()],
                 cancellation.clone(),
