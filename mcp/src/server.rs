@@ -18630,7 +18630,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Read an Employee run kind's service fee, minimum, recorded Owner share, and measured running costs by model. The service fee is charged once per completed task; model and compute costs are measured per run. average_price_atomic adds the current task fee to average running cost for one run, not a measured full-task total. A null or absent measured_cost means the current model has fewer than 10 measured runs. Requires an unrestricted direct Owner credential of the publishing organization; cost-only kinds have no fee resource.",
+        description = "Read an Employee run kind's service fee, minimum, recorded Owner share, and measured running costs by model. The service fee is charged once per completed task; model and compute costs are measured per run. average_price_atomic adds the current task fee to average running cost for one run, not a measured full-task total. A null or absent measured_cost means the current model has fewer than 10 measured runs. Requires an unrestricted direct Owner credential of the publishing organization; a run kind that bills running cost only has no fee to read until one is added.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn get_seren_agent_template_run_fee(
@@ -18649,7 +18649,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Set an Employee run kind's service fee for future task admissions after user authorization. run_fee_atomic is a nonnegative whole-cent amount in USD atomic units (1,000,000 = $1), at or above the current minimum. The service fee is charged once per completed task; running costs are additional and vary per run. Requires an unrestricted direct Owner credential of the publishing organization. Cost-only kinds have no editable fee; existing task prices are unchanged.",
+        description = "Set an Employee run kind's service fee for future task admissions after user authorization. run_fee_atomic is a nonnegative whole-cent amount in USD atomic units (1,000,000 = $1), at or above the current minimum. The service fee is charged once per completed task; running costs are additional and vary per run. Requires an unrestricted direct Owner credential of the publishing organization. On a run kind that bills running cost only, this adds a service fee. A fixed fee below the minimum is refused, and the refusal states the minimum. Tasks already admitted keep their price.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -18678,7 +18678,29 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Read an Employee run kind's service fee changes, newest first, with exact amounts, change times, and the Owner or minimum-change reason. A null or absent changed_by_user_id records a minimum increase without an Owner actor. Requires an unrestricted direct Owner credential of the publishing organization; cost-only kinds have no fee history resource.",
+        description = "Remove an Employee run kind's service fee after user authorization, so hirers pay running cost only. Applies to tasks admitted afterwards; tasks already admitted keep their price. Requires an unrestricted direct Owner credential of the publishing organization.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn remove_seren_agent_template_run_fee(
+        &self,
+        Parameters(params): Parameters<SerenAgentTemplateRunFeeParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        ensure_managed_agent_owner_credential(&extensions)?;
+        self.api_client(&extensions)?
+            .delete_managed_agent_run_fee(&params.organization_id, &params.slug, &params.kind)
+            .into_mcp_result()
+            .await?;
+        Ok(CallToolResult::success(vec![]))
+    }
+
+    #[tool(
+        description = "Read an Employee run kind's service fee changes, newest first, with exact amounts, change times, and the Owner or minimum-change reason. A null or absent changed_by_user_id records a minimum increase without an Owner actor. Requires an unrestricted direct Owner credential of the publishing organization; a run kind that bills running cost only has no fee to read until one is added.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn list_seren_agent_template_run_fee_changes(
@@ -30061,8 +30083,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn held_release_mcp_tools_preserve_store_password_rules_unknown_kinds_and_partial_approvals()
-     {
+    async fn held_release_tools_preserve_password_rules_unknown_kinds_and_partial_approvals() {
         use wiremock::matchers::{body_json, method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -30613,6 +30634,7 @@ pub(crate) mod tests {
             ("get_seren_agent_template_profile", true),
             ("get_seren_agent_template_run_fee", true),
             ("set_seren_agent_template_run_fee", false),
+            ("remove_seren_agent_template_run_fee", false),
             ("list_seren_agent_template_run_fee_changes", true),
             ("start_chatgpt_sign_in", false),
             ("get_chatgpt_sign_in", true),
@@ -30793,6 +30815,53 @@ pub(crate) mod tests {
         if object.get(field).is_some_and(Value::is_null) {
             object.remove(field);
         }
+    }
+
+    #[tokio::test]
+    async fn remove_template_run_fee_forwards_owner_delete_and_refuses_read_only() {
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{header, method, path},
+        };
+        let proxy = MockServer::start().await;
+        let organization_id = Uuid::from_u128(42);
+        Mock::given(method("DELETE"))
+            .and(path(format!(
+                "/organizations/{organization_id}/templates/fee-test/fees/work"
+            )))
+            .and(header("authorization", "Bearer fee-caller-key"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let server = SerenMcpServer::new("fallback-key", &proxy.uri()).unwrap();
+        let params = || SerenAgentTemplateRunFeeParams {
+            organization_id,
+            slug: "fee-test".into(),
+            kind: "work".into(),
+        };
+        let error = server
+            .remove_seren_agent_template_run_fee(
+                Parameters(params()),
+                extensions_with_headers(&[
+                    ("x-read-only", "true"),
+                    ("authorization", "Bearer fee-caller-key"),
+                ]),
+            )
+            .await
+            .unwrap_err();
+        assert!(error.message.contains("Read-only"));
+        assert!(proxy.received_requests().await.unwrap().is_empty());
+        let result = server
+            .remove_seren_agent_template_run_fee(
+                Parameters(params()),
+                extensions_with_headers(&[("authorization", "Bearer fee-caller-key")]),
+            )
+            .await
+            .unwrap();
+        assert!(!result.is_error.unwrap_or(false));
+        assert_eq!(proxy.received_requests().await.unwrap().len(), 1);
+        proxy.verify().await;
     }
 
     #[tokio::test]
