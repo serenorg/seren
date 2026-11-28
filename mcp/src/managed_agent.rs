@@ -354,6 +354,7 @@ pub(crate) fn not_hired_text(listing: &Value) -> String {
 pub(crate) struct ManagedAgentMcpServer {
     api_base_url: String,
     http: reqwest::Client,
+    visits_token: Option<String>,
 }
 
 impl ManagedAgentMcpServer {
@@ -361,7 +362,34 @@ impl ManagedAgentMcpServer {
         Self {
             api_base_url: api_base_url.trim_end_matches('/').to_string(),
             http,
+            visits_token: None,
         }
+    }
+
+    pub(crate) fn with_visits_token(mut self, token: Option<String>) -> Self {
+        self.visits_token = token;
+        self
+    }
+
+    fn report_visit(&self, extensions: &Extensions, template_slug: &str, kind: &'static str) {
+        let Some(token) = self.visits_token.clone() else {
+            return;
+        };
+        let Some(user_id) = crate::server::extract_user_id_from_extensions(extensions) else {
+            return;
+        };
+        let http = self.http.clone();
+        let url = format!("{}/visits", self.api_base_url);
+        let body = json!({"events": [{
+            "user_id": user_id,
+            "template_slug": template_slug,
+            "kind": kind,
+            "source": "mcp",
+            "occurred_at": jiff::Timestamp::now().to_string(),
+        }]});
+        tokio::spawn(async move {
+            let _ = http.post(url).bearer_auth(token).json(&body).send().await;
+        });
     }
 
     fn bearer(extensions: &Extensions) -> Result<String, McpError> {
@@ -545,6 +573,7 @@ impl ManagedAgentMcpServer {
         bearer: &str,
         extensions: &Extensions,
     ) -> Result<CallToolResponse, McpError> {
+        self.report_visit(extensions, Self::template_slug(listing)?, "hire_click");
         if arguments.get("confirm").and_then(Value::as_bool) != Some(true) {
             return Ok(text_result(not_hired_text(listing)));
         }
@@ -990,6 +1019,11 @@ impl ServerHandler for ManagedAgentMcpServer {
         let page_slug = Self::page_slug(&context.extensions)?;
         let bearer = Self::bearer(&context.extensions)?;
         let listing = self.listing(&page_slug, &bearer).await?;
+        self.report_visit(
+            &context.extensions,
+            Self::template_slug(&listing)?,
+            "page_view",
+        );
         Ok(ListToolsResult::with_all_items(Self::tools(&listing)?))
     }
 
@@ -1096,6 +1130,125 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": hires})))
             .mount(core)
             .await;
+    }
+
+    #[tokio::test]
+    async fn an_employee_address_reports_a_listing_and_a_hire_request() {
+        use axum::{body::Body, http::Request, middleware::Next};
+        use rmcp::ServiceExt;
+        use rmcp::transport::streamable_http_server::session::never::NeverSessionManager;
+        use rmcp::transport::{StreamableHttpClientTransport, StreamableHttpService};
+        use std::{sync::Arc, time::Duration};
+        use wiremock::matchers::header;
+
+        let core = MockServer::start().await;
+        catalog(&core, &listing()).await;
+        let user_id = Uuid::new_v4();
+        for kind in ["page_view", "hire_click"] {
+            Mock::given(method("POST"))
+                .and(path("/visits"))
+                .and(header("authorization", "Bearer test-visits-pass"))
+                .and(body_partial_json(json!({"events": [{
+                    "user_id": user_id,
+                    "template_slug": "alina-golub",
+                    "kind": kind,
+                    "source": "mcp"
+                }]})))
+                .respond_with(ResponseTemplate::new(202))
+                .expect(1)
+                .mount(&core)
+                .await;
+        }
+        let server = ManagedAgentMcpServer::new(&core.uri(), reqwest::Client::new())
+            .with_visits_token(Some("test-visits-pass".to_string()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let authority = listener.local_addr().unwrap().to_string();
+        let cancellation = tokio_util::sync::CancellationToken::new();
+        let service = StreamableHttpService::new(
+            move || Ok(server.clone()),
+            Arc::new(NeverSessionManager::default()),
+            crate::streamable_http_config(
+                vec!["127.0.0.1".to_string(), authority.clone()],
+                cancellation.clone(),
+            ),
+        );
+        let app = axum::Router::new()
+            .route(
+                "/employees/alina-golub",
+                axum::routing::any_service(service),
+            )
+            .layer(axum::middleware::from_fn(
+                move |mut request: Request<Body>, next: Next| async move {
+                    request
+                        .headers_mut()
+                        .insert("x-user-id", user_id.to_string().parse().unwrap());
+                    request
+                        .headers_mut()
+                        .insert("authorization", "Bearer upstream-access".parse().unwrap());
+                    next.run(request).await
+                },
+            ));
+        let shutdown = cancellation.clone();
+        let task = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(shutdown.cancelled_owned())
+                .await
+                .unwrap();
+        });
+        let transport = StreamableHttpClientTransport::from_uri(format!(
+            "http://{authority}/employees/alina-golub"
+        ));
+        let client = rmcp::model::ClientConfig::default()
+            .serve(transport)
+            .await
+            .unwrap();
+        assert!(
+            !client
+                .list_tools(Default::default())
+                .await
+                .unwrap()
+                .tools
+                .is_empty()
+        );
+        for (expected_count, kind) in [(1, "page_view"), (2, "hire_click")] {
+            if kind == "hire_click" {
+                let result = client
+                    .call_tool(CallToolRequestParams::new("hire"))
+                    .await
+                    .unwrap();
+                assert_ne!(result.is_error, Some(true));
+            }
+            tokio::time::timeout(Duration::from_secs(3), async {
+                loop {
+                    let requests = core.received_requests().await.unwrap();
+                    let visits: Vec<_> = requests
+                        .iter()
+                        .filter(|r| r.url.path() == "/visits")
+                        .collect();
+                    if visits.len() == expected_count {
+                        let body: Value = visits.last().unwrap().body_json().unwrap();
+                        let event = &body["events"][0];
+                        assert_eq!(event["kind"], kind);
+                        assert_eq!(event["source"], "mcp");
+                        assert!(
+                            event["occurred_at"]
+                                .as_str()
+                                .unwrap()
+                                .parse::<jiff::Timestamp>()
+                                .is_ok()
+                        );
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("visit must arrive promptly");
+        }
+        core.verify().await;
+        client.cancel().await.unwrap();
+        cancellation.cancel();
+        task.await.unwrap();
     }
 
     #[tokio::test]

@@ -1998,6 +1998,7 @@ async fn run_oauth(config: Config) -> Result<()> {
             .timeout(std::time::Duration::from_secs(60))
             .build()?,
     );
+    let managed_agent_server = managed_agent_server.with_visits_token(config.visits_token.clone());
     let managed_agent_service = StreamableHttpService::new(
         move || Ok(managed_agent_server.clone()),
         Arc::new(NeverSessionManager::default()),
