@@ -354,6 +354,7 @@ pub(crate) fn not_hired_text(listing: &Value) -> String {
 pub(crate) struct ManagedAgentMcpServer {
     api_base_url: String,
     http: reqwest::Client,
+    visits_token: Option<String>,
 }
 
 impl ManagedAgentMcpServer {
@@ -361,7 +362,34 @@ impl ManagedAgentMcpServer {
         Self {
             api_base_url: api_base_url.trim_end_matches('/').to_string(),
             http,
+            visits_token: None,
         }
+    }
+
+    pub(crate) fn with_visits_token(mut self, token: Option<String>) -> Self {
+        self.visits_token = token;
+        self
+    }
+
+    fn report_visit(&self, extensions: &Extensions, template_slug: &str, kind: &'static str) {
+        let Some(token) = self.visits_token.clone() else {
+            return;
+        };
+        let Some(user_id) = crate::server::extract_user_id_from_extensions(extensions) else {
+            return;
+        };
+        let http = self.http.clone();
+        let url = format!("{}/visits", self.api_base_url);
+        let body = json!({"events": [{
+            "user_id": user_id,
+            "template_slug": template_slug,
+            "kind": kind,
+            "source": "mcp",
+            "occurred_at": jiff::Timestamp::now().to_string(),
+        }]});
+        tokio::spawn(async move {
+            let _ = http.post(url).bearer_auth(token).json(&body).send().await;
+        });
     }
 
     fn bearer(extensions: &Extensions) -> Result<String, McpError> {
@@ -545,6 +573,7 @@ impl ManagedAgentMcpServer {
         bearer: &str,
         extensions: &Extensions,
     ) -> Result<CallToolResponse, McpError> {
+        self.report_visit(extensions, Self::template_slug(listing)?, "hire_click");
         if arguments.get("confirm").and_then(Value::as_bool) != Some(true) {
             return Ok(text_result(not_hired_text(listing)));
         }
@@ -990,6 +1019,11 @@ impl ServerHandler for ManagedAgentMcpServer {
         let page_slug = Self::page_slug(&context.extensions)?;
         let bearer = Self::bearer(&context.extensions)?;
         let listing = self.listing(&page_slug, &bearer).await?;
+        self.report_visit(
+            &context.extensions,
+            Self::template_slug(&listing)?,
+            "page_view",
+        );
         Ok(ListToolsResult::with_all_items(Self::tools(&listing)?))
     }
 
