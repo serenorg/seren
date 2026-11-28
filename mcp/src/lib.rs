@@ -2045,10 +2045,10 @@ async fn run_oauth(config: Config) -> Result<()> {
     }
 
     let jwt_secret_refs = jwt_secrets.iter().map(|s| s.as_bytes()).collect::<Vec<_>>();
-    let jwt_signer = Arc::new(if jwt_secret_refs.len() == 1 {
-        oauth::McpJwtSigner::new(jwt_secret_refs[0], &server_host)
+    let jwt_signer = Arc::new(if let [secret] = jwt_secret_refs.as_slice() {
+        oauth::McpJwtSigner::new(secret, &server_host)?
     } else {
-        oauth::McpJwtSigner::new_with_secrets(&jwt_secret_refs, &server_host)
+        oauth::McpJwtSigner::new_with_secrets(&jwt_secret_refs, &server_host)?
     });
     tracing::info!(
         issuer = %jwt_signer.issuer(),
@@ -3321,10 +3321,10 @@ mod tests {
             upstream_api_base_url: "http://127.0.0.1:1".to_string(),
             upstream_oauth_redirect_base_url: "http://127.0.0.1:1".to_string(),
             circuit_breaker: oauth::circuit_breaker::create_oauth_circuit_breaker(),
-            jwt_signer: Arc::new(oauth::McpJwtSigner::new(
-                b"test-secret-key-at-least-32-bytes!!",
-                "http://mcp.test",
-            )),
+            jwt_signer: Arc::new(
+                oauth::McpJwtSigner::new(b"test-secret-key-at-least-32-bytes!!", "http://mcp.test")
+                    .unwrap(),
+            ),
             oauth_token_cache: oauth_token_cache.clone(),
         });
         OAuthAuthState {
@@ -3445,10 +3445,10 @@ mod tests {
         }
 
         let oauth_token_cache = empty_oauth_token_cache();
-        let jwt_signer = Arc::new(oauth::McpJwtSigner::new(
-            b"test-secret-key-at-least-32-bytes!!",
-            "http://mcp.test",
-        ));
+        let jwt_signer = Arc::new(
+            oauth::McpJwtSigner::new(b"test-secret-key-at-least-32-bytes!!", "http://mcp.test")
+                .unwrap(),
+        );
         let oauth_state = Arc::new(OAuthState {
             store: store.clone(),
             http: reqwest::Client::new(),

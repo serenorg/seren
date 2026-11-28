@@ -2086,10 +2086,13 @@ mod tests {
             .mount(&upstream)
             .await;
 
-        let jwt_signer = Arc::new(crate::oauth::jwt::McpJwtSigner::new(
-            b"test-secret-key-at-least-32-bytes!!",
-            &server_host,
-        ));
+        let jwt_signer = Arc::new(
+            crate::oauth::jwt::McpJwtSigner::new(
+                b"test-secret-key-at-least-32-bytes!!",
+                &server_host,
+            )
+            .unwrap(),
+        );
         let state = Arc::new(OAuthState {
             store: store.clone(),
             http: reqwest::Client::new(),

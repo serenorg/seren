@@ -67,6 +67,9 @@ impl McpClaims {
 
 #[derive(Error, Debug)]
 pub enum JwtError {
+    #[error("At least one JWT signing secret is required and no secret may be empty")]
+    InvalidSecret,
+
     #[error("JWT encoding failed: {0}")]
     EncodingFailed(#[from] jsonwebtoken::errors::Error),
 
@@ -101,7 +104,7 @@ impl McpJwtSigner {
     /// # Arguments
     /// * `secret` - HS256 secret key (should be at least 32 bytes)
     /// * `server_url` - MCP server URL (used as issuer)
-    pub fn new(secret: &[u8], server_url: &str) -> Self {
+    pub fn new(secret: &[u8], server_url: &str) -> Result<Self, JwtError> {
         Self::new_with_secrets(&[secret], server_url)
     }
 
@@ -110,22 +113,20 @@ impl McpJwtSigner {
     /// The first secret is used to sign new tokens. All provided secrets are
     /// accepted for validation so you can rotate secrets without forcing
     /// clients to re-authenticate.
-    pub fn new_with_secrets(secrets: &[&[u8]], server_url: &str) -> Self {
+    pub fn new_with_secrets(secrets: &[&[u8]], server_url: &str) -> Result<Self, JwtError> {
         let server_url = server_url.trim_end_matches('/');
-        let primary = secrets
-            .first()
-            .copied()
-            .expect("at least one JWT secret required");
-        Self {
-            encoding_key: EncodingKey::from_secret(primary),
+        let primary = secrets.first().copied().ok_or(JwtError::InvalidSecret)?;
+        Ok(Self {
+            encoding_key: EncodingKey::from_secret(primary).map_err(|_| JwtError::InvalidSecret)?,
             decoding_keys: secrets
                 .iter()
                 .map(|secret| DecodingKey::from_secret(secret))
-                .collect(),
+                .collect::<Result<_, _>>()
+                .map_err(|_| JwtError::InvalidSecret)?,
             issuer: server_url.to_string(),
             // Audience is the MCP resource endpoint
             audience: format!("{}/mcp", server_url),
-        }
+        })
     }
 
     /// Generate a unique token ID
@@ -227,11 +228,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rejects_missing_or_empty_jwt_secrets() {
+        let host = "https://mcp.example.com";
+        assert!(matches!(
+            McpJwtSigner::new_with_secrets(&[], host),
+            Err(JwtError::InvalidSecret)
+        ));
+        assert!(matches!(
+            McpJwtSigner::new_with_secrets(&[b"valid-secret", b""], host),
+            Err(JwtError::InvalidSecret)
+        ));
+    }
+
+    #[test]
     fn audience_is_the_shared_mcp_resource_or_an_employee_address() {
         let signer = McpJwtSigner::new(
             b"test-secret-key-at-least-32-bytes!!",
             "https://mcp.example.com",
-        );
+        )
+        .unwrap();
         let (token, _) = signer
             .sign_access_token(Uuid::new_v4(), "client", "api", None, None, None)
             .unwrap();
@@ -263,7 +278,7 @@ mod tests {
     #[test]
     fn test_sign_and_validate() {
         let secret = b"test-secret-key-at-least-32-bytes!!";
-        let signer = McpJwtSigner::new(secret, "https://mcp.example.com");
+        let signer = McpJwtSigner::new(secret, "https://mcp.example.com").unwrap();
         let user_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
 
         let before = Timestamp::now().as_second();
@@ -296,7 +311,7 @@ mod tests {
     #[test]
     fn test_invalid_token() {
         let secret = b"test-secret-key-at-least-32-bytes!!";
-        let signer = McpJwtSigner::new(secret, "https://mcp.example.com");
+        let signer = McpJwtSigner::new(secret, "https://mcp.example.com").unwrap();
 
         let result = signer.validate_access_token("invalid.token.here");
         assert!(result.is_err());
@@ -307,8 +322,8 @@ mod tests {
         let secret1 = b"test-secret-key-at-least-32-bytes!!";
         let secret2 = b"different-secret-key-32-bytes!!!!";
 
-        let signer1 = McpJwtSigner::new(secret1, "https://mcp.example.com");
-        let signer2 = McpJwtSigner::new(secret2, "https://mcp.example.com");
+        let signer1 = McpJwtSigner::new(secret1, "https://mcp.example.com").unwrap();
+        let signer2 = McpJwtSigner::new(secret2, "https://mcp.example.com").unwrap();
         let user_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
 
         let (token, _) = signer1
@@ -324,11 +339,12 @@ mod tests {
         let old_secret = b"test-secret-key-at-least-32-bytes!!";
         let new_secret = b"different-secret-key-32-bytes!!!!";
 
-        let signer_old = McpJwtSigner::new(old_secret, "https://mcp.example.com");
+        let signer_old = McpJwtSigner::new(old_secret, "https://mcp.example.com").unwrap();
         let signer_rotated = McpJwtSigner::new_with_secrets(
             &[new_secret.as_slice(), old_secret.as_slice()],
             "https://mcp.example.com",
-        );
+        )
+        .unwrap();
 
         let user_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let (token, _) = signer_old

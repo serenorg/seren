@@ -30,7 +30,7 @@ comfy-table = "8"
 colored = "3"
 futures = "0.3"
 html-escape = "0.3"
-jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
+jsonwebtoken = { version = "12", default-features = false, features = ["rust_crypto"] }
 # Only the authorize-URL/PKCE builders are used; the token exchange goes
 # through the generated SDK, so oauth2's bundled reqwest 0.12 client is not
 # needed and would duplicate the reqwest 0.13 dependency tree.
