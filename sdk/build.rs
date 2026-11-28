@@ -2038,9 +2038,38 @@ fn normalize_datetime_types(syntax: &mut syn::File) {
             })
     }
 
+    struct TimestampSchemaType {
+        replaced: bool,
+    }
+
+    impl VisitMut for TimestampSchemaType {
+        fn visit_type_path_mut(&mut self, ty: &mut syn::TypePath) {
+            if ty.qself.is_none() && plain_path(&ty.path, &["jiff", "Timestamp"]) {
+                ty.path = syn::parse_quote!(crate::TimestampSchema);
+                self.replaced = true;
+            } else {
+                syn::visit_mut::visit_type_path_mut(self, ty);
+            }
+        }
+    }
+
     struct DateTimeNormalizer;
 
     impl VisitMut for DateTimeNormalizer {
+        fn visit_field_mut(&mut self, field: &mut syn::Field) {
+            syn::visit_mut::visit_field_mut(self, field);
+            // Schemars has no implementation for Jiff 1 timestamps.
+            let mut schema_type = field.ty.clone();
+            let mut visitor = TimestampSchemaType { replaced: false };
+            visitor.visit_type_mut(&mut schema_type);
+            if visitor.replaced {
+                let schema_type = quote::quote!(#schema_type).to_string();
+                field
+                    .attrs
+                    .push(syn::parse_quote!(#[schemars(with = #schema_type)]));
+            }
+        }
+
         fn visit_type_mut(&mut self, ty: &mut syn::Type) {
             syn::visit_mut::visit_type_mut(self, ty);
             let syn::Type::Path(type_path) = ty else {

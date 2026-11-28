@@ -23,8 +23,8 @@ async-trait = "0.1"
 axum = "0.8"
 base62 = "2"
 base64 = "0.23"
-jiff = { version = "0.2", features = ["serde"] }
-jiff-sqlx = { version = "0.2", features = ["postgres"] }
+jiff = { version = "1", features = ["serde"] }
+jiff-sqlx = { version = "1", features = ["postgres"] }
 clap = { version = "4", features = ["derive", "env"] }
 comfy-table = "8"
 colored = "3"
@@ -42,7 +42,7 @@ prettyplease = "0.3"
 rand = "0.10"
 regress = "0.12"
 rmcp = { version = "3.4", features = ["server", "macros", "transport-io", "transport-streamable-http-server"] }
-schemars = { version = "1", features = ["uuid1", "jiff02"] }
+schemars = { version = "1", features = ["uuid1"] }
 tokio-util = "0.7"
 reqwest = { version = "0.13", default-features = false, features = ["form", "json", "rustls"] }
 serde = { version = "1", features = ["derive"] }

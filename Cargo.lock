@@ -3597,11 +3597,11 @@ dependencies = [
 
 [[package]]
 name = "jiff-sqlx"
-version = "0.2.2"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6639870bba69eee8eb23555a5fe8c554f7731c5692c1a4abf834eba77414491"
+checksum = "a4996ad290ff7f7081becdda47e28556fbebb81618c599eac5d09182b5a60e38"
 dependencies = [
- "jiff 0.2.46",
+ "jiff 1.0.3",
  "sqlx",
 ]
 
@@ -5693,7 +5693,6 @@ checksum = "ab508826f74a77ca9d5aba6ff19b522583ee3eaf28a19384ff3d0e5835fadf6e"
 dependencies = [
  "chrono",
  "dyn-clone",
- "jiff 0.2.46",
  "ref-cast",
  "schemars_derive 1.2.3",
  "serde",
@@ -6049,7 +6048,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "hex",
- "jiff 0.2.46",
+ "jiff 1.0.3",
  "oauth2",
  "open",
  "rand 0.10.4",
@@ -6091,7 +6090,7 @@ dependencies = [
  "futures",
  "hex",
  "html-escape",
- "jiff 0.2.46",
+ "jiff 1.0.3",
  "jiff-sqlx",
  "jsonwebtoken",
  "lru 0.19.2",
@@ -6152,11 +6151,12 @@ dependencies = [
  "base62",
  "base64 0.23.1",
  "futures",
- "jiff 0.2.46",
+ "jiff 1.0.3",
  "openapiv3",
  "prettyplease",
  "progenitor",
  "progenitor-client",
+ "quote",
  "regress",
  "reqwest",
  "schemars 1.2.3",

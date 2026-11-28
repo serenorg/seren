@@ -94,11 +94,33 @@ impl<'de> serde::Deserialize<'de> for UnknownTemplateAccessChange {
 mod config;
 mod examples;
 mod models;
-
-pub(crate) use schemars::JsonSchema;
 mod publisher_gateway;
 mod query_error;
 mod shared;
+
+pub(crate) use schemars::JsonSchema;
+
+/// JSON Schema for a Jiff timestamp.
+#[doc(hidden)]
+pub struct TimestampSchema;
+
+impl JsonSchema for TimestampSchema {
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Timestamp".into()
+    }
+
+    fn schema_id() -> std::borrow::Cow<'static, str> {
+        "jiff::Timestamp".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({ "type": "string", "format": "date-time" })
+    }
+}
 
 #[cfg(test)]
 #[allow(dead_code)]
@@ -610,6 +632,9 @@ mod tests {
     #[tokio::test]
     async fn workspace_snapshot_http_reads_typed_download_with_explicit_credential() {
         use wiremock::matchers::header;
+        let schema = schemars::schema_for!(crate::StorageTimestamp);
+        assert_eq!(schema.as_value()["type"], "string");
+        assert_eq!(schema.as_value()["format"], "date-time");
         let timestamp = "2026-10-28T00:15:00.123456Z";
         let expected: jiff::Timestamp = timestamp.parse().unwrap();
         let conversions: [Result<crate::StorageTimestamp, jiff::Error>; 3] = [

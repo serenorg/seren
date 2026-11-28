@@ -357,9 +357,11 @@ pub struct SerenMemorySearchParams {
     pub search_mode: Option<String>,
     /// Inclusive lower bound on created_at
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<seren::TimestampSchema>")]
     pub created_after: Option<jiff::Timestamp>,
     /// Inclusive upper bound on created_at
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<seren::TimestampSchema>")]
     pub created_before: Option<jiff::Timestamp>,
 }
 
@@ -30061,8 +30063,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn held_release_mcp_tools_preserve_store_password_rules_unknown_kinds_and_partial_approvals()
-     {
+    async fn held_release_tools_preserve_password_rules_unknown_kinds_and_partial_approvals() {
         use wiremock::matchers::{body_json, method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
