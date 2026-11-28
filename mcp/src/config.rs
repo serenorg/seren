@@ -15,6 +15,7 @@ pub struct Config {
     pub passwords_api_base_url: String,
     pub oauth_redirect_base_url: String,
     pub public_url: Option<String>,
+    pub visits_token: Option<String>,
     pub passwords_master_password_file: Option<PathBuf>,
     pub host: String,
     pub port: u16,
@@ -51,6 +52,9 @@ impl Config {
         let oauth_redirect_base_url =
             std::env::var("OAUTH_REDIRECT_URL").unwrap_or_else(|_| api_base_url.clone());
         let public_url = std::env::var("PUBLIC_URL").ok();
+        let visits_token = std::env::var("VISITS_TOKEN")
+            .ok()
+            .filter(|value| !value.is_empty());
 
         let auth = match command {
             "start" | "start:http" => {
@@ -89,6 +93,7 @@ impl Config {
             passwords_api_base_url,
             oauth_redirect_base_url,
             public_url,
+            visits_token,
             passwords_master_password_file: None,
             host: std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into()),
             port: std::env::var("PORT")
